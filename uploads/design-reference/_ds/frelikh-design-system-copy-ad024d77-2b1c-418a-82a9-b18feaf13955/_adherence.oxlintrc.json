@@ -1,0 +1,250 @@
+{
+  "plugins": [
+    "react",
+    "import"
+  ],
+  "rules": {
+    "react/forbid-elements": [
+      "warn",
+      {
+        "forbid": []
+      }
+    ],
+    "no-restricted-imports": [
+      "warn",
+      {
+        "patterns": [
+          {
+            "group": [
+              "components/buttons/**",
+              "components/content/**",
+              "components/icons/**"
+            ],
+            "message": "Import design-system components from 'index.js', not component internals."
+          }
+        ]
+      }
+    ],
+    "no-restricted-syntax": [
+      "warn",
+      {
+        "selector": "Literal[value=/#[0-9a-fA-F]{3,8}\\b/]",
+        "message": "Raw hex color — use a design-system color token via var()."
+      },
+      {
+        "selector": "Literal[value=/\\b\\d+px\\b/]",
+        "message": "Raw px value — use a design-system spacing token via var()."
+      },
+      {
+        "selector": "Literal[value=/font-family\\s*:\\s*(?!['\\\"]?(?:Archivo Fallback|Archivo|Onest|IBM Plex Mono))/i]",
+        "message": "Font not provided by the design system. Available: Archivo Fallback, Archivo, Onest, IBM Plex Mono."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='ArrowNe'] > JSXAttribute > JSXIdentifier[name!=/^(?:size|label|key|ref|className|style|children)$/]",
+        "message": "<ArrowNe> doesn't accept that prop. Declared props: size, label."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='ArticleRow'] > JSXAttribute > JSXIdentifier[name!=/^(?:date|title|excerpt|meta|key|ref|className|style|children)$/]",
+        "message": "<ArticleRow> doesn't accept that prop. Declared props: date, title, excerpt, meta."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='ContactPill'] > JSXAttribute > JSXIdentifier[name!=/^(?:href|variant|copyValue|children|key|ref|className|style|children)$/]",
+        "message": "<ContactPill> doesn't accept that prop. Declared props: href, variant, copyValue, children."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='ContactPill'] > JSXAttribute[name.name='variant'] > Literal[value!=/^(?:external|copy)$/]",
+        "message": "<ContactPill> variant must be one of 'external' | 'copy'."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='CopyIcon'] > JSXAttribute > JSXIdentifier[name!=/^(?:done|size|key|ref|className|style|children)$/]",
+        "message": "<CopyIcon> doesn't accept that prop. Declared props: done, size."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='CvButton'] > JSXAttribute > JSXIdentifier[name!=/^(?:children|key|ref|className|style|children)$/]",
+        "message": "<CvButton> doesn't accept that prop. Declared props: children."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='ProjectCard'] > JSXAttribute > JSXIdentifier[name!=/^(?:year|status|title|description|tags|codeHref|key|ref|className|style|children)$/]",
+        "message": "<ProjectCard> doesn't accept that prop. Declared props: year, status, title, description, tags, codeHref."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='SectionHeader'] > JSXAttribute > JSXIdentifier[name!=/^(?:children|index|sticky|key|ref|className|style|children)$/]",
+        "message": "<SectionHeader> doesn't accept that prop. Declared props: children, index, sticky."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='SkillLedgerRow'] > JSXAttribute > JSXIdentifier[name!=/^(?:label|items|key|ref|className|style|children)$/]",
+        "message": "<SkillLedgerRow> doesn't accept that prop. Declared props: label, items."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='TagList'] > JSXAttribute > JSXIdentifier[name!=/^(?:items|key|ref|className|style|children)$/]",
+        "message": "<TagList> doesn't accept that prop. Declared props: items."
+      },
+      {
+        "selector": "JSXOpeningElement[name.name='ThemeToggleIcon'] > JSXAttribute > JSXIdentifier[name!=/^(?:dark|size|key|ref|className|style|children)$/]",
+        "message": "<ThemeToggleIcon> doesn't accept that prop. Declared props: dark, size."
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": [
+        "**/index.js"
+      ],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
+    }
+  ],
+  "x-omelette": {
+    "components": {
+      "ArrowNe": {
+        "replaces": []
+      },
+      "ArticleRow": {
+        "replaces": []
+      },
+      "ContactPill": {
+        "replaces": []
+      },
+      "CopyIcon": {
+        "replaces": []
+      },
+      "CvButton": {
+        "replaces": []
+      },
+      "ProjectCard": {
+        "replaces": []
+      },
+      "SectionHeader": {
+        "replaces": []
+      },
+      "SkillLedgerRow": {
+        "replaces": []
+      },
+      "TagList": {
+        "replaces": []
+      },
+      "ThemeToggleIcon": {
+        "replaces": []
+      }
+    },
+    "tokens": [
+      "--bg",
+      "--dur-base",
+      "--dur-fast",
+      "--dur-slow",
+      "--ease-out",
+      "--ease-soft",
+      "--faint",
+      "--fg",
+      "--font-mono",
+      "--font-sans",
+      "--gh-0",
+      "--gh-1",
+      "--gh-2",
+      "--gh-3",
+      "--gh-4",
+      "--gut",
+      "--ink",
+      "--ink-fg",
+      "--lh-body",
+      "--lh-heading",
+      "--lh-prose",
+      "--lh-tight",
+      "--line",
+      "--line-2",
+      "--ls-heading",
+      "--ls-label",
+      "--maxw",
+      "--measure",
+      "--muted",
+      "--r-circle",
+      "--r-md",
+      "--r-pill",
+      "--r-sm",
+      "--r-xs",
+      "--scale",
+      "--scroll-pad",
+      "--section-pad",
+      "--t-body",
+      "--t-h1",
+      "--t-h2",
+      "--t-h3",
+      "--t-lead",
+      "--t-mega",
+      "--t-meta",
+      "--w-body",
+      "--w-display",
+      "--w-name",
+      "--w-strong",
+      "--z-below",
+      "--z-modal",
+      "--z-nav",
+      "--z-overlay",
+      "--z-skip",
+      "--z-tweaks"
+    ],
+    "tokenKinds": {
+      "--bg": "color",
+      "--fg": "color",
+      "--muted": "color",
+      "--faint": "color",
+      "--line": "color",
+      "--line-2": "color",
+      "--ink": "color",
+      "--ink-fg": "color",
+      "--gh-0": "color",
+      "--gh-1": "color",
+      "--gh-2": "color",
+      "--gh-3": "color",
+      "--gh-4": "color",
+      "--font-sans": "font",
+      "--font-mono": "font",
+      "--w-display": "font",
+      "--w-name": "font",
+      "--w-strong": "font",
+      "--w-body": "font",
+      "--scale": "other",
+      "--t-mega": "font",
+      "--t-h1": "font",
+      "--t-h2": "font",
+      "--t-h3": "font",
+      "--t-lead": "font",
+      "--t-body": "font",
+      "--t-meta": "font",
+      "--lh-tight": "font",
+      "--lh-heading": "font",
+      "--lh-body": "font",
+      "--lh-prose": "font",
+      "--ls-heading": "spacing",
+      "--ls-label": "spacing",
+      "--measure": "spacing",
+      "--maxw": "spacing",
+      "--gut": "spacing",
+      "--section-pad": "spacing",
+      "--scroll-pad": "spacing",
+      "--r-xs": "spacing",
+      "--r-sm": "spacing",
+      "--r-md": "spacing",
+      "--r-pill": "spacing",
+      "--r-circle": "spacing",
+      "--z-below": "other",
+      "--z-nav": "other",
+      "--z-skip": "other",
+      "--z-overlay": "other",
+      "--z-modal": "other",
+      "--z-tweaks": "other",
+      "--ease-out": "other",
+      "--ease-soft": "other",
+      "--dur-fast": "other",
+      "--dur-base": "other",
+      "--dur-slow": "other"
+    },
+    "fontFamilies": [
+      "Archivo",
+      "Archivo Fallback",
+      "IBM Plex Mono",
+      "Onest"
+    ]
+  }
+}

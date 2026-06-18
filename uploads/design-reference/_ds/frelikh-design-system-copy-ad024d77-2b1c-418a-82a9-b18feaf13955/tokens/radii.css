@@ -1,0 +1,21 @@
+/* ============================================================
+   Frelikh — Radii & z-index tokens
+   One radius scale, one z ladder. Don't breed intermediate steps.
+   ============================================================ */
+
+:root {
+  /* Radii */
+  --r-xs: 2px;       /* hairlines, focus ring, tag chips */
+  --r-sm: 6px;       /* chips, inputs, small buttons */
+  --r-md: 10px;      /* cards, modals, command palette */
+  --r-pill: 999px;   /* contact pills, CV button */
+  --r-circle: 50%;
+
+  /* Z ladder */
+  --z-below: -1;     /* @kind other */
+  --z-nav: 50;       /* @kind other */
+  --z-skip: 100;     /* @kind other */
+  --z-overlay: 200;  /* @kind other */ /* command palette, reading progress */
+  --z-modal: 220;    /* @kind other */ /* resume modal, sits above palette */
+  --z-tweaks: 9999;  /* @kind other */ /* dev panel */
+}

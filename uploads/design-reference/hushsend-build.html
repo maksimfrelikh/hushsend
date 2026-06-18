@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="ext-resource-dependency" content="./Flow.dc.html" data-resource-id="flowDc" />
+<script src="./support.js"></script>
+<script>
+/* Standalone shim: when bundled, the DC runtime's fetch of "./Flow.dc.html"
+   is redirected to the inlined blob URL. No-op in the normal (served) source file. */
+(function () {
+  var origFetch = window.fetch.bind(window);
+  window.fetch = function (input, init) {
+    try {
+      var u = (typeof input === "string") ? input : (input && input.url) || "";
+      if (window.__resources && window.__resources.flowDc && /Flow\.dc\.html(?:[?#]|$)/.test(u)) {
+        return origFetch(window.__resources.flowDc, init);
+      }
+    } catch (e) {}
+    return origFetch(input, init);
+  };
+})();
+</script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400..700&family=Onest:wght@400..700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  html,body{margin:0;padding:0;}
+  *{box-sizing:border-box;}
+</style>
+</helmet>
+<div style="min-height:100vh;background:#e9e7e2;display:flex;flex-direction:column;font-family:'Archivo','Onest',sans-serif;">
+
+  <header style="display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap;padding:16px clamp(16px,4vw,40px);border-bottom:1px solid #d6d3cc;background:#e9e7e2;position:sticky;top:0;z-index:10;">
+    <div style="display:flex;align-items:center;gap:13px;">
+      <div style="width:15px;height:15px;border-radius:3px;border:1.6px solid #0b0b0b;position:relative;">
+        <div style="position:absolute;inset:3px 3px auto 3px;height:1.6px;background:#0b0b0b;"></div>
+      </div>
+      <span style="font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:12px;letter-spacing:.2em;color:#0b0b0b;">HUSHSEND</span>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.1em;color:#8a877f;text-transform:uppercase;">{{ contextLabel }}</span>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:14px;">
+      <button onClick="{{ prev }}" style="width:34px;height:34px;border-radius:999px;border:1px solid #c9c6bf;background:transparent;color:#0b0b0b;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;transition:background .14s ease,color .14s ease;" style-hover="background:#0b0b0b;color:#fff;">‹</button>
+      <div style="display:flex;flex-direction:column;align-items:center;min-width:140px;">
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.12em;color:#8a877f;">{{ stepNum }} / {{ stepTotal }}</span>
+        <span style="font-family:'Archivo','Onest',sans-serif;font-weight:600;font-size:14px;color:#0b0b0b;letter-spacing:-.01em;">{{ stepLabel }}</span>
+      </div>
+      <button onClick="{{ next }}" style="width:34px;height:34px;border-radius:999px;border:1px solid #c9c6bf;background:transparent;color:#0b0b0b;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;transition:background .14s ease,color .14s ease;" style-hover="background:#0b0b0b;color:#fff;">›</button>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.1em;color:#8a877f;text-transform:uppercase;">{{ stateLabel }}</span>
+      <button onClick="{{ restart }}" style="height:34px;padding:0 16px;border-radius:999px;border:1px solid #c9c6bf;background:transparent;color:#0b0b0b;cursor:pointer;font-family:'Archivo','Onest',sans-serif;font-weight:600;font-size:13px;transition:background .14s ease,color .14s ease;" style-hover="background:#0b0b0b;color:#fff;">{{ resetLabel }}</button>
+    </div>
+  </header>
+
+  <div style="flex:1;display:flex;flex-wrap:wrap;gap:clamp(28px,5vw,56px);align-items:flex-start;justify-content:center;padding:clamp(28px,5vw,56px) clamp(16px,4vw,40px);">
+
+    <!-- DESKTOP -->
+    <div style="display:flex;flex-direction:column;gap:12px;flex:none;">
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:#8a877f;padding-left:4px;">Desktop · 1280</span>
+      <div style="width:760px;max-width:86vw;height:524px;border-radius:12px;overflow:hidden;border:1px solid #cdcac3;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.05);display:flex;flex-direction:column;">
+        <div style="height:40px;flex:none;display:flex;align-items:center;gap:14px;padding:0 16px;border-bottom:1px solid {{ chromeLine }};background:{{ chromeBg }};">
+          <div style="display:flex;gap:7px;">
+            <span style="width:10px;height:10px;border-radius:50%;border:1px solid {{ dotLine }};"></span>
+            <span style="width:10px;height:10px;border-radius:50%;border:1px solid {{ dotLine }};"></span>
+            <span style="width:10px;height:10px;border-radius:50%;border:1px solid {{ dotLine }};"></span>
+          </div>
+          <div style="flex:1;height:24px;border-radius:999px;border:1px solid {{ chromeLine }};display:flex;align-items:center;padding:0 14px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:{{ chromeFaint }};">hushsend.app</div>
+        </div>
+        <div style="flex:1;min-height:0;">
+          <dc-import name="Flow" screen="{{ screen }}" method="{{ method }}" lang="{{ lang }}" theme="{{ theme }}" root-style="{{ themeVars }}" sec-level="{{ secLevel }}" security-indicator="{{ securityIndicator }}" sas-layout="{{ sasLayout }}" sas-numbers="{{ sasNumbers }}" sas-correct="{{ sasCorrect }}" sas-choice="{{ sasChoice }}" peer-name="{{ peerName }}" room-code="{{ roomCode }}" host-code="{{ hostCode }}" error-type="{{ errorType }}" safe-mode="{{ safeMode }}" copied="{{ copied }}" sending="{{ sending }}" progress="{{ progress }}" on-act="{{ onAct }}" hint-size="100%,100%" style="width:100%;height:100%;"></dc-import>
+        </div>
+      </div>
+    </div>
+
+    <!-- MOBILE -->
+    <div style="display:flex;flex-direction:column;gap:12px;flex:none;">
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:#8a877f;padding-left:4px;">Mobile · 390</span>
+      <div style="width:338px;max-width:86vw;height:660px;border-radius:42px;border:1px solid #cdcac3;background:{{ chromeBg }};padding:9px;box-shadow:0 1px 2px rgba(0,0,0,.05);">
+        <div style="position:relative;width:100%;height:100%;border-radius:34px;overflow:hidden;background:#fff;">
+          <div style="position:absolute;top:9px;left:50%;transform:translateX(-50%);width:86px;height:6px;border-radius:999px;background:{{ notchColor }};z-index:5;"></div>
+          <dc-import name="Flow" screen="{{ screen }}" method="{{ method }}" lang="{{ lang }}" theme="{{ theme }}" root-style="{{ themeVars }}" sec-level="{{ secLevel }}" security-indicator="{{ securityIndicator }}" sas-layout="{{ sasLayout }}" sas-numbers="{{ sasNumbers }}" sas-correct="{{ sasCorrect }}" sas-choice="{{ sasChoice }}" peer-name="{{ peerName }}" room-code="{{ roomCode }}" host-code="{{ hostCode }}" error-type="{{ errorType }}" safe-mode="{{ safeMode }}" copied="{{ copied }}" sending="{{ sending }}" progress="{{ progress }}" on-act="{{ onAct }}" hint-size="100%,100%" style="width:100%;height:100%;"></dc-import>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:820},&quot;securityIndicator&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;bar&quot;,&quot;badge&quot;,&quot;metaline&quot;],&quot;default&quot;:&quot;bar&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;sasLayout&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;cards&quot;,&quot;stack&quot;],&quot;default&quot;:&quot;cards&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      theme: 'light', lang: 'en',
+      screen: 'home', method: 'link', history: ['home'],
+      roomCode: '', peerName: 'brave-otter', hostCode: this.genCode(), errorType: 'mismatch', needsSas: false, reconnecting: false, safeMode: false, consented: false, pending: null,
+      sasNumbers: this.genNums(), sasCorrect: 0, sasChoice: null,
+      copied: false, sending: false, progress: 0,
+    };
+    this._timer = null;
+  }
+  genNums() { const s = new Set(); while (s.size < 3) s.add(10 + Math.floor(Math.random() * 90)); return Array.from(s); }
+  genCode() { return String(1000 + Math.floor(Math.random() * 9000)); }
+  deviceFlags(name) {
+    const m = { 'calm-lynx': { keyChanged: true }, 'lone-stork': { hardNat: true } };
+    return Object.assign({ keyChanged: false, hardNat: false }, m[name] || {});
+  }
+  _connectScreen(pending, extra) {
+    if (this.state.safeMode && pending.hardNat) return 'fallbackError';
+    extra.needsSas = !!(pending.room && !pending.reconnect);
+    extra.reconnecting = !!pending.reconnect;
+    return 'lobby';
+  }
+  _begin(pending) {
+    let screen; const extra = {};
+    if (pending.keyChanged) screen = 'keyChanged';
+    else if (!this.state.consented) screen = 'consent';
+    else screen = this._connectScreen(pending, extra);
+    this.setState(Object.assign({ pending: pending, peerName: pending.peer }, extra));
+    this.go(screen);
+  }
+  _afterConsent() {
+    const pending = this.state.pending || { room: false, reconnect: false, hardNat: false };
+    const extra = {};
+    const screen = this._connectScreen(pending, extra);
+    this.setState(extra);
+    this.go(screen);
+  }
+  componentWillUnmount() { if (this._timer) clearInterval(this._timer); }
+
+  go(screen) { this.setState((s) => ({ screen, history: [...s.history, screen] })); }
+
+  startTransfer() {
+    if (this._timer) clearInterval(this._timer);
+    this.setState({ sending: true, progress: 0 });
+    this._timer = setInterval(() => {
+      this.setState((s) => {
+        const np = s.progress + 4;
+        if (np >= 100) { clearInterval(this._timer); this._timer = null; return { progress: 100, sending: false }; }
+        return { progress: np };
+      });
+    }, 80);
+  }
+
+  // flow order for the chrome stepper (linear happy path)
+  ORDER = ['home', 'method', 'credential', 'roomCreate', 'roomJoin', 'room', 'consent', 'lobby', 'sas', 'sasWait', 'verified', 'transfer', 'sessionEnd', 'keyChanged', 'fallbackError', 'error'];
+
+  nextOf(screen) {
+    const m = {
+      home: 'method', method: this.state.method === 'room' ? 'roomCreate' : 'credential',
+      credential: 'consent', roomCreate: 'room', roomJoin: 'room',
+      room: 'consent', consent: 'lobby', lobby: this.state.needsSas ? 'sas' : 'verified',
+      sas: 'sasWait', sasWait: 'verified', verified: 'transfer',
+      transfer: 'sessionEnd', sessionEnd: 'home',
+      keyChanged: 'sas', fallbackError: 'home', error: 'home',
+    };
+    return m[screen] || screen;
+  }
+
+  onAct = (a) => {
+    const t = a.type, s = this.state;
+    if (t === 'go') { this.go(a.v); }
+    else if (t === 'method') {
+      const needsSas = a.v === 'room';
+      this.setState({ method: a.v, needsSas, reconnecting: false });
+      this.go(a.v === 'room' ? 'roomCreate' : 'credential');
+    }
+    else if (t === 'createRoom') { this.setState({ method: 'room', roomCode: '', needsSas: true, reconnecting: false }); this.go('roomCreate'); }
+    else if (t === 'homeJoin') {
+      this.setState({ method: 'room', needsSas: true, reconnecting: false });
+      if (s.roomCode && s.roomCode.length === 4) this.go('room');
+      else this.go('roomJoin');
+    }
+    else if (t === 'submitJoin') {
+      if (!s.roomCode || s.roomCode.length < 4) return;
+      if (s.roomCode === '0000') { this.setState({ errorType: 'roomExpired' }); this.go('error'); }
+      else { this.setState({ method: 'room', needsSas: true, reconnecting: false }); this.go('room'); }
+    }
+    else if (t === 'roomInput') { this.setState({ roomCode: a.v }); }
+    else if (t === 'pickPeer') { this._begin({ peer: a.v, reconnect: false, room: true, keyChanged: false, hardNat: false }); }
+    else if (t === 'reconnect') { const d = this.deviceFlags(a.v); this.setState({ method: 'reconnect' }); this._begin({ peer: a.v, reconnect: true, room: false, keyChanged: d.keyChanged, hardNat: d.hardNat }); }
+    else if (t === 'beginConnect') { this._begin({ peer: s.peerName, reconnect: false, room: false, keyChanged: false, hardNat: false }); }
+    else if (t === 'consentAccept') { this.setState({ consented: true }, () => this._afterConsent()); }
+    else if (t === 'reVerify') { const peer = (s.pending && s.pending.peer) || s.peerName; this.setState({ peerName: peer, needsSas: true, reconnecting: false, pending: Object.assign({}, s.pending, { keyChanged: false }) }); this.go('lobby'); }
+    else if (t === 'disableSafeRetry') { this.setState({ safeMode: false }, () => this._afterConsent()); }
+    else if (t === 'safeMode') { this.setState((st) => ({ safeMode: !st.safeMode })); }
+    else if (t === 'next') { this.go(this.nextOf(s.screen)); }
+    else if (t === 'back') {
+      this.setState((st) => { if (st.history.length < 2) return null; const h = st.history.slice(0, -1); return { history: h, screen: h[h.length - 1] }; });
+    }
+    else if (t === 'sas') { this.setState({ sasChoice: a.i }); }
+    else if (t === 'sasConfirm') {
+      if (s.sasChoice == null) return;
+      if (s.sasChoice === s.sasCorrect) this.go('sasWait');
+      else { this.setState({ errorType: 'mismatch' }); this.go('error'); }
+    }
+    else if (t === 'startSend') { this.startTransfer(); }
+    else if (t === 'copy') { this.setState({ copied: true }); setTimeout(() => this.setState({ copied: false }), 1400); }
+    else if (t === 'theme') { this.setState((st) => ({ theme: st.theme === 'dark' ? 'light' : 'dark' })); }
+    else if (t === 'lang') { this.setState((st) => ({ lang: st.lang === 'en' ? 'ru' : 'en' })); }
+    else if (t === 'restart') {
+      if (this._timer) { clearInterval(this._timer); this._timer = null; }
+      this.setState({ screen: 'home', history: ['home'], method: 'link', roomCode: '', peerName: 'brave-otter', hostCode: this.genCode(), errorType: 'mismatch', needsSas: false, reconnecting: false, safeMode: false, consented: false, pending: null, sasChoice: null, sasNumbers: this.genNums(), sasCorrect: 0, sending: false, progress: 0, copied: false });
+    }
+  };
+
+  secLevelFor(s) {
+    const screen = s.screen;
+    if (screen === 'error') return s.errorType === 'roomExpired' ? 'none' : 'danger';
+    if (screen === 'keyChanged') return 'danger';
+    const ver = ['verified', 'transfer', 'sessionEnd'];
+    const enc = ['lobby', 'sas', 'sasWait'];
+    if (ver.indexOf(screen) >= 0) return 'verified';
+    if (enc.indexOf(screen) >= 0) return 'encrypted';
+    return 'none';
+  }
+
+  renderVals() {
+    const s = this.state;
+    const ru = s.lang === 'ru';
+    const LABELS = ru
+      ? { home: 'Главная', method: 'Способ', credential: 'Приглашение', roomCreate: 'Код комнаты', roomJoin: 'Ввод кода', room: 'Кто в комнате', lobby: 'Соединение', consent: 'Согласие', keyChanged: 'Ключ изменился', fallbackError: 'Релей отключён', sas: 'Сверка чисел', sasWait: 'Ожидание', verified: 'Подтверждено', transfer: 'Передача', sessionEnd: 'Закрыто', error: s.errorType === 'roomExpired' ? 'Комната не найдена' : 'Несовпадение' }
+      : { home: 'Home', method: 'Method', credential: 'Invite', roomCreate: 'Room code', roomJoin: 'Enter code', room: 'In the room', lobby: 'Connecting', consent: 'Consent', keyChanged: 'Key changed', fallbackError: 'Relay off', sas: 'Compare', sasWait: 'Waiting', verified: 'Verified', transfer: 'Transfer', sessionEnd: 'Closed', error: s.errorType === 'roomExpired' ? 'Room not found' : 'Mismatch' };
+    const idx = this.ORDER.indexOf(s.screen);
+    const stepNum = ('0' + (idx + 1)).slice(-2);
+
+    const themeLight = "--bg:#ffffff;--fg:#0b0b0b;--muted:#6c6c6c;--faint:#767676;--line:#e6e6e6;--line2:#d4d4d4;--ink:#0b0b0b;--inkfg:#ffffff;--sans:'Archivo','Onest','Helvetica Neue',Arial,sans-serif;--mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;--ease-out:cubic-bezier(.22,1,.36,1);";
+    const themeDark = "--bg:#000000;--fg:#f2f2f2;--muted:#8c8c90;--faint:#7a7a7e;--line:#1b1b1d;--line2:#2c2c30;--ink:#f2f2f2;--inkfg:#000000;--sans:'Archivo','Onest','Helvetica Neue',Arial,sans-serif;--mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;--ease-out:cubic-bezier(.22,1,.36,1);";
+    const dark = s.theme === 'dark';
+
+    const ctx = s.screen === 'home' ? (ru ? 'защищённая передача' : 'secure transfer') : (s.method + (ru ? ' · поток' : ' · flow'));
+
+    return {
+      screen: s.screen, method: s.method, lang: s.lang, theme: s.theme,
+      themeVars: dark ? themeDark : themeLight,
+      secLevel: this.secLevelFor(s),
+      securityIndicator: this.props.securityIndicator || 'bar',
+      sasLayout: this.props.sasLayout || 'cards',
+      sasNumbers: s.sasNumbers, sasCorrect: s.sasCorrect, sasChoice: s.sasChoice,
+      peerName: s.peerName, roomCode: s.roomCode, hostCode: s.hostCode, errorType: s.errorType, safeMode: s.safeMode, copied: s.copied, sending: s.sending, progress: s.progress,
+      stepTotal: this.ORDER.length,
+      onAct: this.onAct,
+      next: () => this.go(this.ORDER[Math.min(this.ORDER.length - 1, idx + 1)]),
+      prev: () => this.go(this.ORDER[Math.max(0, idx - 1)]),
+      restart: () => this.onAct({ type: 'restart' }),
+      stepNum, stepLabel: LABELS[s.screen] || '', contextLabel: ctx,
+      stateLabel: (dark ? 'dark' : 'light') + ' · ' + s.lang.toUpperCase(),
+      resetLabel: ru ? 'Сброс' : 'Reset',
+      chromeBg: dark ? '#0a0a0a' : '#fafafa',
+      chromeLine: dark ? '#1b1b1d' : '#e6e6e6',
+      chromeFaint: dark ? '#7a7a7e' : '#9a9a9a',
+      dotLine: dark ? '#2c2c30' : '#d4d4d4',
+      notchColor: dark ? '#1b1b1d' : '#e6e6e6',
+    };
+  }
+}
+</script>
+<template id="__bundler_thumbnail" data-bg-color="#e9e7e2">
+  <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+    <rect width="1200" height="800" fill="#e9e7e2"/>
+    <g transform="translate(600 400)">
+      <rect x="-150" y="-150" width="300" height="300" rx="40" fill="none" stroke="#0b0b0b" stroke-width="14"/>
+      <rect x="-110" y="-110" width="220" height="34" rx="17" fill="#0b0b0b"/>
+      <g fill="#0b0b0b" font-family="'IBM Plex Mono',monospace" font-weight="600" font-size="92" text-anchor="middle">
+        <text x="-78" y="60">47</text>
+        <text x="78" y="60" opacity="0.28">12</text>
+      </g>
+    </g>
+  </svg>
+</template>
+</body>
+</html>

@@ -1,0 +1,80 @@
+/* ============================================================
+   Frelikh — base resets & primitives
+   Minimal: set the typographic ground, scrollbars, selection,
+   focus ring, links. Everything else is component-level.
+   ============================================================ */
+
+* { box-sizing: border-box; }
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-padding-top: var(--scroll-pad);
+  /* Gutter always reserved so scroll-lock (resume modal / ⌘K) doesn't
+     drop the scrollbar and shift the centered layout right. */
+  scrollbar-gutter: stable;
+}
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+  font-weight: var(--w-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Inverse selection */
+::selection {
+  background: var(--ink);
+  color: var(--ink-fg);
+}
+
+/* Themed thin scrollbars — thumb only, no arrows */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}
+*::-webkit-scrollbar { width: 12px; height: 12px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: var(--line-2);
+  border: 4px solid var(--bg);
+  border-radius: var(--r-pill);
+}
+
+/* Keyboard focus ring (mouse focus stays clean) */
+:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 3px;
+  border-radius: var(--r-xs);
+}
+:focus:not(:focus-visible) { outline: none; }
+
+/* Headings: tight, balanced */
+h1, h2, h3 {
+  margin: 0;
+  font-weight: var(--w-display);
+  letter-spacing: var(--ls-heading);
+  line-height: var(--lh-heading);
+  text-wrap: balance;
+}
+p { text-wrap: pretty; }
+
+a { color: inherit; }
+
+/* Screen-reader-only utility */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

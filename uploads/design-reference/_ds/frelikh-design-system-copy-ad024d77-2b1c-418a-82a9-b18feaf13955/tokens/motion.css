@@ -1,0 +1,38 @@
+/* ============================================================
+   Frelikh — Motion tokens
+   2 curves, 3 durations. The whole language is built from these.
+   Rule: anything that MOVES (transform/position/clip) -> --ease-out.
+         anything that FADES (color/opacity)           -> --ease-soft.
+         snap duration to the nearest step. No magic beziers/ms.
+   ============================================================ */
+
+:root {
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);  /* @kind other */ /* movement */
+  --ease-soft: ease;                            /* @kind other */ /* pure fades */
+
+  --dur-fast: 120ms;   /* @kind other */ /* hover, color fades */
+  --dur-base: 160ms;   /* @kind other */ /* underlines, header, modals, burger */
+  --dur-slow: 280ms;   /* @kind other */ /* flips (theme toggle, copy icon), collapse */
+}
+
+/* Appearance of command palette + resume modal */
+@keyframes cmdk-in {
+  from { transform: translateY(-6px); opacity: 0.6; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+/* Accessibility-dot pulse halo (GPU-composited via transform) */
+@keyframes ds-pulse {
+  from { transform: scale(1); opacity: 0.4; }
+  to   { transform: scale(3); opacity: 0; }
+}
+
+/* Blanket reset for reduced-motion: durations collapse, the
+   decorative pulse/wave stop, the copy flip degrades to a fade. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0.01ms; /* @kind other */
+    --dur-base: 0.01ms; /* @kind other */
+    --dur-slow: 0.01ms; /* @kind other */
+  }
+}

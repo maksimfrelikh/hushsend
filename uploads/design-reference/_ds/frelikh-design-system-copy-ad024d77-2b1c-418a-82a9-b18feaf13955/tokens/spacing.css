@@ -1,0 +1,22 @@
+/* ============================================================
+   Frelikh — Spacing, layout & rhythm tokens
+   ============================================================ */
+
+:root {
+  /* Container + gutters */
+  --maxw: 1200px;              /* @kind spacing */
+  --gut: clamp(20px, 5vw, 72px); /* @kind spacing */
+
+  /* Vertical section rhythm */
+  --section-pad: clamp(64px, 8vh, 112px); /* @kind spacing */
+
+  /* Sticky-header offset for anchors / focus (SC 2.4.11/2.4.12) */
+  --scroll-pad: 80px; /* @kind spacing */
+}
+
+/* Phones tighten the vertical rhythm */
+@media (max-width: 680px) {
+  :root {
+    --section-pad: clamp(40px, 6vh, 52px);
+  }
+}

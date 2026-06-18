@@ -1,0 +1,54 @@
+/* ============================================================
+   Frelikh — Typography tokens
+   Grotesk display + body, mono for labels/meta/code.
+   Fluid scale: every step is clamp(), multiplied by --scale
+   (default 1) so the whole system can be tuned at once.
+   ============================================================ */
+
+:root {
+  /* Families */
+  --font-sans: "Archivo", "Onest", "Archivo Fallback", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Weights */
+  --w-display: 600; /* @kind font */
+  --w-name: 600;    /* @kind font */
+  --w-strong: 600;  /* @kind font */
+  --w-body: 400;    /* @kind font */
+
+  /* Global scale multiplier */
+  --scale: 1; /* @kind other */
+
+  /* Fluid type scale */
+  --t-mega: calc(clamp(3rem, 11vw, 9rem) * var(--scale));   /* @kind font */
+  --t-h1:   calc(clamp(2.4rem, 6vw, 4.6rem) * var(--scale)); /* @kind font */
+  --t-h2:   calc(clamp(1.7rem, 3.2vw, 2.6rem) * var(--scale)); /* @kind font */
+  --t-h3:   calc(clamp(1.2rem, 1.8vw, 1.5rem) * var(--scale)); /* @kind font */
+  --t-lead: calc(clamp(1.1rem, 1.6vw, 1.45rem) * var(--scale)); /* @kind font */
+  --t-body: calc(clamp(1rem, 1.1vw, 1.1rem) * var(--scale)); /* @kind font */
+  --t-meta: calc(clamp(0.78rem, 0.9vw, 0.9rem) * var(--scale)); /* @kind font */
+
+  /* Line heights */
+  --lh-tight: 1.05;   /* @kind font */ /* mega / h1 */
+  --lh-heading: 1.18; /* @kind font */ /* h2 / h3 */
+  --lh-body: 1.55;    /* @kind font */
+  --lh-prose: 1.68;   /* @kind font */ /* article paragraphs */
+
+  /* Letter-spacing */
+  --ls-heading: -0.03em;  /* headings sit tight (-0.02 … -0.035)  @kind font */
+  --ls-label: 0.14em;     /* uppercase mono labels (swiss canon; base 0.12em)  @kind font */
+
+  /* Article measure: 64ch of body, frozen in rem so it doesn't
+     drift with child font-size. Layout = narrow text, wide media. */
+  --measure: 36.672rem; /* @kind spacing */
+}
+
+/* Uppercase mono label — the system's only "eyebrow" treatment */
+.ds-label {
+  font-family: var(--font-mono);
+  font-size: var(--t-meta);
+  font-weight: var(--w-strong);
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+  color: var(--faint);
+}

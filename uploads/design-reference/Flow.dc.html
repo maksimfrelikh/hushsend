@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400..700&family=Onest:wght@400..700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  @keyframes sb-pulse { from { transform: scale(1); opacity:.5 } to { transform: scale(2.4); opacity:0 } }
+  @keyframes sb-rise { from { transform: translateY(8px); opacity:0 } to { transform: translateY(0); opacity:1 } }
+  @keyframes sb-spin { to { transform: rotate(360deg) } }
+  .hs-tw { display:flex; align-items:center; gap:13px; }
+  .hs-tn { display:none; align-items:center; gap:13px; }
+  @container (max-width: 430px) { .hs-tw { display:none; } .hs-tn { display:flex; } }
+  button:focus-visible, input:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+  @media (pointer: coarse) { .hs-root button { min-height: 44px; } }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important; } }
+</style>
+</helmet>
+<div class="hs-root" style="{{ rootStyle }}">
+
+  <!-- HEADER -->
+  <header style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 20px;border-bottom:1px solid var(--line);flex:none;">
+    <span style="font-family:var(--mono);font-weight:600;font-size:14px;letter-spacing:-.01em;color:var(--fg);">hushsend</span>
+    <div style="display:flex;align-items:center;gap:13px;flex:none;">
+      <span class="hs-tn">
+        <span style="display:flex;align-items:center;gap:8px;">
+          <button onClick="{{ h.setRu }}" style="{{ langRuText }}">RU</button>
+          <span style="font-family:var(--mono);font-size:12px;color:var(--line2);">/</span>
+          <button onClick="{{ h.setEn }}" style="{{ langEnText }}">EN</button>
+        </span>
+        <button onClick="{{ h.theme }}" title="theme" style="background:none;border:0;padding:4px;cursor:pointer;color:var(--fg);display:grid;place-items:center;flex:none;">
+          <span style="display:flex;transition:transform var(--dur-slow,.28s) var(--ease-out);{{ themeRot }}">
+            <svg width="17" height="17" viewBox="0 0 16 16" style="display:block;"><circle cx="8" cy="8" r="6.3" fill="none" stroke="currentColor" stroke-width="1.4"></circle><path d="M8 1.7a6.3 6.3 0 0 1 0 12.6z" fill="currentColor"></path></svg>
+          </span>
+        </button>
+      </span>
+      <span class="hs-tw">
+        <span style="display:inline-flex;border:1px solid var(--line2);border-radius:999px;overflow:hidden;">
+          <button onClick="{{ h.setRu }}" style="{{ langRuStyle }}">RU</button>
+          <button onClick="{{ h.setEn }}" style="{{ langEnStyle }}">EN</button>
+        </span>
+        <button onClick="{{ h.theme }}" title="theme" style="width:32px;height:32px;border:1px solid var(--line2);border-radius:6px;background:transparent;color:var(--fg);display:grid;place-items:center;cursor:pointer;padding:0;flex:none;">
+          <span style="display:flex;transition:transform var(--dur-slow,.28s) var(--ease-out);{{ themeRot }}">
+            <svg width="16" height="16" viewBox="0 0 16 16" style="display:block;"><circle cx="8" cy="8" r="6.3" fill="none" stroke="currentColor" stroke-width="1.4"></circle><path d="M8 1.7a6.3 6.3 0 0 1 0 12.6z" fill="currentColor"></path></svg>
+          </span>
+        </button>
+      </span>
+    </div>
+  </header>
+
+  <!-- STAGE -->
+  <div class="hs-stage" style="flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;">
+
+    <!-- HOME -->
+    <sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+      <div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:32px 28px;max-width:460px;width:100%;margin:0 auto;box-sizing:border-box;">
+        <button onClick="{{ scrollToSafe }}" style="{{ statusChipStyle }}" style-hover="border-color:var(--fg);color:var(--fg);">
+          <span style="{{ statusDotStyle }}"></span>
+          <span>{{ statusLabel }}</span>
+          <span style="opacity:.55;font-weight:400;">↓</span>
+        </button>
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:3px 8px;margin-bottom:14px;">
+          <span style="font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);white-space:nowrap;">{{ t.he1 }}</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--line2);">·</span>
+          <span style="font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);white-space:nowrap;">{{ t.he2 }}</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--line2);">·</span>
+          <span style="font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);white-space:nowrap;">{{ t.he3 }}</span>
+        </div>
+        <h1 style="font-family:var(--sans);font-weight:600;letter-spacing:-.03em;line-height:1.05;font-size:clamp(26px,4.4vw,40px);color:var(--fg);margin:0 0 28px;max-width:13ch;text-wrap:balance;">{{ t.homeTitle }}</h1>
+
+        <button onClick="{{ h.send }}" style="display:inline-flex;align-items:center;justify-content:center;gap:10px;white-space:nowrap;padding:15px 30px;border-radius:999px;background:var(--ink);color:var(--inkfg);border:1px solid var(--ink);font-family:var(--sans);font-weight:600;font-size:15px;line-height:1;cursor:pointer;transition:background .14s ease,color .14s ease;" style-hover="background:transparent;color:var(--fg);">{{ t.inviteBtn }}</button>
+
+        <div style="display:flex;align-items:center;gap:14px;width:100%;margin:18px 0 14px;">
+          <span style="flex:1;height:1px;background:var(--line);"></span>
+          <span style="font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);">{{ t.joinHere }}</span>
+          <span style="flex:1;height:1px;background:var(--line);"></span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:30px;max-width:100%;">
+          <input value="{{ roomCode }}" onInput="{{ h.roomInput }}" inputmode="numeric" maxlength="4" aria-label="{{ t.roomCodeAria }}" placeholder="— — — —" style="flex:1;min-width:0;box-sizing:border-box;height:50px;text-align:center;border:1px solid var(--line2);border-radius:10px;background:var(--bg);color:var(--fg);font-family:var(--mono);font-weight:500;font-size:20px;letter-spacing:.2em;text-indent:.2em;outline:none;" />
+          <button onClick="{{ h.joinRoom }}" style="flex:none;height:50px;padding:0 20px;border-radius:10px;background:transparent;color:var(--fg);border:1px solid var(--line2);font-family:var(--sans);font-weight:600;font-size:14px;cursor:pointer;transition:background .14s ease,color .14s ease,border-color .14s ease;" style-hover="background:var(--ink);color:var(--inkfg);border-color:var(--ink);">{{ t.joinBtn }}</button>
+        </div>
+
+        <button onClick="{{ pakeStart }}" style="margin-top:10px;margin-bottom:26px;display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:13px 18px;border:1px solid var(--line2);border-radius:10px;background:transparent;color:var(--fg);cursor:pointer;font-family:var(--sans);font-weight:600;font-size:14px;transition:background .14s ease,color .14s ease,border-color .14s ease;" style-hover="background:var(--ink);color:var(--inkfg);border-color:var(--ink);">{{ t.orWords }}</button>
+        <span style="font-family:var(--mono);font-weight:600;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin-bottom:10px;padding-top:18px;border-top:1px solid var(--line);">{{ t.homeKnown }}</span>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <sc-for list="{{ knownDevices }}" as="d" hint-placeholder-count="3">
+            <button onClick="{{ d.onClick }}" style="{{ d.rowStyle }}">
+              <span style="{{ d.dotStyle }}"></span>
+              <span style="display:flex;flex-direction:column;gap:2px;text-align:left;min-width:0;flex:1;">
+                <span style="font-family:var(--sans);font-weight:600;font-size:14px;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ d.name }}</span>
+                <span style="font-family:var(--mono);font-size:10.5px;letter-spacing:.03em;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ d.meta }}</span>
+              </span>
+              <span style="{{ d.actionStyle }}">{{ d.action }}</span>
+            </button>
+          </sc-for>
+        </div>
+
+        <button onClick="{{ h.safeMode }}" class="hs-safe" style="display:flex;align-items:center;gap:16px;width:100%;margin-top:24px;padding:18px 2px 0;background:none;border:none;border-top:1px solid var(--line);cursor:pointer;text-align:left;">
+          <span style="display:flex;flex-direction:column;gap:3px;min-width:0;flex:1;">
+            <span style="font-family:var(--mono);font-weight:600;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--fg);">{{ t.safeMode }}</span>
+            <span style="font-family:var(--sans);font-size:11.5px;line-height:1.35;color:var(--muted);">{{ t.safeModeDesc }}</span>
+          </span>
+          <span style="align-self:center;{{ safeTrackStyle }}"><span style="{{ safeKnobStyle }}"></span></span>
+        </button>
+      </div>
+    </sc-if>
+
+    <!-- METHOD -->
+    <sc-if value="{{ isMethod }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:40px 30px;max-width:560px;width:100%;margin:0 auto;box-sizing:border-box;">
+        <span style="font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin-bottom:14px;">{{ t.methodEyebrow }}</span>
+        <h2 style="font-family:var(--sans);font-weight:600;letter-spacing:-.025em;line-height:1.08;font-size:clamp(24px,3.4vw,33px);color:var(--fg);margin:0 0 26px;">{{ t.methodTitle }}</h2>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <sc-for list="{{ methodOptions }}" as="m" hint-placeholder-count="4">
+            <button onClick="{{ m.onClick }}" style="display:flex;align-items:center;gap:16px;text-align:left;padding:17px 20px;border:1px solid var(--line2);border-radius:10px;background:var(--bg);color:var(--fg);cursor:pointer;transition:border-color .14s ease;" style-hover="border-color:var(--ink);">
+              <span style="font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:var(--faint);width:22px;flex:none;">{{ m.num }}</span>
+              <span style="display:flex;flex-direction:column;gap:3px;">
+                <span style="font-family:var(--sans);font-weight:600;font-size:16px;">{{ m.title }}</span>
+                <span style="font-family:var(--sans);font-weight:400;font-size:13px;color:var(--muted);">{{ m.desc }}</span>
+              </span>
+              <span style="margin-left:auto;font-family:var(--mono);color:var(--faint);font-size:15px;">→</span>
+            </button>
+          </sc-for>
+        </div>
+        <button onClick="{{ h.back }}" style="align-self:flex-start;margin-top:22px;background:none;border:none;cursor:pointer;font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);padding:6px 0;">← {{ t.back }}</button>
+      </div>
+    </sc-if>
+
+    <!-- CREDENTIAL -->
+    <sc-if value="{{ isCredential }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:34px 28px;">
+        <span style="font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin-bottom:16px;">{{ t.credEyebrow }}</span>
+        <h2 style="font-family:var(--sans);font-weight:600;letter-spacing:-.025em;line-height:1.1;font-size:clamp(22px,3vw,29px);color:var(--fg);margin:0 0 24px;">{{ credTitle }}</h2>
+
+        <sc-if value="{{ methodQr }}" hint-placeholder-val="{{ false }}">
+          <div style="padding:16px;border:1px solid var(--line2);border-radius:10px;background:var(--bg);margin-bottom:22px;">
+            <div style="display:grid;grid-template-columns:repeat(13,1fr);width:196px;height:196px;">
+              <sc-for list="{{ qrCells }}" as="c" hint-placeholder-count="169">
+                <div style="background:{{ c.bg }};"></div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ methodLink }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;align-items:center;justify-content:center;padding:13px 18px;border:1px solid var(--line2);border-radius:10px;margin-bottom:12px;max-width:100%;">
+            <span style="font-family:var(--mono);font-size:15px;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ credential }}</span>
+          </div>
+          <div style="display:flex;gap:10px;margin-bottom:22px;">
+            <button onClick="{{ h.copy }}" style="padding:11px 20px;border-radius:999px;background:var(--ink);color:var(--inkfg);border:1px solid var(--ink);cursor:pointer;font-family:var(--sans);font-weight:600;font-size:13px;transition:background .14s ease,color .14s ease;" style-hover="background:transparent;color:var(--fg);">{{ copyLabel }}</button>
+            <button onClick="{{ h.share }}" style="padding:11px 20px;border-radius:999px;background:transparent;color:var(--fg);border:1px solid var(--line2);cursor:pointer;font-family:var(--sans);font-weight:600;font-size:13px;transition:background .14s ease,color .14s ease,border-color .14s ease;" style-hover="background:var(--ink);color:var(--inkfg);border-color:var(--ink);">{{ t.share }}</button>
+          </div>
+        </sc-if>
+        <sc-if value="{{ methodPake }}" hint-placeholder-val="{{ false }}">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(108px,1fr));gap:8px;margin:0 auto 22px;width:100%;max-width:480px;">
+            <sc-for list="{{ wordChips }}" as="w" hint-placeholder-count="5">
+              <span style="display:flex;align-items:center;justify-content:center;gap:7px;padding:11px 14px;border:1px solid var(--line2);border-radius:8px;font-family:var(--mono);font-size:15px;color:var(--fg);"><span style="font-size:10px;color:var(--faint);">{{ w.i }}</span>{{ w.word }}</span>
+            </sc-for>
+          </div>
+        </sc-if>
+
+        <div style="display:flex;align-items:center;gap:10px;color:var(--muted);">
+          <span style="width:14px;height:14px;border:1.5px solid var(--muted);border-top-color:transparent;border-radius:50%;animation:sb-spin .9s linear infinite;flex:none;"></span>
+          <span style="font-family:var(--sans);font-size:14px;">{{ t.waiting }}</span>
+        </div>
+        <button onClick="{{ h.back }}" style="margin-top:24px;background:none;border:none;cursor:pointer;font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);padding:6px 0;">← {{ t.back }}</button>
+      </div>
+    </sc-if>
+
+    <!-- ROOM CHOICE (create / join) -->
+    <sc-if value="{{ isRoomChoice }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:40px 30px;max-width:560px;width:100%;margin:0 auto;box-sizing:border-box;">
+        <span style="font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin-bottom:14px;">{{ t.rcEyebrow }}</span>
+        <h2 style="font-family:var(--sans);font-weight:600;letter-spacing:-.025em;line-height:1.08;font-size:clamp(24px,3.4vw,33px);color:var(--fg);margin:0 0 26px;">{{ t.rcTitle }}</h2>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;">
+          <button onClick="{{ h.createRoom }}" style="flex:1;min-width:210px;display:flex;flex-direction:column;align-items:flex-start;gap:14px;text-align:left;padding:24px 22px;border:1.5px solid var(--ink);border-radius:14px;background:var(--ink);color:var(--inkfg);cursor:pointer;transition:opacity .14s ease;" style-hover="opacity:.88;">
+            <span style="width:34px;height:34px;border-radius:999px;border:1.5px solid var(--inkfg);display:flex;align-items:center;justify-content:center;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg></span>
+            <span style="display:flex;flex-direction:column;gap:4px;">
+              <span style="font-family:var(--sans);font-weight:600;font-size:18px;">{{ t.rcCreate }}</span>
+              <span style="font-family:var(--sans);font-weight:400;font-size:13px;opacity:.78;">{{ t.rcCreateD }}</span>
+            </span>
+          </button>
+          <button onClick="{{ h.joinViaCode }}" style="flex:1;min-width:210px;display:flex;flex-direction:column;align-items:flex-start;gap:14px;text-align:left;padding:24px 22px;border:1.5px solid var(--line2);border-radius:14px;background:var(--bg);color:var(--fg);cursor:pointer;transition:border-color .14s ease;" style-hover="border-color:var(--ink);">
+            <span style="width:34px;height:34px;border-radius:999px;border:1.5px solid var(--fg);display:flex;align-items:center;justify-content:center;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><path d="M10 17l5-5-5-5"></path><path d="M15 12H3"></path></svg></span>
+            <span style="display:flex;flex-direction:column;gap:4px;">
+              <span style="font-family:var(--sans);font-weight:600;font-size:18px;">{{ t.rcJoin }}</span>
+              <span style="font-family:var(--sans);font-weight:400;font-size:13px;color:var(--muted);">{{ t.rcJoinD }}</span>
+            </span>
+          </button>
+        </div>
+        <button onClick="{{ h.back }}" style="align-self:flex-start;margin-top:22px;background:none;border:none;cursor:pointer;font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);padding:6px 0;">← {{ t.back }}</button>
+      </div>
+    </sc-if>
+
+    <!-- ROOM CREATE (host shows code) -->
+    <sc-if value="{{ isRoomCreate }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:30px 28px;">
+        <span style="font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">{{ t.rcrEyebrow }}</span>
+        <h2 style="font-family:var(--sans);font-weight:600;letter-spacing:-.025em;line-height:1.1;font-size:clamp(21px,2.9vw,28px);color:var(--fg);margin:0 0 22px;max-width:22ch;">{{ t.rcrTitle }}</h2>
+        <div style="display:flex;gap:10px;margin-bottom:18px;">
+          <sc-for list="{{ hostBoxes }}" as="b" hint-placeholder-count="4">
+            <div style="width:62px;height:78px;display:flex;align-items:center;justify-content:center;border:1.5px solid var(--ink);border-radius:12px;font-family:var(--mono);font-weight:600;font-size:40px;color:var(--fg);background:var(--bg);">{{ b.ch }}</div>
+          </sc-for>
+        </div>
+        <div style="display:flex;gap:10px;margin-bottom:22px;">
+          <button onClick="{{ h.copy }}" style="padding:11px 20px;border-radius:999px;background:var(--ink);color:var(--inkfg);border:1px solid var(--ink);cursor:pointer;font-family:var(--sans);font-weight:600;font-size:13px;transition:background .14s ease,color .14s ease;" style-hover="background:transparent;color:var(--fg);">{{ copyLabel }}</button>
+          <button onClick="{{ h.share }}" style="padding:11px 20px;border-radius:999px;background:transparent;color:var(--fg);border:1px solid var(--line2);cursor:pointer;font-family:var(--sans);font-weight:600;font-size:13px;transition:background .14s ease,color .14s ease,border-color .14s ease;" style-hover="background:var(--ink);color:var(--inkfg);border-color:var(--ink);">{{ t.share }}</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;color:var(--muted);margin-top:6px;margin-bottom:24px;">
+          <span style="width:14px;height:14px;border:1.5px solid var(--muted);border-top-color:transparent;border-radius:50%;animation:sb-spin .9s linear infinite;flex:none;"></span>
+          <span style="font-family:var(--sans);font-size:14px;">{{ t.rcrWaiting }}</span>
+        </div>
+        <button onClick="{{ h.back }}" style="margin-top:6px;background:none;border:none;cursor:pointer;font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);padding:6px 0;">← {{ t.back }}</button>
+      </div>
+    </sc-if>
+
+    <!-- ROOM JOIN (enter code) -->
+    <sc-if value="{{ isRoomJoin }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:34px 28px;">
+        <span style="font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">{{ t.rjEyebrow }}</span>
+        <h2 style="font-family:var(--sans);font-weight:600;letter-spacing:-.025em;line-height:1.1;font-size:clamp(22px,3vw,29px);color:var(--fg);margin:0 0 8px;">{{ t.rjTitle }}</h2>
+        <p style="font-family:var(--sans);font-size:14px;color:var(--muted);margin:0 0 26px;max-width:30ch;">{{ t.rjDesc }}</p>
+        <div style="position:relative;margin-bottom:26px;">
+          <input value="{{ roomCode }}" onInput="{{ h.roomInput }}" inputmode="numeric" maxlength="4" aria-label="{{ t.roomCodeAria }}" autofocus style="position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:text;font-size:16px;" />
+          <div style="display:flex;gap:10px;pointer-events:none;">
+            <sc-for list="{{ joinBoxes }}" as="b" hint-placeholder-count="4">
+              <div style="width:58px;height:72px;display:flex;align-items:center;justify-content:center;border:1.5px solid {{ b.border }};border-radius:12px;font-family:var(--mono);font-weight:600;font-size:36px;color:var(--fg);background:var(--bg);">{{ b.ch }}</div>
+            </sc-for>
+          </div>
+        </div>
+        <button onClick="{{ h.submitJoin }}" style="{{ joinBtnStyle }}">{{ t.rjConnect }}</button>
+        <sc-if value="{{ joinHintShow }}" hint-placeholder-val="{{ true }}">
+          <span style="margin-top:14px;font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;color:var(--faint);">{{ t.joinHint }}</span>
+        </sc-if>
+        <button onClick="{{ h.back }}" style="margin-top:20px;background:none;border:none;cursor:pointer;font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);padding:6px 0;">← {{ t.back }}</button>
+      </div>
+    </sc-if>
+
+    <!-- PAKE JOIN (receive · type each word with autocomplete) -->
+    <sc-if value="{{ isPakeJoin }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:32px 26px;">
+        <span style="font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">{{ t.pakeEyebrow }}</span>
+        <h2 style="font-family:var(--sans);font-weight:600;letter-spacing:-.025em;line-height:1.1;font-size:clamp(21px,2.9vw,28px);color:var(--fg);margin:0 0 10px;max-width:20ch;">{{ t.pakeTitle }}</h2>
+        <p style="font-family:var(--sans);font-size:14px;color:var(--muted);margin:0 0 16px;max-width:32ch;">{{ t.pakeDesc }}</p>
+        <span style="font-family:var(--mono);font-size:11px;letter-spacing:.16em;color:var(--faint);margin-bottom:16px;">{{ pakeProgressLabel }}</span>
+
+        <!-- VARIANT: 5 fields (boxes) -->
+        <sc-if value="{{ pakeIsBoxes }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;width:100%;max-width:340px;">
+            <sc-for list="{{ pakeCells }}" as="c" hint-placeholder-count="5">
+              <div style="{{ c.boxStyle }}">
+                <span style="{{ c.numStyle }}">{{ c.n }}</span>
+                <sc-if value="{{ c.isInput }}" hint-placeholder-val="{{ false }}">
+                  <input value="{{ pakeInputVal }}" onInput="{{ h.pakeType }}" onFocus="{{ h.pakeScroll }}" placeholder="{{ t.pakePlaceholder }}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="{{ c.inputStyle }}" />
+                </sc-if>
+                <sc-if value="{{ c.showStatic }}" hint-placeholder-val="{{ true }}">
+                  <button onClick="{{ c.focusClick }}" style="{{ c.wordBtnStyle }}">{{ c.word }}{{ c.placeholder }}</button>
+                </sc-if>
+                <sc-if value="{{ c.showRemove }}" hint-placeholder-val="{{ false }}">
+                  <button onClick="{{ c.removeClick }}" aria-label="remove" style="{{ c.rmStyle }}">×</button>
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+
+        <!-- VARIANT: inline slot (active row is the field, suggestions drop right under it) -->
+        <sc-if value="{{ pakeIsSlot }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:7px;width:100%;max-width:320px;">
+            <sc-for list="{{ pakeCells }}" as="c" hint-placeholder-count="5">
+              <div style="display:flex;flex-direction:column;gap:7px;">
+                <div style="{{ c.slotStyle }}">
+                  <span style="{{ c.numStyle }}">{{ c.n }}</span>
+                  <sc-if value="{{ c.isInput }}" hint-placeholder-val="{{ false }}">
+                    <input value="{{ pakeInputVal }}" onInput="{{ h.pakeType }}" onFocus="{{ h.pakeScroll }}" placeholder="{{ t.pakePlaceholder }}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="{{ c.inputStyle }}" />
+                  </sc-if>
+                  <sc-if value="{{ c.showStatic }}" hint-placeholder-val="{{ true }}">
+                    <button onClick="{{ c.focusClick }}" style="{{ c.wordBtnStyle }}">{{ c.word }}{{ c.placeholder }}</button>
+                  </sc-if>
+                  <sc-if value="{{ c.showRemove }}" hint-placeholder-val="{{ false }}">
+                    <button onClick="{{ c.removeClick }}" aria-label="remove" style="{{ c.rmStyle }}">×</button>
+                  </sc-if>
+                </div>
+                <sc-if value="{{ c.suggestHere }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex;flex-direction:column;gap:6px;">
+                    <sc-for list="{{ pakeSuggest }}" as="o" hint-placeholder-count="3">
+                      <button onClick="{{ o.onClick }}" style="display:flex;align-items:center;gap:10px;padding:11px 16px;border:1px solid var(--line2);border-radius:8px;background:var(--bg);color:var(--fg);cursor:pointer;font-family:var(--mono);font-size:15px;text-align:left;transition:background .14s ease,color .14s ease,border-color .14s ease;" style-hover="background:var(--ink);color:var(--inkfg);border-color:var(--ink);"><span style="color:var(--faint);font-size:13px;flex:none;">↳</span><span style="flex:1;">{{ o.label }}</span></button>
+                    </sc-for>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ c.noMatchHere }}" hint-placeholder-val="{{ false }}">
+                  <span style="font-family:var(--mono);font-size:11px;color:var(--faint);padding-left:4px;text-align:left;">{{ t.pakeNoMatch }}</span>
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+
+        <!-- VARIANT: token chips -->
+        <sc-if value="{{ pakeIsTokens }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-wrap:wrap;align-items:center;gap:7px;width:100%;max-width:340px;box-sizing:border-box;padding:11px 12px;border:1px solid var(--line2);border-radius:12px;min-height:52px;">
+            <sc-for list="{{ pakeChips }}" as="c" hint-placeholder-count="2">
+              <span style="display:inline-flex;align-items:center;gap:6px;padding:6px 8px 6px 12px;border-radius:999px;background:var(--ink);color:var(--inkfg);font-family:var(--mono);font-size:13px;">{{ c.w }}<button onClick="{{ c.removeClick }}" aria-label="remove" style="background:none;border:0;cursor:pointer;color:var(--inkfg);opacity:.75;font-family:var(--mono);font-size:14px;line-height:1;padding:0 1px;">×</button></span>
+            </sc-for>
+            <sc-if value="{{ pakeTokenOpen }}" hint-placeholder-val="{{ true }}">
+              <input value="{{ pakeInputVal }}" onInput="{{ h.pakeType }}" onFocus="{{ h.pakeScroll }}" placeholder="{{ pakeTokenPh }}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="flex:1;min-width:96px;border:0;background:transparent;color:var(--fg);font-family:var(--mono);font-size:14px;outline:none;height:30px;" />
+            </sc-if>
+          </div>
+        </sc-if>
+
+        <!-- VARIANT: single field (read-only slots + one field) -->
+        <sc-if value="{{ pakeIsSingle }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:7px;width:100%;max-width:320px;margin-bottom:14px;">
+            <sc-for list="{{ pakeCells }}" as="c" hint-placeholder-count="5">
+              <div style="{{ c.slotStyle }}">
+                <button onClick="{{ c.focusClick }}" style="{{ c.wordBtnStyle }};display:flex;align-items:center;gap:11px;">
+                  <span style="{{ c.numStyle }}">{{ c.n }}</span>
+                  <span style="flex:1;">{{ c.word }}{{ c.singlePh }}</span>
+                </button>
+                <sc-if value="{{ c.filled }}" hint-placeholder-val="{{ false }}">
+                  <button onClick="{{ c.removeClick }}" aria-label="remove" style="{{ c.rmStyle }}">×</button>
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+          <input value="{{ pakeInputVal }}" onInput="{{ h.pakeType }}" onFocus="{{ h.pakeScroll }}" placeholder="{{ pakeSingleLabel }}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="width:100%;max-width:320px;box-sizing:border-box;height:50px;text-align:center;border:1px solid var(--line2);border-radius:10px;background:var(--bg);color:var(--fg);font-family:var(--mono);font-size:16px;letter-spacing:.04em;outline:none;" />
+        </sc-if>
+
+        <!-- VARIANT: step by step -->
+        <sc-if value="{{ pakeIsStepper }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;gap:9px;margin-bottom:18px;">
+            <sc-for list="{{ pakeStepCells }}" as="d" hint-placeholder-count="5">
+              <button onClick="{{ d.jump }}" aria-label="jump" style="{{ d.dotStyle }}"></button>
+            </sc-for>
+          </div>
+          <span style="font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">{{ pakeStepNum }}</span>
+          <div style="display:flex;align-items:center;gap:12px;width:100%;max-width:340px;">
+            <button onClick="{{ pakePrev }}" style="{{ pakeNavPrevStyle }}">‹</button>
+            <input value="{{ pakeInputVal }}" onInput="{{ h.pakeType }}" onFocus="{{ h.pakeScroll }}" placeholder="{{ t.pakePlaceholder }}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="flex:1;min-width:0;box-sizing:border-box;height:54px;text-align:center;border:1.5px solid var(--fg);border-radius:12px;background:var(--bg);color:var(--fg);font-family:var(--mono);font-size:18px;letter-spacing:.04em;outline:none;" />
+            <button onClick="{{ pakeNext }}" style="{{ pakeNavNextStyle }}">›</button>
+          </div>
+        </sc-if>
+
+        <!-- shared: suggestions + connect (slot variant renders its own inline) -->
+        <sc-if value="{{ pakeSharedSuggest }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:6px;width:100%;max-width:320px;margin-top:12px;">
+            <sc-for list="{{ pakeSuggest }}" as="o" hint-placeholder-count="3">
+              <button onClick="{{ o.onClick }}" style="display:flex;align-items:center;gap:10px;padding:11px 16px;border:1px solid var(--line2);border-radius:8px;background:var(--bg);color:var(--fg);cursor:pointer;font-family:var(--mono);font-size:15px;text-align:left;transition:background .14s ease,color .14s ease,border-color .14s ease;" style-hover="background:var(--ink);color:var(--inkfg);border-color:var(--ink);"><span style="color:var(--faint);font-size:13px;flex:none;">↳</span><span style="flex:1;">{{ o.label }}</span></button>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{ pakeSharedNoMatch }}" hint-placeholder-val="{{ false }}">
+          <span style="display:block;margin-top:12px;font-family:var(--mono);font-size:11px;color:var(--faint);">{{ t.pakeNoMatch }}</span>
+        </sc-if>
+
+        <sc-if value="{{ pakeConnectReady }}" hint-placeholder-val="{{ false }}">
+          <button onClick="{{ h.pakeConnect }}" style="{{ pakeConnectStyle }}">{{ t.pakeCta }}</button>
+        </sc-if>
+
+        <button onClick="{{ h.back }}" style="margin-top:22px;background:none;border:none;cursor:pointer;font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);padding:6px 0;">← {{ t.back }}</button>
+      </div>
+    </sc-if>
+
+    <!-- ROOM -->
+    <sc-if value="{{ isRoom }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;display:flex;flex-direction:column;padding:30px 30px;max-width:560px;width:100%;margin:0 auto;box-sizing:border-box;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:6px;">
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            <span style="font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);">{{ t.roomEyebrow }}</span>
+            <h2 style="font-family:var(--sans);font-weight:600;letter-spacing:-.025em;line-height:1.1;font-size:clamp(22px,3vw,29px);color:var(--fg);margin:0;">{{ t.roomTitle }}</h2>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;padding:9px 14px;border:1px solid var(--line2);border-radius:10px;flex:none;">
+            <span style="font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);">{{ t.roomCodeLabel }}</span>
+            <span style="font-family:var(--mono);font-weight:600;font-size:18px;letter-spacing:.18em;color:var(--fg);">{{ roomCodeShown }}</span>
+          </div>
+        </div>
+        <span style="font-family:var(--sans);font-size:13px;color:var(--muted);margin-bottom:18px;">{{ t.roomHint }}</span>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <sc-for list="{{ participants }}" as="p" hint-placeholder-count="5">
+            <button onClick="{{ p.onClick }}" disabled="{{ p.isYou }}" style="{{ p.rowStyle }}">
+              <span style="display:flex;flex-direction:column;gap:2px;text-align:left;min-width:0;">
+                <span style="font-family:var(--sans);font-weight:600;font-size:15px;color:var(--fg);">{{ p.name }}</span>
+                <span style="font-family:var(--mono);font-size:10.5px;letter-spacing:.04em;color:var(--faint);">{{ p.meta }}</span>
+              </span>
+              <span style="{{ p.tagStyle }}">{{ p.tag }}</span>
+            </button>
+          </sc-for>
+        </div>
+        <button onClick="{{ h.back }}" style="align-self:flex-start;margin-top:18px;background:none;border:none;cursor:pointer;font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);padding:6px 0;">← {{ t.back }}</button>
+      </div>
+    </sc-if>
+
+    <!-- LOBBY -->
+    <sc-if value="{{ isLobby }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:40px 28px;">
+        <div style="position:relative;width:96px;height:96px;display:flex;align-items:center;justify-content:center;margin-bottom:28px;">
+          <span style="position:absolute;inset:0;border-radius:50%;border:1px solid var(--ink);animation:sb-pulse 1.8s var(--ease-out) infinite;"></span>
+          <span style="position:absolute;inset:0;border-radius:50%;border:1px solid var(--ink);animation:sb-pulse 1.8s var(--ease-out) infinite .6s;"></span>
+          <span style="width:54px;height:54px;border-radius:50%;border:1.5px solid var(--ink);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:11px;color:var(--fg);">↔</span>
+        </div>
+        <span style="font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">{{ t.lobbyEyebrow }}</span>
+        <h2 style="font-family:var(--sans);font-weight:600;letter-spacing:-.025em;line-height:1.1;font-size:clamp(22px,3vw,29px);color:var(--fg);margin:0 0 12px;">{{ t.lobbyTitle }}</h2>
+        <p style="font-family:var(--sans);font-size:15px;color:var(--muted);margin:0 0 28px;max-width:30ch;">{{ t.lobbyDesc }}</p>
+      </div>
+    </sc-if>
+
+    <!-- (connected screen collapsed into Connecting + SAS) -->
+
+    <!-- SAS -->
+    <sc-if value="{{ isSas }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:30px 26px;">
+        <span style="font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">{{ t.sasEyebrow }}</span>
+        <h2 style="font-family:var(--sans);font-weight:600;letter-spacing:-.025em;line-height:1.1;font-size:clamp(21px,2.9vw,28px);color:var(--fg);margin:0 0 10px;max-width:20ch;">{{ t.sasTitle }}</h2>
+        <p style="font-family:var(--sans);font-size:14px;color:var(--muted);margin:0 0 24px;max-width:34ch;">{{ t.sasDesc }}</p>
+        <div style="display:flex;gap:10px;justify-content:center;width:100%;max-width:360px;">
+          <sc-for list="{{ sasItems }}" as="s" hint-placeholder-count="3">
+            <button onClick="{{ s.onClick }}" style="{{ s.cardStyle }}">
+              <span style="{{ s.numStyle }}">{{ s.v }}</span>
+            </button>
+          </sc-for>
+        </div>
+        <sc-if value="{{ hasChoice }}" hint-placeholder-val="{{ false }}">
+          <button onClick="{{ h.confirmSas }}" style="{{ confirmStyle }}">{{ confirmLabel }}</button>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <!-- SAS WAIT -->
+    <sc-if value="{{ isSasWait }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:40px 28px;">
+        <div style="font-family:var(--sans);font-weight:600;font-size:64px;letter-spacing:.04em;color:var(--fg);margin-bottom:18px;line-height:1;">{{ peerNumber }}</div>
+        <span style="font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">{{ t.swEyebrow }}</span>
+        <h2 style="font-family:var(--sans);font-weight:600;letter-spacing:-.025em;line-height:1.1;font-size:clamp(22px,3vw,29px);color:var(--fg);margin:0 0 12px;">{{ t.swTitle }}</h2>
+        <p style="font-family:var(--sans);font-size:15px;color:var(--muted);margin:0 0 28px;max-width:30ch;">{{ t.swDesc }}</p>
+      </div>
+    </sc-if>
+
+    <!-- TRANSFER (file select + status + incoming) -->
+    <sc-if value="{{ isTransfer }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:30px 30px;max-width:540px;width:100%;margin:0 auto;box-sizing:border-box;">
+        <span style="font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin-bottom:14px;">{{ transferEyebrow }}</span>
+        <h2 style="font-family:var(--sans);font-weight:600;letter-spacing:-.025em;line-height:1.1;font-size:clamp(22px,3vw,29px);color:var(--fg);margin:0 0 20px;">{{ t.trTitle }}</h2>
+
+        <sc-if value="{{ incomingShow }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;align-items:center;gap:12px;padding:13px 15px;border:1px solid var(--ink);border-radius:12px;margin-bottom:16px;animation:sb-rise .3s var(--ease-out);">
+            <sc-if value="{{ incReceiving }}" hint-placeholder-val="{{ true }}">
+              <span style="width:16px;height:16px;border:1.7px solid var(--fg);border-top-color:transparent;border-radius:50%;animation:sb-spin .9s linear infinite;flex:none;"></span>
+            </sc-if>
+            <sc-if value="{{ incDone }}" hint-placeholder-val="{{ false }}">
+              <span style="width:20px;height:20px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;flex:none;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="color:var(--inkfg);"><path d="M20 6L9 17l-5-5"></path></svg></span>
+            </sc-if>
+            <span style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;text-align:left;">
+              <span style="font-family:var(--sans);font-weight:600;font-size:13.5px;color:var(--fg);">{{ incTitle }}</span>
+              <span style="font-family:var(--mono);font-size:11px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ incFile }}</span>
+            </span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--faint);flex:none;">{{ incMeta }}</span>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ transferIdle }}" hint-placeholder-val="{{ true }}">
+          <div style="border:1.5px dashed var(--line2);border-radius:14px;padding:30px 20px;text-align:center;margin-bottom:14px;">
+            <div style="font-family:var(--sans);font-weight:600;font-size:16px;color:var(--fg);margin-bottom:6px;">{{ t.dropTitle }}</div>
+            <div style="font-family:var(--sans);font-size:13px;color:var(--muted);">{{ t.dropDesc }}</div>
+          </div>
+        </sc-if>
+
+        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">
+          <sc-for list="{{ files }}" as="f" hint-placeholder-count="3">
+            <div style="display:flex;align-items:center;gap:13px;padding:12px 16px;border:1px solid var(--line);border-radius:10px;">
+              <span style="width:30px;height:36px;border:1px solid var(--line2);border-radius:3px;flex:none;display:flex;align-items:flex-end;justify-content:center;padding-bottom:4px;font-family:var(--mono);font-size:8px;color:var(--faint);">{{ f.ext }}</span>
+              <span style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;text-align:left;">
+                <span style="font-family:var(--sans);font-weight:600;font-size:14px;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ f.name }}</span>
+                <span style="font-family:var(--mono);font-size:11px;color:var(--faint);">{{ f.size }}</span>
+                <sc-if value="{{ transferActive }}" hint-placeholder-val="{{ false }}">
+                  <div style="height:2px;background:var(--line);border-radius:999px;overflow:hidden;margin-top:5px;"><div style="height:100%;width:{{ progressW }};background:var(--muted);transition:width .2s linear;"></div></div>
+                </sc-if>
+              </span>
+              <sc-if value="{{ transferIdle }}" hint-placeholder-val="{{ true }}">
+                <span style="margin-left:auto;font-family:var(--mono);color:var(--faint);font-size:16px;cursor:pointer;">×</span>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+
+        <!-- IDLE: send button -->
+        <sc-if value="{{ transferIdle }}" hint-placeholder-val="{{ true }}">
+          <button onClick="{{ h.startSend }}" style="padding:15px 26px;border-radius:999px;background:var(--ink);color:var(--inkfg);border:1px solid var(--ink);font-family:var(--sans);font-weight:600;font-size:15px;cursor:pointer;transition:background .14s ease,color .14s ease;" style-hover="background:transparent;color:var(--fg);">{{ sendLabel }}</button>
+        </sc-if>
+
+        <!-- PLAQUE: sending / done -->
+        <sc-if value="{{ transferStarted }}" hint-placeholder-val="{{ false }}">
+          <div style="border:1px solid var(--line2);border-radius:12px;padding:18px 18px 16px;animation:sb-rise .3s var(--ease-out);">
+            <div style="display:flex;align-items:center;gap:11px;margin-bottom:12px;">
+              <sc-if value="{{ transferActive }}" hint-placeholder-val="{{ true }}">
+                <span style="width:15px;height:15px;border:1.6px solid var(--fg);border-top-color:transparent;border-radius:50%;animation:sb-spin .9s linear infinite;flex:none;"></span>
+              </sc-if>
+              <sc-if value="{{ transferComplete }}" hint-placeholder-val="{{ false }}">
+                <span style="width:18px;height:18px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;flex:none;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="color:var(--inkfg);"><path d="M20 6L9 17l-5-5"></path></svg></span>
+              </sc-if>
+              <span style="font-family:var(--sans);font-weight:600;font-size:14px;color:var(--fg);">{{ plaqueTitle }}</span>
+              <span style="margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--faint);">{{ plaqueMeta }}</span>
+            </div>
+            <div style="height:3px;background:var(--line);border-radius:999px;overflow:hidden;">
+              <div style="height:100%;width:{{ progressW }};background:var(--ink);transition:width .2s linear;"></div>
+            </div>
+            <sc-if value="{{ transferComplete }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:16px;">
+                <button onClick="{{ h.newTransfer }}" style="padding:11px 20px;border-radius:999px;background:var(--ink);color:var(--inkfg);border:1px solid var(--ink);font-family:var(--sans);font-weight:600;font-size:13px;cursor:pointer;transition:background .14s ease,color .14s ease;" style-hover="background:transparent;color:var(--fg);">{{ t.newTransfer }}</button>
+                <button onClick="{{ h.closeSession }}" style="padding:11px 20px;border-radius:999px;background:transparent;color:var(--fg);border:1px solid var(--line2);font-family:var(--sans);font-weight:600;font-size:13px;cursor:pointer;transition:background .14s ease,color .14s ease,border-color .14s ease;" style-hover="background:var(--ink);color:var(--inkfg);border-color:var(--ink);">{{ t.closeChannel }}</button>
+              </div>
+            </sc-if>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <!-- SESSION END -->
+    <sc-if value="{{ isSessionEnd }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:40px 28px;">
+        <div style="width:72px;height:72px;border-radius:50%;border:1.5px solid var(--line2);display:flex;align-items:center;justify-content:center;margin-bottom:24px;">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted);"><rect x="3" y="11" width="18" height="11" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+        </div>
+        <span style="font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">{{ t.seEyebrow }}</span>
+        <h2 style="font-family:var(--sans);font-weight:600;letter-spacing:-.025em;line-height:1.1;font-size:clamp(22px,3vw,29px);color:var(--fg);margin:0 0 12px;">{{ t.seTitle }}</h2>
+        <p style="font-family:var(--sans);font-size:15px;color:var(--muted);margin:0 0 30px;max-width:30ch;">{{ t.seDesc }}</p>
+        <button onClick="{{ h.restart }}" style="padding:15px 30px;border-radius:999px;background:var(--ink);color:var(--inkfg);border:1px solid var(--ink);font-family:var(--sans);font-weight:600;font-size:15px;cursor:pointer;transition:background .14s ease,color .14s ease;" style-hover="background:transparent;color:var(--fg);">{{ t.toHome }}</button>
+      </div>
+    </sc-if>
+
+    <!-- KEY CHANGED (signature failed against pinned key — fail-closed) -->
+    <sc-if value="{{ isKeyChanged }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:38px 28px;">
+        <div style="width:76px;height:76px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;margin-bottom:22px;">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="color:var(--inkfg);"><circle cx="7.5" cy="15.5" r="5.5"></circle><path d="m21 2-9.6 9.6"></path><path d="m15.5 7.5 3 3L22 7l-3-3"></path></svg>
+        </div>
+        <span style="font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">{{ t.kcEyebrow }}</span>
+        <h2 style="font-family:var(--sans);font-weight:600;letter-spacing:-.025em;line-height:1.08;font-size:clamp(23px,3.1vw,31px);color:var(--fg);margin:0 0 12px;max-width:18ch;">{{ t.kcTitle }}</h2>
+        <p style="font-family:var(--sans);font-size:15px;line-height:1.5;color:var(--muted);margin:0 0 30px;max-width:36ch;">{{ t.kcDesc }}</p>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:center;">
+          <button onClick="{{ h.reVerify }}" style="padding:14px 26px;border-radius:999px;background:var(--ink);color:var(--inkfg);border:1px solid var(--ink);font-family:var(--sans);font-weight:600;font-size:14px;cursor:pointer;transition:background .14s ease,color .14s ease;" style-hover="background:transparent;color:var(--fg);">{{ t.kcVerify }}</button>
+          <button onClick="{{ h.restart }}" style="padding:14px 26px;border-radius:999px;background:transparent;color:var(--fg);border:1px solid var(--line2);font-family:var(--sans);font-weight:600;font-size:14px;cursor:pointer;transition:background .14s ease,color .14s ease,border-color .14s ease;" style-hover="background:var(--ink);color:var(--inkfg);border-color:var(--ink);">{{ t.kcAbort }}</button>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- FALLBACK BLOCKED (safe mode refuses relay) -->
+    <sc-if value="{{ isFallback }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:38px 28px;">
+        <div style="width:72px;height:72px;border-radius:50%;border:1.5px solid var(--line2);display:flex;align-items:center;justify-content:center;margin-bottom:22px;">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted);"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><path d="M12 20h.01"></path><path d="m2 2 20 20"></path></svg>
+        </div>
+        <span style="font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">{{ t.fbEyebrow }}</span>
+        <h2 style="font-family:var(--sans);font-weight:600;letter-spacing:-.025em;line-height:1.08;font-size:clamp(23px,3.1vw,31px);color:var(--fg);margin:0 0 12px;max-width:18ch;">{{ t.fbTitle }}</h2>
+        <p style="font-family:var(--sans);font-size:15px;line-height:1.5;color:var(--muted);margin:0 0 30px;max-width:36ch;">{{ t.fbDesc }}</p>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:center;">
+          <button onClick="{{ h.disableSafeRetry }}" style="padding:14px 26px;border-radius:999px;background:var(--ink);color:var(--inkfg);border:1px solid var(--ink);font-family:var(--sans);font-weight:600;font-size:14px;cursor:pointer;transition:background .14s ease,color .14s ease;" style-hover="background:transparent;color:var(--fg);">{{ t.fbRetry }}</button>
+          <button onClick="{{ h.restart }}" style="padding:14px 26px;border-radius:999px;background:transparent;color:var(--fg);border:1px solid var(--line2);font-family:var(--sans);font-weight:600;font-size:14px;cursor:pointer;transition:background .14s ease,color .14s ease,border-color .14s ease;" style-hover="background:var(--ink);color:var(--inkfg);border-color:var(--ink);">{{ t.fbCancel }}</button>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- ERROR (variant: mismatch / room expired) -->
+    <sc-if value="{{ isError }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:40px 28px;">
+        <div style="width:76px;height:76px;border-radius:50%;border:1.5px solid var(--ink);display:flex;align-items:center;justify-content:center;margin-bottom:20px;">
+          <sc-if value="{{ errMismatch }}" hint-placeholder-val="{{ true }}">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="color:var(--fg);"><path d="M12 9v4"></path><path d="M12 17h.01"></path><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path></svg>
+          </sc-if>
+          <sc-if value="{{ errExpired }}" hint-placeholder-val="{{ false }}">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:var(--fg);"><circle cx="11" cy="11" r="7"></circle><path d="M11 8v3l2 1"></path><path d="m20 20-3.5-3.5"></path></svg>
+          </sc-if>
+        </div>
+        <span style="font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">{{ erEyebrow }}</span>
+        <h2 style="font-family:var(--sans);font-weight:600;letter-spacing:-.025em;line-height:1.08;font-size:clamp(24px,3.2vw,33px);color:var(--fg);margin:0 0 12px;max-width:18ch;">{{ erTitle }}</h2>
+        <p style="font-family:var(--sans);font-size:15px;color:var(--muted);margin:0 0 30px;max-width:34ch;">{{ erDesc }}</p>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:center;">
+          <button onClick="{{ h.erPrimary }}" style="padding:14px 26px;border-radius:999px;background:var(--ink);color:var(--inkfg);border:1px solid var(--ink);font-family:var(--sans);font-weight:600;font-size:14px;cursor:pointer;transition:background .14s ease,color .14s ease;" style-hover="background:transparent;color:var(--fg);">{{ erPrimaryLabel }}</button>
+          <button onClick="{{ h.erSecondary }}" style="padding:14px 26px;border-radius:999px;background:transparent;color:var(--fg);border:1px solid var(--line2);font-family:var(--sans);font-weight:600;font-size:14px;cursor:pointer;transition:background .14s ease,color .14s ease,border-color .14s ease;" style-hover="background:var(--ink);color:var(--inkfg);border-color:var(--ink);">{{ erSecondaryLabel }}</button>
+        </div>
+      </div>
+    </sc-if>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:760,&quot;height&quot;:520}}">
+class Component extends DCLogic {
+  act(a) { if (this.props.onAct) this.props.onAct(a); }
+  _scrollActive(tgt) { try { if (!tgt) return; const root = tgt.closest('.hs-root'); const sc = root && root.querySelector('.hs-stage'); if (!sc) return; setTimeout(() => { const dest = Math.max(0, tgt.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop - 80); const start = sc.scrollTop, delta = dest - start; if (Math.abs(delta) < 4) return; let i = 0; const tick = () => { i++; const k = i / 12; sc.scrollTop = start + delta * (k < 1 ? (1 - Math.pow(1 - k, 3)) : 1); if (i < 12) setTimeout(tick, 16); }; tick(); }, 70); } catch (e) {} }
+  renderVals() {
+    const p = this.props;
+    const lang = p.lang === 'ru' ? 'ru' : 'en';
+    const screen = p.screen || 'home';
+    const is = (s) => screen === s;
+    const A = (a) => () => this.act(a);
+    const peerName = p.peerName || 'brave-otter';
+    const method = p.method || 'link';
+    const errorType = p.errorType || 'mismatch';
+
+    const STR = {
+      en: {
+        notSecured: 'not secured',
+        homeEyebrow: 'end-to-end encrypted · no logs · nothing stored',
+        he1: 'end-to-end encrypted', he2: 'no logs', he3: 'nothing stored',
+        homeTitle: 'Send files device to device',
+        sendBtn: 'Send a file', or: 'or',
+        roomPrompt: 'Join a room by its number', joinBtn: 'Join',
+        methodEyebrow: 'sending · step 1 of 3', methodTitle: 'How should we connect?',
+        mLink: 'Link', mLinkD: 'One-time invite link',
+        mQr: 'QR code', mQrD: 'Point the other camera here',
+        mPake: 'Code words', mPakeD: 'Read five words aloud',
+        mRoom: 'Room', mRoomD: 'Create a room and share its code',
+        back: 'back',
+        rcEyebrow: 'room · choose', rcTitle: 'Create or join a room?',
+        rcCreate: 'Create a room', rcCreateD: "I'll share the code",
+        rcJoin: 'Join with a code', rcJoinD: 'I was given a code',
+        rcrEyebrow: 'room · created', rcrTitle: "Share the code with whoever you're waiting for",
+        rcrQrCaption: 'or show this QR', rcrWaiting: "You're first in the room · waiting for someone to join…",
+        rcrEntered: 'Someone joined ↦', share: 'Share',
+        rjEyebrow: 'room · join', rjTitle: 'Enter the room code', rjDesc: 'Four digits from whoever invited you.',
+        rjConnect: 'Join', rjConnecting: 'Connecting…',
+        roomFootnote: 'The name is a label, not proof — verify identity with numbers after connecting.',
+        credEyebrow: 'share with your peer', waiting: 'Waiting for your peer to join…',
+        peerConnected: 'Peer joined ↦',
+        credLink: 'Send this link', credQr: 'Show this code', credPake: 'Read these words',
+        roomEyebrow: 'room', roomTitle: "Who's in the room", roomCodeLabel: 'code',
+        roomHint: 'Tap a person to open a secure channel with them', youTag: 'you', connectTag: 'connect',
+        lobbyEyebrow: 'establishing channel', lobbyTitle: 'Agreeing on keys…',
+        lobbyDesc: 'Your devices set up a shared secret only the two of you hold.', channelReady: 'Channel ready ↦',
+        connEyebrow: 'channel encrypted', connDesc: 'Encryption is on. Now confirm no one slipped in between.',
+        fingerprintLabel: 'fingerprint · ', verifyBtn: 'Compare number', youMono: 'YOU',
+        sasEyebrow: 'verify over a second channel', sasTitle: 'Which number is your peer reading?',
+        sasDesc: "Ask by voice or another app. A match proves the channel isn't tampered with.",
+        peerSays: 'reads', optionTag: 'option', selectedTag: 'selected',
+        confirm: 'Confirm choice', pickFirst: 'Pick a number',
+        swEyebrow: 'you picked correctly', swTitle: 'Waiting for your peer…',
+        swDesc: 'Your peer is selecting your number on their screen too.', peerConfirmed: 'Peer confirmed ↦',
+        vEyebrow: 'identity confirmed', vTitle: 'Channel secured end-to-end',
+        vDesc: "The numbers matched — no one's in the middle. You can send files.", chooseFiles: 'Choose files',
+        trEyebrow: 'transfer', trTitle: 'What are we sending?',
+        dropTitle: 'Drop files here', dropDesc: 'or click to pick from your device', send: 'Send',
+        plaqueSending: 'Sending over encrypted channel', plaqueDone: 'Delivered to',
+        newTransfer: 'New transfer', closeChannel: 'Close channel', doneMeta: 'done',
+        seEyebrow: 'channel closed', seTitle: 'Session ended',
+        seDesc: 'Keys wiped on both devices. Nothing was stored.', toHome: 'Back home',
+        erEyebrow: "numbers didn't match", erTitle: 'This channel may be compromised',
+        erDesc: "The number you picked doesn't match your peer's. Someone may be intercepting — don't send files.",
+        recheck: 'Verify again', abort: 'Abort',
+        exEyebrow: 'error 4009 · room not found', exTitle: 'Room not found or code expired',
+        exDesc: 'No active room has this code, or it has already expired. Check the digits or start your own room.',
+        exCheck: 'Check the code', exCreate: 'Create your own room',
+        secEnc: 'encrypted · ', secVer: 'verified · ', secBarEnc: 'connection encrypted · ', secBarVer: 'connection verified · ',
+        secEncUnver: 'encrypted · unverified', secDanger: 'not verified', secBarEncUnver: 'connection encrypted · unverified', secBarDanger: 'connection not verified — do not send',
+        homeKnown: 'Recent devices', online: 'online', offlineSeen: 'last seen', reconnect: 'reconnect',
+        inviteBtn: 'Invite someone', joinHere: 'or join with a code', joinHint: 'Enter the 4-digit code', roomCodeAria: 'Room code', orWords: 'Enter code words', pakeEyebrow: 'receive · code words', pakeTitle: 'Enter the words they read', pakeDesc: 'Type each word — pick it from the suggestions as you go.', pakePlaceholder: 'type a word…', pakeNoMatch: 'No matching word', pakeCta: 'Connect',
+        safeMode: 'Max privacy', safeModeDesc: 'Always direct, peer-to-peer. Never relay through a server — even if that means not connecting.', safeTitle: 'Maximum privacy', offline: 'offline', statusOn: 'Maximum privacy', statusOff: 'Reliable connect',
+        consentEyebrow: 'direct connection', consentTitle: 'Connecting directly reveals your IP',
+        consentDesc: "hushsend links you device to device, with no middleman in between. Your peer's app sees your IP address, and you see theirs — that's the trade for having no one in the middle.",
+        consentSafeOn: 'Strict privacy is on — direct only, no middleman.',
+        consentSafeOff: 'If a direct link fails, hushsend may route through a middleman. Turn on strict privacy to forbid that.',
+        consentAccept: 'Connect directly',
+        kcEyebrow: 'device key changed', kcTitle: "This device's key changed",
+        kcDesc: 'The signature no longer matches the key we pinned. Your peer may have reinstalled or switched devices — or someone is impersonating them. Re-verify with numbers to be sure.',
+        kcVerify: 'Verify with numbers', kcAbort: "Don't connect",
+        fbEyebrow: "error · couldn't stay private", fbTitle: "Couldn't connect privately",
+        fbDesc: "A direct peer-to-peer link couldn't be made, and max privacy won't relay through a server. Nothing left your devices.",
+        fbRetry: 'Relax privacy & retry', fbCancel: 'Cancel',
+      },
+      ru: {
+        notSecured: 'не защищено',
+        homeEyebrow: 'сквозное шифрование · без логов · ничего не хранится',
+        he1: 'сквозное шифрование', he2: 'без логов', he3: 'ничего не хранится',
+        homeTitle: 'Передавайте файлы напрямую',
+        sendBtn: 'Отправить файл', or: 'или',
+        roomPrompt: 'Войдите в комнату по номеру', joinBtn: 'Войти',
+        methodEyebrow: 'отправка · шаг 1 из 3', methodTitle: 'Как соединить устройства?',
+        mLink: 'Ссылка', mLinkD: 'Одноразовая ссылка-приглашение',
+        mQr: 'QR-код', mQrD: 'Наведите камеру другого устройства',
+        mPake: 'Кодовые слова', mPakeD: 'Продиктуйте пять слов',
+        mRoom: 'Комната', mRoomD: 'Создайте комнату и поделитесь кодом',
+        back: 'назад',
+        rcEyebrow: 'комната · выбор', rcTitle: 'Создать или войти в комнату?',
+        rcCreate: 'Создать комнату', rcCreateD: 'поделюсь кодом',
+        rcJoin: 'Войти по коду', rcJoinD: 'мне дали код',
+        rcrEyebrow: 'комната · создана', rcrTitle: 'Поделись кодом с тем, кого ждёшь',
+        rcrQrCaption: 'или покажи QR', rcrWaiting: 'Ты первый в комнате · ждём, пока кто-то войдёт…',
+        rcrEntered: 'Кто-то вошёл ↦', share: 'Поделиться',
+        rjEyebrow: 'комната · вход', rjTitle: 'Введите код комнаты', rjDesc: 'Четыре цифры от того, кто пригласил.',
+        rjConnect: 'Войти', rjConnecting: 'Подключаемся…',
+        roomFootnote: 'Имя — метка, а не доказательство. Личность подтверждается числами после подключения.',
+        credEyebrow: 'передайте собеседнику', waiting: 'Ожидаем подключения собеседника…',
+        peerConnected: 'Собеседник подключился ↦',
+        credLink: 'Отправьте ссылку', credQr: 'Покажите код', credPake: 'Продиктуйте слова',
+        roomEyebrow: 'комната', roomTitle: 'Кто в комнате', roomCodeLabel: 'код',
+        roomHint: 'Нажмите на участника, чтобы открыть с ним защищённый канал', youTag: 'вы', connectTag: 'соединиться',
+        lobbyEyebrow: 'установка канала', lobbyTitle: 'Согласуем ключи…',
+        lobbyDesc: 'Устройства создают общий секрет, который есть только у вас двоих.', channelReady: 'Канал установлен ↦',
+        connEyebrow: 'канал зашифрован', connDesc: 'Шифрование включено. Осталось убедиться, что никто не вклинился.',
+        fingerprintLabel: 'отпечаток · ', verifyBtn: 'Сверить число', youMono: 'ВЫ',
+        sasEyebrow: 'проверка по второму каналу', sasTitle: 'Какое число называет собеседник?',
+        sasDesc: 'Спросите голосом или в другом мессенджере. Совпадение подтверждает, что канал не подменён.',
+        peerSays: 'говорит', optionTag: 'вариант', selectedTag: 'выбрано',
+        confirm: 'Подтвердить выбор', pickFirst: 'Выберите число',
+        swEyebrow: 'вы выбрали верно', swTitle: 'Ждём собеседника…',
+        swDesc: 'Собеседник тоже выбирает ваше число на своём экране.', peerConfirmed: 'Собеседник подтвердил ↦',
+        vEyebrow: 'личность подтверждена', vTitle: 'Канал защищён сквозным шифрованием',
+        vDesc: 'Числа совпали — посредника нет. Можно передавать файлы.', chooseFiles: 'Выбрать файлы',
+        trEyebrow: 'передача', trTitle: 'Что отправляем?',
+        dropTitle: 'Перетащите файлы сюда', dropDesc: 'или нажмите, чтобы выбрать на устройстве', send: 'Отправить',
+        plaqueSending: 'Передача по зашифрованному каналу', plaqueDone: 'Доставлено',
+        newTransfer: 'Новая передача', closeChannel: 'Закрыть канал', doneMeta: 'готово',
+        seEyebrow: 'канал закрыт', seTitle: 'Сессия завершена',
+        seDesc: 'Ключи стёрты с обоих устройств. История не сохранена.', toHome: 'На главную',
+        erEyebrow: 'числа не совпали', erTitle: 'Канал может быть скомпрометирован',
+        erDesc: 'Выбранное число не совпало с тем, что видит собеседник. Кто-то может перехватывать — не передавайте файлы.',
+        recheck: 'Сверить заново', abort: 'Прервать',
+        exEyebrow: 'ошибка 4009 · комната не найдена', exTitle: 'Комната не найдена или код истёк',
+        exDesc: 'Нет активной комнаты с таким кодом, либо он уже истёк. Проверьте цифры или создайте свою комнату.',
+        exCheck: 'Проверить код', exCreate: 'Создать свою комнату',
+        secEnc: 'зашифровано · ', secVer: 'сверено · ', secBarEnc: 'соединение зашифровано · ', secBarVer: 'соединение сверено · ',
+        secEncUnver: 'зашифровано · не проверено', secDanger: 'не проверено', secBarEncUnver: 'соединение зашифровано · не проверено', secBarDanger: 'соединение не проверено — не отправляйте',
+        homeKnown: 'Недавние устройства', online: 'онлайн', offlineSeen: 'был(а)', reconnect: 'переподключить',
+        inviteBtn: 'Пригласить', joinHere: 'или войти по коду', joinHint: 'Введите 4-значный код', roomCodeAria: 'Код комнаты', orWords: 'Ввести кодовые слова', pakeEyebrow: 'приём · кодовые слова', pakeTitle: 'Введите названные слова', pakeDesc: 'Вводите каждое слово — выбирайте из подсказок по мере набора.', pakePlaceholder: 'введите слово…', pakeNoMatch: 'Нет совпадений', pakeCta: 'Соединиться',
+        safeMode: 'Макс. приватность', safeModeDesc: 'Всегда напрямую, точка-точка. Никогда через сервер — даже если соединиться не выйдет.', safeTitle: 'Максимальная приватность', offline: 'оффлайн', statusOn: 'Макс. приватность', statusOff: 'Надёжное соединение',
+        consentEyebrow: 'прямое соединение', consentTitle: 'Прямое соединение раскроет ваш IP',
+        consentDesc: 'hushsend соединяет вас напрямую, без посредника между вами. Приложение собеседника увидит ваш IP-адрес, а вы — его. Это плата за отсутствие кого-либо посередине.',
+        consentSafeOn: 'Строгая приватность включена — только напрямую, без посредника.',
+        consentSafeOff: 'Если прямое соединение не удастся, hushsend может пойти через посредника. Включите строгую приватность, чтобы запретить.',
+        consentAccept: 'Соединиться напрямую',
+        kcEyebrow: 'ключ устройства изменился', kcTitle: 'Ключ этого устройства изменился',
+        kcDesc: 'Подпись больше не совпадает с запиненным ключом. Возможно, собеседник переустановил приложение или сменил устройство — либо кто-то выдаёт себя за него. Сверьте числа заново.',
+        kcVerify: 'Сверить числа', kcAbort: 'Не соединяться',
+        fbEyebrow: 'ошибка · приватность не сохранить', fbTitle: 'Не удалось соединиться приватно',
+        fbDesc: 'Прямое соединение точка-точка установить не удалось, а максимальная приватность не пускает трафик через сервер. Ничего не покинуло ваши устройства.',
+        fbRetry: 'Ослабить приватность и повторить', fbCancel: 'Отмена',
+      },
+    };
+    const t = STR[lang];
+
+    // security indicator: none | encrypted | verified | danger
+    const sec = p.securityIndicator || 'bar';
+    const secLevel = p.secLevel || 'none';
+    const showSec = secLevel !== 'none';
+    const ver = secLevel === 'verified';
+    const danger = secLevel === 'danger';
+    const secBadgeText = danger ? t.secDanger : (ver ? (t.secVer + peerName) : t.secEncUnver);
+    const secBarText = danger ? t.secBarDanger : (ver ? (t.secBarVer + peerName) : t.secBarEncUnver);
+    const safeOn = !!p.safeMode;
+    const safeTrackStyle = 'position:relative;width:42px;height:24px;border-radius:5px;flex:none;transition:background .16s ease,border-color .16s ease;background:' + (safeOn ? 'var(--ink)' : 'transparent') + ';border:1px solid ' + (safeOn ? 'var(--ink)' : 'var(--line2)') + ';';
+    const safeKnobStyle = 'position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:3px;transition:transform .16s var(--ease-out);background:' + (safeOn ? 'var(--inkfg)' : 'var(--fg)') + ';transform:translateX(' + (safeOn ? '20px' : '0px') + ');';
+    const consentSafeText = safeOn ? t.consentSafeOn : t.consentSafeOff;
+    const statusLabel = safeOn ? t.statusOn : t.statusOff;
+    const statusDotStyle = 'width:7px;height:7px;border-radius:50%;flex:none;' + (safeOn ? 'background:var(--fg);' : 'background:transparent;border:1px solid var(--faint);');
+    const statusChipStyle = 'align-self:flex-start;display:inline-flex;align-items:center;gap:8px;margin-bottom:18px;padding:7px 13px;border:1px solid var(--line2);border-radius:999px;background:transparent;cursor:pointer;font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);transition:border-color .14s ease,color .14s ease;';
+    const scrollToSafe = (e) => { try { const root = e.currentTarget.closest('.hs-root'); const sc = root && root.querySelector('.hs-stage'); const tgt = root && root.querySelector('.hs-safe'); if (!sc || !tgt) return; const dest = Math.max(0, tgt.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop - 16); const start = sc.scrollTop, delta = dest - start; let i = 0; const tick = () => { i++; const k = i / 14; sc.scrollTop = start + delta * (k < 1 ? (1 - Math.pow(1 - k, 3)) : 1); if (i < 14) setTimeout(tick, 16); }; tick(); } catch (err) {} };
+    // PAKE receive — five entry variants, toggled via the pakeEntry tweak
+    const wordPool = ['amber', 'basalt', 'cedar', 'cipher', 'cobalt', 'comet', 'corvette', 'ember', 'falcon', 'harbor', 'lichen', 'marble', 'meadow', 'nectar', 'opal', 'pewter', 'quartz', 'raven', 'sable', 'trout', 'vellum', 'willow'];
+    const variantMap = { '5 fields': 'boxes', 'Token chips': 'tokens', 'Inline slot': 'slot', 'Single field': 'single', 'Step by step': 'stepper' };
+    const pakeVariant = variantMap[p.pakeEntry] || 'boxes';
+    const pakeWords = (Array.isArray(p.pakeWords) ? p.pakeWords.slice(0, 5) : []);
+    while (pakeWords.length < 5) pakeWords.push('');
+    const pakeActive = (p.pakeActive != null) ? Math.max(0, Math.min(4, p.pakeActive)) : 0;
+    const pakeInputStr = (p.pakeInput || '').toLowerCase();
+    const pakeInputVal = p.pakeInput || '';
+    const pakeFilled = pakeWords.filter(Boolean).length;
+    const pakeFull = pakeFilled >= 5;
+    const pakeProgressLabel = pakeFilled + ' / 5';
+    const pakeSuggest = pakeInputStr
+      ? wordPool.filter((w) => w.indexOf(pakeInputStr) === 0 && pakeWords.indexOf(w) < 0).slice(0, 5).map((w) => ({ label: w, onClick: A({ type: 'pakeAdd', v: w }) }))
+      : [];
+    const pakeShowSuggest = pakeSuggest.length > 0;
+    const pakeNoMatch = !!pakeInputStr && pakeSuggest.length === 0;
+    const pakeConnectReady = pakeFull;
+    const pakeConnectStyle = 'margin-top:20px;padding:15px 32px;border-radius:999px;border:1px solid var(--ink);font-family:var(--sans);font-weight:600;font-size:15px;transition:background .14s ease,color .14s ease,opacity .14s ease;'
+      + (pakeConnectReady ? 'background:var(--ink);color:var(--inkfg);cursor:pointer;' : 'background:transparent;color:var(--faint);border-color:var(--line2);opacity:.6;cursor:not-allowed;');
+
+    const pakeIsBoxes = pakeVariant === 'boxes';
+    const pakeIsTokens = pakeVariant === 'tokens';
+    const pakeIsSlot = pakeVariant === 'slot';
+    const pakeIsSingle = pakeVariant === 'single';
+    const pakeIsStepper = pakeVariant === 'stepper';
+    const pakeSharedSuggest = pakeShowSuggest && !pakeIsSlot;
+    const pakeSharedNoMatch = pakeNoMatch && !pakeIsSlot;
+
+    const pakeCells = pakeWords.map((w, i) => {
+      const filled = !!w;
+      const active = i === pakeActive;
+      const inkText = filled && !active;
+      const brd = active ? 'var(--fg)' : (filled ? 'var(--ink)' : 'var(--line2)');
+      const bg = inkText ? 'var(--ink)' : 'var(--bg)';
+      const numC = inkText ? 'var(--inkfg)' : 'var(--faint)';
+      const wordC = inkText ? 'var(--inkfg)' : (filled ? 'var(--fg)' : 'var(--faint)');
+      const rmStyle = 'background:none;border:0;cursor:pointer;color:' + (inkText ? 'var(--inkfg)' : 'var(--faint)') + ';opacity:.75;font-family:var(--mono);font-size:15px;line-height:1;padding:0 2px;flex:none;';
+      return {
+        i, n: '0' + (i + 1), word: w, filled, active, isInput: active, showStatic: !active, showRemove: filled && !active,
+        suggestHere: active && pakeShowSuggest, noMatchHere: active && pakeNoMatch,
+        focusClick: A({ type: 'pakeFocus', i }), removeClick: A({ type: 'pakeRemove', i }),
+        placeholder: filled ? '' : (active ? '' : '—'),
+        singlePh: filled ? '' : (active ? (lang === 'ru' ? 'вводится ниже' : 'entering below') : '—'),
+        boxStyle: 'display:flex;align-items:center;gap:8px;width:142px;box-sizing:border-box;padding:11px 13px;border-radius:10px;transition:border-color .14s ease,background .14s ease;border:1.5px solid ' + brd + ';background:' + bg + ';',
+        slotStyle: 'display:flex;align-items:center;gap:11px;width:100%;box-sizing:border-box;padding:13px 16px;border-radius:10px;transition:border-color .14s ease,background .14s ease;border:1.5px solid ' + brd + ';background:' + bg + ';' + (pakeIsSingle ? 'cursor:pointer;text-align:left;' : ''),
+        numStyle: 'font-family:var(--mono);font-size:10px;letter-spacing:.1em;flex:none;color:' + numC + ';' + (inkText ? 'opacity:.7;' : ''),
+        wordBtnStyle: 'flex:1;min-width:0;background:none;border:0;padding:0;text-align:left;cursor:pointer;font-family:var(--mono);font-size:14px;color:' + wordC + ';',
+        wordStyle: 'flex:1;min-width:0;text-align:left;font-family:var(--mono);font-size:15px;color:' + wordC + ';',
+        inputStyle: 'flex:1;min-width:0;box-sizing:border-box;border:0;background:transparent;color:var(--fg);font-family:var(--mono);font-size:15px;outline:none;',
+        rmStyle,
+      };
+    });
+
+    const pakeChips = pakeWords.map((w, i) => ({ w, i, filled: !!w })).filter((c) => c.filled).map((c) => ({ w: c.w, removeClick: A({ type: 'pakeRemove', i: c.i }) }));
+    const pakeTokenOpen = !pakeFull;
+    const pakeTokenPh = pakeFilled === 0 ? t.pakePlaceholder : (lang === 'ru' ? '+ слово' : '+ word');
+    const pakeSingleLabel = pakeFull ? (lang === 'ru' ? 'все слова введены' : 'all words entered') : ((lang === 'ru' ? 'введите слово ' : 'type word ') + (pakeActive + 1));
+
+    const pakeStepCells = pakeWords.map((w, i) => ({
+      i, jump: A({ type: 'pakeFocus', i }),
+      dotStyle: 'width:11px;height:11px;border-radius:50%;flex:none;cursor:pointer;padding:0;transition:background .14s ease,border-color .14s ease;background:' + (i === pakeActive ? 'var(--fg)' : (w ? 'var(--ink)' : 'transparent')) + ';border:1px solid ' + (i === pakeActive ? 'var(--fg)' : (w ? 'var(--ink)' : 'var(--line2)')) + ';',
+    }));
+    const pakeStepNum = (lang === 'ru' ? 'слово ' : 'word ') + (pakeActive + 1) + ' / 5';
+    const pakeCanPrev = pakeActive > 0;
+    const pakeCanNext = pakeActive < 4;
+    const pakeNavPrevStyle = 'width:42px;height:42px;border-radius:999px;border:1px solid var(--line2);background:transparent;color:var(--fg);font-size:17px;flex:none;' + (pakeCanPrev ? 'cursor:pointer;' : 'opacity:.35;cursor:not-allowed;');
+    const pakeNavNextStyle = 'width:42px;height:42px;border-radius:999px;border:1px solid var(--line2);background:transparent;color:var(--fg);font-size:17px;flex:none;' + (pakeCanNext ? 'cursor:pointer;' : 'opacity:.35;cursor:not-allowed;');
+    const pakePrev = A({ type: 'pakeNav', dir: -1 });
+    const pakeNext = A({ type: 'pakeNav', dir: 1 });
+    const safeState = safeOn ? 'ON' : 'OFF';
+    const safeBoxStyle = 'display:inline-flex;align-items:center;justify-content:center;flex:none;padding:5px 11px;border-radius:4px;font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.12em;' + (safeOn ? 'background:var(--ink);color:var(--inkfg);border:1px solid var(--ink);' : 'background:transparent;color:var(--faint);border:1px solid var(--line2);');
+    const safeTitle = t.safeTitle;
+    const safeChipStyle = 'display:inline-flex;align-items:center;gap:6px;padding:6px 11px;border-radius:999px;font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;cursor:pointer;flex:none;transition:background .14s ease,color .14s ease,border-color .14s ease;'
+      + (safeOn ? 'border:1px solid var(--ink);background:var(--ink);color:var(--inkfg);' : 'border:1px solid var(--line2);background:transparent;color:var(--faint);');
+    const langBtnBase = 'background:transparent;border:0;font-family:var(--mono);font-size:11px;letter-spacing:.08em;padding:6px 11px;cursor:pointer;transition:background .14s ease,color .14s ease;';
+    const langEnStyle = langBtnBase + (lang === 'en' ? 'background:var(--ink);color:var(--inkfg);' : 'color:var(--faint);');
+    const langRuStyle = langBtnBase + (lang === 'ru' ? 'background:var(--ink);color:var(--inkfg);' : 'color:var(--faint);');
+    const frame = p.frame === 'mobile' ? 'mobile' : 'desktop';
+    const langTextBase = 'background:none;border:0;cursor:pointer;font-family:var(--mono);font-size:12px;letter-spacing:.06em;padding:2px 1px;transition:color .14s ease;';
+    const langEnText = langTextBase + (lang === 'en' ? 'color:var(--fg);border-bottom:1.5px solid var(--fg);' : 'color:var(--faint);border-bottom:1.5px solid transparent;');
+    const langRuText = langTextBase + (lang === 'ru' ? 'color:var(--fg);border-bottom:1.5px solid var(--fg);' : 'color:var(--faint);border-bottom:1.5px solid transparent;');
+
+    // handlers
+    const h = {
+      send: A({ type: 'go', v: 'method' }),
+      joinRoom: A({ type: 'homeJoin' }),
+      createRoom: A({ type: 'createRoom' }),
+      joinViaCode: A({ type: 'go', v: 'roomJoin' }),
+      submitJoin: A({ type: 'submitJoin' }),
+      roomInput: (e) => this.act({ type: 'roomInput', v: e.target.value.replace(/[^0-9]/g, '').slice(0, 4) }),
+      back: A({ type: 'back' }), next: A({ type: 'next' }), copy: A({ type: 'copy' }),
+      share: () => { try { if (navigator.share) { navigator.share({ title: 'hushsend', text: (method === 'room' ? ('hushsend room ' + (p.hostCode || '4821')) : 'https://hushsend.app/r/9F2K-7QXM') }); return; } } catch (e) {} this.act({ type: 'copy' }); },
+      confirmSas: A({ type: 'sasConfirm' }), retry: A({ type: 'go', v: 'sas' }),
+      erPrimary: A({ type: 'go', v: errorType === 'roomExpired' ? 'roomJoin' : 'sas' }),
+      erSecondary: errorType === 'roomExpired' ? A({ type: 'createRoom' }) : A({ type: 'restart' }),
+      restart: A({ type: 'restart' }), closeSession: A({ type: 'go', v: 'sessionEnd' }), newTransfer: A({ type: 'newTransfer' }),
+      startSend: A({ type: 'startSend' }), theme: A({ type: 'theme' }), lang: A({ type: 'lang' }), setEn: A({ type: 'setLang', v: 'en' }), setRu: A({ type: 'setLang', v: 'ru' }),
+      beginConnect: A({ type: 'beginConnect' }), consentAccept: A({ type: 'consentAccept' }), reVerify: A({ type: 'reVerify' }), disableSafeRetry: A({ type: 'disableSafeRetry' }), safeMode: A({ type: 'safeMode' }),
+      pakeType: (e) => { this.act({ type: 'pakeType', v: e.target.value.replace(/[^a-zA-Z]/g, '').toLowerCase() }); this._scrollActive(e.currentTarget); },
+      pakeConnect: A({ type: 'pakeConnect' }),
+      pakeScroll: (e) => this._scrollActive(e.currentTarget),
+    };
+
+    const methodOptions = [
+      { num: '01', title: t.mLink, desc: t.mLinkD, onClick: A({ type: 'method', v: 'link' }) },
+      { num: '02', title: t.mQr, desc: t.mQrD, onClick: A({ type: 'method', v: 'qr' }) },
+      { num: '03', title: t.mPake, desc: t.mPakeD, onClick: A({ type: 'method', v: 'pake' }) },
+      { num: '04', title: t.mRoom, desc: t.mRoomD, onClick: A({ type: 'method', v: 'room' }) },
+    ];
+
+    const credential = 'hushsend.app/r/9F2K-7QXM';
+    const credTitle = method === 'qr' ? t.credQr : (method === 'pake' ? t.credPake : t.credLink);
+    const wordChips = ['corvette', 'basalt', 'nectar', 'trout', 'cipher'].map((word, i) => ({ word, i: '0' + (i + 1) }));
+
+    // QR faux
+    const N = 13;
+    const finder = (r, c) => {
+      const inBox = (br, bc) => (r >= br && r < br + 7 && c >= bc && c < bc + 7);
+      const ring = (br, bc) => { const rr = r - br, cc = c - bc; if (rr === 0 || rr === 6 || cc === 0 || cc === 6) return true; if (rr >= 2 && rr <= 4 && cc >= 2 && cc <= 4) return true; return false; };
+      if (inBox(0, 0)) return ring(0, 0);
+      if (inBox(0, N - 7)) return ring(0, N - 7);
+      if (inBox(N - 7, 0)) return ring(N - 7, 0);
+      return null;
+    };
+    const qrCells = []; let seed = 7;
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+      const f = finder(r, c); let on;
+      if (f !== null) on = f; else { seed = (seed * 1103515245 + 12345) & 0x7fffffff; on = ((seed >> 8) % 100) < 46; }
+      qrCells.push({ bg: on ? 'var(--fg)' : 'transparent' });
+    }
+
+    // participants
+    const roster = [
+      { name: 'you', mono: t.youMono, you: true, meta: lang === 'ru' ? 'это вы · MacBook' : 'this is you · MacBook' },
+      { name: 'brave-otter', mono: 'b-o', meta: lang === 'ru' ? 'iPhone · 2 с назад' : 'iPhone · 2s ago' },
+      { name: 'calm-lynx', mono: 'c-l', meta: lang === 'ru' ? 'Windows · 10 с назад' : 'Windows · 10s ago' },
+      { name: 'swift-heron', mono: 's-h', meta: lang === 'ru' ? 'Android · 25 с назад' : 'Android · 25s ago' },
+      { name: 'quiet-vole', mono: 'q-v', meta: lang === 'ru' ? 'Linux · 1 мин назад' : 'Linux · 1m ago' },
+      { name: 'lone-stork', mono: 'l-s', meta: lang === 'ru' ? 'iPad · 2 мин назад' : 'iPad · 2m ago' },
+    ];
+    const avBase = 'width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-weight:600;font-size:12px;flex:none;border:1.5px solid var(--ink);color:var(--fg);';
+    const participants = roster.map((r) => ({
+      name: r.name, mono: r.mono, meta: r.meta, isYou: !!r.you,
+      onClick: r.you ? (() => {}) : A({ type: 'pickPeer', v: r.name }),
+      rowStyle: 'display:flex;align-items:center;gap:14px;padding:13px 16px;border:1px solid var(--line2);border-radius:12px;background:var(--bg);font-family:var(--sans);transition:border-color .14s ease;'
+        + (r.you ? 'opacity:.6;cursor:default;' : 'cursor:pointer;'),
+      avatarStyle: avBase + (r.you ? 'background:var(--ink);color:var(--inkfg);' : ''),
+      tag: r.you ? t.youTag : t.connectTag,
+      tagStyle: 'margin-left:auto;font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);flex:none;',
+    }));
+
+    // known devices (home reconnect)
+    const knownRaw = [
+      { name: 'brave-otter', mono: 'b-o', device: 'iPhone 15', online: true, seen: '' },
+      { name: 'calm-lynx', mono: 'c-l', device: 'Windows', online: true, seen: '' },
+      { name: 'lone-stork', mono: 'l-s', device: 'iPad', online: true, seen: '' },
+      { name: 'swift-heron', mono: 's-h', device: 'Android', online: false, seen: lang === 'ru' ? '12 мин' : '12m' },
+      { name: 'quiet-vole', mono: 'q-v', device: 'Linux', online: false, seen: lang === 'ru' ? '3 ч' : '3h' },
+    ];
+    const knownDevices = knownRaw.map((d) => ({
+      name: d.name, mono: d.mono, online: d.online,
+      meta: d.online ? (t.online + ' · ' + d.device) : (t.offline + ' · ' + d.device),
+      action: d.online ? t.reconnect : '',
+      onClick: d.online ? A({ type: 'reconnect', v: d.name }) : (() => {}),
+      rowStyle: 'display:flex;align-items:center;gap:13px;padding:12px 14px;border:1px solid var(--line2);border-radius:12px;background:var(--bg);font-family:var(--sans);transition:border-color .14s ease;' + (d.online ? 'cursor:pointer;' : 'opacity:.5;cursor:default;'),
+      dotStyle: 'width:7px;height:7px;border-radius:50%;flex:none;' + (d.online ? 'background:var(--fg);' : 'background:transparent;border:1px solid var(--faint);'),
+      avatarStyle: 'width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-weight:600;font-size:11px;flex:none;border:1.5px solid var(--ink);color:var(--fg);',
+      actionStyle: 'margin-left:auto;font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;flex:none;color:' + (d.online ? 'var(--fg)' : 'var(--faint)') + ';',
+    }));
+
+    // SAS
+    const nums = p.sasNumbers || [47, 12, 83];
+    const correct = (p.sasCorrect != null) ? p.sasCorrect : 0;
+    const choice = (p.sasChoice != null) ? p.sasChoice : null;
+    const peerNumber = String(nums[correct]);
+    const sasLayout = p.sasLayout || 'cards';
+    const cardBase = 'position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1 1 0;min-width:0;max-width:108px;height:104px;border-radius:10px;cursor:pointer;background:var(--bg);font-family:var(--sans);transition:border-color .14s ease,background .14s ease,color .14s ease;';
+    const rowBase = 'display:flex;align-items:center;gap:16px;padding:16px 20px;border-radius:12px;cursor:pointer;background:var(--bg);font-family:var(--sans);transition:border-color .14s ease,background .14s ease,color .14s ease;';
+    const sasItems = nums.map((v, i) => {
+      const sel = choice === i;
+      return {
+        v: String(v), onClick: A({ type: 'sas', i }),
+        cardStyle: cardBase + (sel ? 'border:1.5px solid var(--ink);background:var(--ink);color:var(--inkfg);' : 'border:1.5px solid var(--line2);color:var(--fg);'),
+        numStyle: 'font-weight:600;font-size:clamp(26px,7vw,40px);letter-spacing:.02em;line-height:1;' + (sel ? 'color:var(--inkfg);' : 'color:var(--fg);'),
+        rowStyle: rowBase + (sel ? 'border:1.5px solid var(--ink);background:var(--ink);color:var(--inkfg);' : 'border:1.5px solid var(--line2);color:var(--fg);'),
+        rowNumStyle: 'font-weight:600;font-size:30px;letter-spacing:.02em;' + (sel ? 'color:var(--inkfg);' : 'color:var(--fg);'),
+        tag: sel ? t.selectedTag : t.optionTag,
+        tagStyle: 'font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;' + (sel ? 'color:var(--inkfg);opacity:.8;' : 'color:var(--faint);'),
+      };
+    });
+    const hasChoice = choice !== null;
+    const confirmLabel = hasChoice ? t.confirm : t.pickFirst;
+    const confirmStyle = 'margin-top:26px;padding:15px 32px;border-radius:999px;border:1px solid var(--ink);font-family:var(--sans);font-weight:600;font-size:15px;transition:background .14s ease,color .14s ease,opacity .14s ease;'
+      + (hasChoice ? 'background:var(--ink);color:var(--inkfg);cursor:pointer;' : 'background:transparent;color:var(--faint);border-color:var(--line2);cursor:not-allowed;opacity:.6;');
+
+    // files + transfer
+    const filesRaw = [
+      { name: lang === 'ru' ? 'архив-проекта.zip' : 'project-archive.zip', size: lang === 'ru' ? '48,2 МБ' : '48.2 MB', ext: 'ZIP' },
+      { name: lang === 'ru' ? 'договор-2026.pdf' : 'contract-2026.pdf', size: lang === 'ru' ? '1,3 МБ' : '1.3 MB', ext: 'PDF' },
+      { name: lang === 'ru' ? 'обложка.png' : 'cover.png', size: lang === 'ru' ? '6,7 МБ' : '6.7 MB', ext: 'PNG' },
+    ];
+    const prog = (p.progress != null) ? p.progress : 0;
+    const sending = !!p.sending;
+    const transferIdle = !sending && prog === 0;
+    const transferActive = sending && prog < 100;
+    const transferComplete = prog >= 100;
+    const transferStarted = sending || prog >= 100;
+    const totalSize = lang === 'ru' ? '56,2 МБ' : '56.2 MB';
+    const countLabel = '3 ' + (lang === 'ru' ? 'файла' : 'files');
+    const sendLabel = t.send + ' ' + countLabel + ' · ' + totalSize;
+    const plaqueTitle = transferComplete ? (t.plaqueDone + ' ' + peerName) : t.plaqueSending;
+    const plaqueMeta = transferComplete ? t.doneMeta : (prog + '%');
+    const incoming = p.incoming || 'idle';
+    const incomingProg = (p.incomingProg != null) ? p.incomingProg : 0;
+    const incReceiving = incoming === 'receiving';
+    const incDone = incoming === 'done';
+    const incFile = lang === 'ru' ? '1 файл · обложка.png' : '1 file · cover.png';
+    const incTitle = incDone ? ((lang === 'ru' ? 'Получено от ' : 'Received from ') + peerName) : ((lang === 'ru' ? 'Входящие от ' : 'Incoming from ') + peerName);
+    const incMeta = incDone ? t.doneMeta : (incomingProg + '%');
+
+    // room create / join boxes
+    const hostCode = p.hostCode || '4821';
+    const hostBoxes = hostCode.split('').map((ch) => ({ ch }));
+    const rc = p.roomCode || '';
+    const joinBoxes = [0, 1, 2, 3].map((i) => ({
+      ch: rc[i] || '',
+      border: (i === rc.length && rc.length < 4) ? 'var(--ink)' : 'var(--line2)',
+    }));
+    const joinReady = rc.length === 4;
+    const joinBtnStyle = 'padding:15px 30px;border-radius:999px;border:1px solid var(--ink);font-family:var(--sans);font-weight:600;font-size:15px;transition:background .14s ease,color .14s ease,opacity .14s ease;'
+      + (joinReady ? 'background:var(--ink);color:var(--inkfg);cursor:pointer;' : 'background:transparent;color:var(--faint);border-color:var(--line2);opacity:.6;cursor:not-allowed;');
+
+    // error variant
+    const errExpired = errorType === 'roomExpired';
+    const errMismatch = !errExpired;
+    const erEyebrow = errExpired ? t.exEyebrow : t.erEyebrow;
+    const erTitle = errExpired ? t.exTitle : t.erTitle;
+    const erDesc = errExpired ? t.exDesc : t.erDesc;
+    const erPrimaryLabel = errExpired ? t.exCheck : t.recheck;
+    const erSecondaryLabel = errExpired ? t.exCreate : t.abort;
+
+    return {
+      rootStyle: (p.rootStyle || '') + "container-type:inline-size;background:var(--bg);color:var(--fg);width:100%;height:100%;display:flex;flex-direction:column;font-family:var(--sans);overflow:hidden;box-sizing:border-box;",
+      t, lang, langTarget: lang === 'en' ? 'RU' : 'EN',
+      themeRot: (p.theme === 'dark') ? 'transform:rotate(180deg);' : 'transform:rotate(0deg);',
+      isHome: is('home'), isMethod: is('method'), isCredential: is('credential'),
+      isRoomChoice: is('roomChoice'), isRoomCreate: is('roomCreate'), isRoomJoin: is('roomJoin'), isRoom: is('room'),
+      isLobby: is('lobby'), isConnected: is('connected'), isSas: is('sas'), isSasWait: is('sasWait'),
+      isVerified: is('verified'), isTransfer: is('transfer'), isSessionEnd: is('sessionEnd'), isError: is('error'),
+      isConsent: is('consent'), isKeyChanged: is('keyChanged'), isFallback: is('fallbackError'), isPakeJoin: is('pakeJoin'), pakeStart: A({ type: 'pakeStart' }),
+      pakeIsBoxes, pakeIsTokens, pakeIsSlot, pakeIsSingle, pakeIsStepper,
+      pakeCells, pakeChips, pakeTokenOpen, pakeTokenPh, pakeSingleLabel,
+      pakeStepCells, pakeStepNum, pakePrev, pakeNext, pakeNavPrevStyle, pakeNavNextStyle,
+      pakeSuggest, pakeShowSuggest, pakeNoMatch, pakeSharedSuggest, pakeSharedNoMatch, pakeConnectReady, pakeConnectStyle, pakeProgressLabel, pakeInputVal,
+      hostBoxes, joinBoxes, knownDevices, joinReady, joinBtnStyle, joinHintShow: !joinReady, safeOn, safeTrackStyle, safeKnobStyle, safeBoxStyle, safeState, consentSafeText, statusLabel, statusDotStyle, statusChipStyle, scrollToSafe, safeChipStyle, safeTitle, langEnStyle, langRuStyle, frameDesktop: frame === 'desktop', frameMobile: frame === 'mobile', langEnText, langRuText,
+      errMismatch, errExpired, erEyebrow, erTitle, erDesc, erPrimaryLabel, erSecondaryLabel,
+      secBadgeSafe: showSec && sec === 'badge' && !danger, secBadgeDanger: sec === 'badge' && danger,
+      secBar: showSec && sec === 'bar', secMetaInline: showSec && sec === 'metaline',
+      secBadgeText, secBarText, secMetaText: secBadgeText, secMetaColor: danger ? 'var(--fg)' : 'var(--faint)',
+      methodOptions, credential, credTitle, wordChips, qrCells,
+      methodQr: method === 'qr', methodLink: method === 'link', methodPake: method === 'pake',
+      copyLabel: p.copied ? (lang === 'ru' ? 'Скопировано' : 'Copied') : (lang === 'ru' ? 'Копировать' : 'Copy'),
+      participants, roomCode: p.roomCode || '', roomCodeShown: (p.roomCode && p.roomCode.length === 4) ? p.roomCode : '4815',
+      peerName, peerMono: (peerName.split('-').map((x) => x[0]).join('-')) || 'b-o',
+      connTitle: peerName + (lang === 'ru' ? ' на связи' : ' is connected'),
+      fingerprint: '7C·12·9F·A4·E0·3B',
+      sasItems, peerNumber, peerSaysLabel: peerName + ' ' + t.peerSays, confirmLabel, confirmStyle, hasChoice,
+      sasCards: true, sasStack: false,
+      files: filesRaw, transferEyebrow: t.trEyebrow + ' · ' + peerName,
+      transferIdle, transferActive, transferComplete, transferStarted,
+      incomingShow: incoming !== 'idle', incReceiving, incDone, incTitle, incFile, incMeta,
+      progressW: prog + '%', sendLabel, plaqueTitle, plaqueMeta,
+      h,
+    };
+  }
+}
+</script>
+</body>
+</html>

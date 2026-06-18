@@ -1,0 +1,21 @@
+/* ============================================================
+   Frelikh — Webfonts
+   Grotesk:  Archivo (display + body, latin)
+   Cyrillic: Onest   (cyrillic fallback in the same stack)
+   Mono:     IBM Plex Mono (labels, meta, code)
+   Sourced from Google Fonts; swap for self-hosted binaries in
+   production. Archivo is a variable font; Onest variable too.
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400..700&family=Onest:wght@400..700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+/* Metric-matched fallback against CLS on font swap (canonical
+   stack names a custom "Archivo Fallback" tuned to Arial). */
+@font-face {
+  font-family: "Archivo Fallback";
+  src: local("Arial");
+  ascent-override: 92%;
+  descent-override: 24%;
+  line-gap-override: 0%;
+  size-adjust: 100%;
+}

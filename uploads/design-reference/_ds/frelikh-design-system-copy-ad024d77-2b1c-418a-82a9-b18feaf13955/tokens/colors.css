@@ -1,0 +1,68 @@
+/* ============================================================
+   Frelikh — Color tokens
+   STRICTLY MONOCHROME. No accent color — this is intentional.
+   Two live themes: dark (production default) + light.
+   The "cream" theme in the original code is dead — ignored here.
+
+   Inverse / translucent fills are built with
+   color-mix(in srgb, var(--fg) N%, transparent) so they adapt
+   to the active theme automatically (light film on dark,
+   dark film on light) instead of being hard-coded per theme.
+   ============================================================ */
+
+:root {
+  /* Light theme is the :root baseline */
+  --bg: #ffffff;       /* page background */
+  --fg: #0b0b0b;       /* primary text */
+  --muted: #6c6c6c;    /* secondary text */
+  --faint: #767676;    /* captions / meta */
+  --line: #e6e6e6;     /* hairlines, dividers */
+  --line-2: #d4d4d4;   /* control borders */
+  --ink: #0b0b0b;      /* strong lines, inverse blocks, hover fill */
+  --ink-fg: #ffffff;   /* text on --ink */
+
+  /* GitHub contribution graph — 5 levels */
+  --gh-0: #ededed;
+  --gh-1: rgba(11, 11, 11, 0.22);
+  --gh-2: rgba(11, 11, 11, 0.42);
+  --gh-3: rgba(11, 11, 11, 0.66);
+  --gh-4: rgba(11, 11, 11, 0.92);
+
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --bg: #000000;
+  --fg: #f2f2f2;
+  --muted: #8c8c90;
+  --faint: #7a7a7e;
+  --line: #1b1b1d;
+  --line-2: #2c2c30;
+  --ink: #f2f2f2;
+  --ink-fg: #000000;
+
+  --gh-0: #161616;
+  --gh-1: rgba(242, 242, 242, 0.20);
+  --gh-2: rgba(242, 242, 242, 0.38);
+  --gh-3: rgba(242, 242, 242, 0.60);
+  --gh-4: rgba(242, 242, 242, 0.92);
+
+  color-scheme: dark;
+}
+
+/* AAA bump — prefers-contrast lifts greys to >=7:1 and darkens
+   hairlines so structure survives high-contrast modes. */
+@media (prefers-contrast: more) {
+  :root {
+    --muted: #4a4a4a;
+    --faint: #4a4a4a;
+    --line: #c4c4c4;
+    --line-2: #a8a8a8;
+  }
+  [data-theme="dark"] {
+    --muted: #c4c4c8;
+    --faint: #c4c4c8;
+    --line: #3a3a3e;
+    --line-2: #565660;
+  }
+}
