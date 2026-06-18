@@ -1,6 +1,7 @@
 import { configureStore } from '@reduxjs/toolkit';
 import connection from './connectionSlice';
 import transfer from './transferSlice';
+import dev from './devSlice'; // TEMPORARY: step-1 transport harness — remove with DevHarness (step 5)
 
 /**
  * The store holds ONLY serializable projections of session state.
@@ -9,7 +10,7 @@ import transfer from './transferSlice';
  * that, RTK's default serializability check stays ON.
  */
 export const store = configureStore({
-  reducer: { connection, transfer },
+  reducer: { connection, transfer, dev },
 });
 
 export type RootState = ReturnType<typeof store.getState>;

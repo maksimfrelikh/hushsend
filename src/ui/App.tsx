@@ -2,7 +2,9 @@ import { useMemo } from 'react';
 import { useAppDispatch } from '../store/hooks';
 import { createSessionController } from '../core/SessionController';
 import { SessionProvider } from './SessionProvider';
-import { ScreenRouter } from './screens';
+import { DevHarness } from './DevHarness';
+// NOTE: step 1 renders the temporary transport harness instead of <ScreenRouter />
+// (src/ui/screens). The real status-driven screens are wired back in at step 5.
 
 export function App() {
   const dispatch = useAppDispatch();
@@ -12,7 +14,7 @@ export function App() {
   return (
     <SessionProvider controller={controller}>
       <main className="app">
-        <ScreenRouter />
+        <DevHarness />
       </main>
     </SessionProvider>
   );
