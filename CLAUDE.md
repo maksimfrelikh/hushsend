@@ -114,6 +114,9 @@ Install: `npm install github:maksimfrelikh/stark-ui-kit`.
 - For focus-trap, scroll-lock, and copy-to-clipboard use the kit's hooks/utilities —
   `useFocusTrap`, `useScrollLock`, `copyToClipboard` — do not reimplement.
 - Build screens against the Claude Design mockups (provided separately).
+- Design priority: kit is the source of truth; mockups are reference for layout/flow — where
+  they conflict with kit components/tokens, the kit wins; never derive new tokens from
+  mockups, only `--brand-*` values.
 
 ## Signaling server (`server/signaling-server.js`)
 Self-contained Node + `ws`; PURE signaling, never carries file data. Already corrected:

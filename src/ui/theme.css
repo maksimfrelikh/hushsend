@@ -1,0 +1,60 @@
+/* ============================================================
+   hushsend — brand theme
+   ------------------------------------------------------------
+   The ONLY job of this file is to feed stark-ui-kit's colour /
+   font contract by setting --brand-* custom properties. The kit
+   resolves every semantic token through var(--brand-*, <fallback>);
+   we never redefine --bg/--fg/--r-*/--t-* etc. directly, and we
+   introduce NO new colour / spacing / radius scales.
+
+   Palette source: the Frelikh design system (strictly MONOCHROME,
+   no accent colour — intentional). Values are taken verbatim from
+   the hushsend mockups (design-reference: themeLight / themeDark)
+   which match the design-system colour tokens 1:1.
+
+   Default theme is LIGHT (:root) — the hushsend prototype boots in
+   light; dark is opt-in via [data-theme="dark"] on <html>.
+   ============================================================ */
+
+:root {
+  /* --- monochrome palette, light (default) --- */
+  --brand-bg: #ffffff;
+  --brand-fg: #0b0b0b;
+  --brand-muted: #6c6c6c;
+  --brand-faint: #767676;
+  --brand-line: #e6e6e6;
+  --brand-line-2: #d4d4d4;
+  --brand-ink: #0b0b0b; /* strong rules / inverted blocks / hover fill */
+  --brand-ink-fg: #ffffff; /* text on --ink */
+
+  /* high-contrast lift (prefers-contrast: more) — AAA greys */
+  --brand-muted-contrast: #4a4a4a;
+  --brand-faint-contrast: #4a4a4a;
+  --brand-line-contrast: #c4c4c4;
+  --brand-line-2-contrast: #a8a8a8;
+
+  /* --- font ROLES (brand families with graceful system fallback) ---
+     Web fonts (Archivo / Onest / IBM Plex Mono) are NOT loaded yet:
+     no external font request fits the privacy-first threat model, and
+     self-hosting is a later step. Until then these stacks fall back to
+     the platform grotesk / mono, and become correct once fonts ship. */
+  --brand-font-grotesk: 'Archivo', 'Onest', 'Helvetica Neue', Arial, system-ui, sans-serif;
+  --brand-font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+}
+
+/* --- monochrome palette, dark (opt-in: <html data-theme="dark">) --- */
+[data-theme='dark'] {
+  --brand-bg: #000000;
+  --brand-fg: #f2f2f2;
+  --brand-muted: #8c8c90;
+  --brand-faint: #7a7a7e;
+  --brand-line: #1b1b1d;
+  --brand-line-2: #2c2c30;
+  --brand-ink: #f2f2f2;
+  --brand-ink-fg: #000000;
+
+  --brand-muted-contrast: #c4c4c8;
+  --brand-faint-contrast: #c4c4c8;
+  --brand-line-contrast: #3a3a3e;
+  --brand-line-2-contrast: #565660;
+}
