@@ -121,14 +121,23 @@ export class PeerConnection {
 
   /** Send over the DataChannel, honoring backpressure: if the send buffer is above the
    *  high-water mark, the returned promise resolves only once it drains below
-   *  bufferedAmountLowThreshold. Small control messages (the step-1 ping) resolve at once.
-   *  (Heavy chunked use is wired up in step 2's file transfer.) */
-  async send(data: string | ArrayBuffer): Promise<void> {
+   *  bufferedAmountLowThreshold. Small control messages (the step-1 ping, transfer control
+   *  frames) resolve at once; the chunked file transfer (step 2) leans on the drain wait. */
+  async send(data: string | ArrayBuffer | ArrayBufferView): Promise<void> {
     const ch = this.channel;
     if (!ch || ch.readyState !== 'open') throw new Error('data channel is not open');
     if (typeof data === 'string') ch.send(data);
+    // Our transfer chunks are always backed by a plain ArrayBuffer; the lib's send()
+    // overload is typed for ArrayBufferView<ArrayBuffer>, so narrow to it.
+    else if (ArrayBuffer.isView(data)) ch.send(data as ArrayBufferView<ArrayBuffer>);
     else ch.send(data);
     if (ch.bufferedAmount > this.highWaterMark) await this.waitForDrain(ch);
+  }
+
+  /** SCTP-negotiated maximum DataChannel message size (bytes); 0 if not yet known.
+   *  The file transfer clamps its chunk size to this so a chunk never exceeds the limit. */
+  maxMessageSize(): number {
+    return this.pc?.sctp?.maxMessageSize ?? 0;
   }
 
   /** The fingerprint from our LOCAL SDP (what we offer the peer to validate against). */

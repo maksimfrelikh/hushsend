@@ -1,9 +1,24 @@
 import type { AppDispatch } from '../store';
 import { connectionActions } from '../store/connectionSlice';
 import { devActions } from '../store/devSlice';
+import { transferActions } from '../store/transferSlice';
 import { SignalingClient } from './signaling/SignalingClient';
 import { PeerConnection } from './webrtc/PeerConnection';
 import { splitWords } from './words/words';
+import {
+  sendFiles as startSend,
+  openReceive,
+  parseControl,
+  canStreamToDisk,
+  receiveMaxBytes,
+  formatBytes,
+  type TransferWire,
+  type ControlMessage,
+  type SendEvent,
+  type ReceiveEvent,
+  type ActiveSend,
+  type ActiveReceive,
+} from './transfer/fileTransfer';
 
 const DEFAULT_SIGNALING_URL = 'ws://localhost:8080';
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
@@ -31,6 +46,15 @@ export class SessionController {
   /** true once we've reached `connected`; after that a signaling drop is harmless (P2P is live). */
   private established = false;
   private readonly signalingUrl: string;
+
+  // --- file transfer (step 2) — one transfer at a time over the live DataChannel ---
+  /** Active outbound transfer, awaiting accept or streaming bytes. */
+  private sender: ActiveSend | null = null;
+  /** Active inbound transfer, sinking chunks to disk/RAM. */
+  private receiver: ActiveReceive | null = null;
+  /** An inbound offer surfaced to the UI, awaiting the human's accept/reject. */
+  private pendingOffer: { name: string; size: number; isZip: boolean; canStream: boolean; maxBytes: number } | null =
+    null;
 
   constructor(private readonly dispatch: AppDispatch) {
     this.signalingUrl = import.meta.env.VITE_SIGNALING_URL || DEFAULT_SIGNALING_URL;
@@ -171,7 +195,11 @@ export class SessionController {
   }
 
   private onPeerMessage(data: string | ArrayBuffer): void {
-    if (typeof data !== 'string') return; // step-1 harness speaks JSON text only
+    // Binary frame = a file chunk → straight to the active receiver's sink.
+    if (typeof data !== 'string') {
+      this.receiver?.handleChunk(data);
+      return;
+    }
     let msg: unknown;
     try {
       msg = JSON.parse(data);
@@ -179,12 +207,169 @@ export class SessionController {
       return;
     }
     if (!msg || typeof msg !== 'object') return;
+
+    // Transfer control frames carry a `t` discriminator (validated against the schema).
+    const control = parseControl(msg);
+    if (control) {
+      this.onTransferControl(control);
+      return;
+    }
+
+    // Otherwise it's the step-1 ping/echo harness (keyed by `kind`).
     const m = msg as { kind?: unknown; text?: unknown };
     if (m.kind === 'ping' && typeof m.text === 'string') {
       this.dispatch(devActions.appendLog(`← ping: ${m.text}`));
       void this.peer?.send(JSON.stringify({ kind: 'echo', text: m.text })); // echo back
     } else if (m.kind === 'echo' && typeof m.text === 'string') {
       this.dispatch(devActions.appendLog(`← echo: ${m.text}`));
+    }
+  }
+
+  // ---- file transfer (step 2) ----
+
+  /** A thin wire over the live PeerConnection — backpressure + chunk-size limit live there. */
+  private wire(): TransferWire {
+    const peer = this.peer!;
+    return {
+      send: (d) => peer.send(d),
+      maxMessageSize: peer.maxMessageSize(),
+    };
+  }
+
+  /**
+   * Public entry: send one or more files over the connected DataChannel. >1 file is
+   * packed on the fly into a single store-mode zip. No bytes flow until the peer accepts.
+   */
+  sendFiles(files: File[]): void {
+    if (files.length === 0) return;
+    if (!this.peer || !this.established) {
+      this.dispatch(transferActions.failed({ reason: 'not connected' }));
+      return;
+    }
+    if (this.sender || this.receiver || this.pendingOffer) return; // one transfer at a time
+    this.dispatch(transferActions.reset());
+    this.sender = startSend(this.wire(), files, (e) => this.onSendEvent(e));
+  }
+
+  /** Accept the pending inbound offer. MUST be called from a user gesture (FSA save picker). */
+  async acceptIncoming(): Promise<void> {
+    const offer = this.pendingOffer;
+    if (!offer || this.receiver) return;
+    try {
+      const recv = await openReceive(this.wire(), offer, offer.canStream, offer.maxBytes, (e) =>
+        this.onReceiveEvent(e),
+      );
+      this.receiver = recv;
+      this.pendingOffer = null;
+      await recv.start(); // sends `accept` — receiver ref is already stored, so chunks route
+      this.dispatch(transferActions.accepted());
+    } catch (err) {
+      // Most commonly the user dismissed the save picker (AbortError) → treat as a decline.
+      if (import.meta.env.DEV) console.debug('[session] receive setup aborted:', err);
+      this.pendingOffer = null;
+      this.receiver = null;
+      void this.peer?.send(JSON.stringify({ t: 'reject', reason: 'recipient cancelled' }));
+      this.dispatch(transferActions.cancelled());
+    }
+  }
+
+  /** Reject the pending inbound offer. */
+  rejectIncoming(reason = 'declined by recipient'): void {
+    if (!this.pendingOffer) return;
+    this.pendingOffer = null;
+    void this.peer?.send(JSON.stringify({ t: 'reject', reason }));
+    this.dispatch(transferActions.rejected({ reason }));
+  }
+
+  /** Cancel an in-flight transfer (either direction). */
+  cancelTransfer(): void {
+    this.sender?.cancel();
+    this.receiver?.cancel();
+  }
+
+  private onTransferControl(msg: ControlMessage): void {
+    switch (msg.t) {
+      case 'offer-file':
+        this.handleIncomingOffer({ name: msg.name, size: msg.size, isZip: msg.isZip });
+        break;
+      case 'accept':
+      case 'reject':
+        this.sender?.handleControl(msg);
+        break;
+      case 'eof':
+        this.receiver?.handleControl(msg);
+        break;
+      case 'cancel':
+        this.sender?.handleControl(msg);
+        this.receiver?.handleControl(msg);
+        break;
+    }
+  }
+
+  private handleIncomingOffer(offer: { name: string; size: number; isZip: boolean }): void {
+    if (this.sender || this.receiver || this.pendingOffer) return; // busy — ignore
+    const canStream = canStreamToDisk();
+    const maxBytes = receiveMaxBytes(canStream);
+    // Surface the offer for display either way; auto-reject oversize on the RAM-bound path.
+    this.dispatch(transferActions.offered({ direction: 'receive', fileName: offer.name, totalBytes: offer.size }));
+    if (offer.size > maxBytes) {
+      const reason = `This file is ${formatBytes(offer.size)} — larger than the ${formatBytes(
+        maxBytes,
+      )} this browser can save. Open hushsend in Chrome on desktop to receive it.`;
+      void this.peer?.send(JSON.stringify({ t: 'reject', reason }));
+      this.dispatch(transferActions.rejected({ reason }));
+      return; // no bytes ever requested
+    }
+    this.pendingOffer = { ...offer, canStream, maxBytes };
+  }
+
+  private onSendEvent(e: SendEvent): void {
+    switch (e.t) {
+      case 'offered':
+        this.dispatch(transferActions.offered({ direction: 'send', fileName: e.fileName, totalBytes: e.totalBytes }));
+        break;
+      case 'accepted':
+        this.dispatch(transferActions.accepted());
+        break;
+      case 'progress':
+        this.dispatch(transferActions.progress({ transferredBytes: e.transferredBytes }));
+        break;
+      case 'done':
+        this.dispatch(transferActions.completed());
+        this.sender = null;
+        break;
+      case 'rejected':
+        this.dispatch(transferActions.rejected({ reason: e.reason }));
+        this.sender = null;
+        break;
+      case 'cancelled':
+        this.dispatch(transferActions.cancelled());
+        this.sender = null;
+        break;
+      case 'error':
+        this.dispatch(transferActions.failed({ reason: e.reason }));
+        this.sender = null;
+        break;
+    }
+  }
+
+  private onReceiveEvent(e: ReceiveEvent): void {
+    switch (e.t) {
+      case 'progress':
+        this.dispatch(transferActions.progress({ transferredBytes: e.transferredBytes }));
+        break;
+      case 'done':
+        this.dispatch(transferActions.completed());
+        this.receiver = null;
+        break;
+      case 'cancelled':
+        this.dispatch(transferActions.cancelled());
+        this.receiver = null;
+        break;
+      case 'error':
+        this.dispatch(transferActions.failed({ reason: e.reason }));
+        this.receiver = null;
+        break;
     }
   }
 
@@ -237,14 +422,13 @@ export class SessionController {
     throw notImplemented('beginPairing');
   }
 
-  /** Send a file. Only valid once connected (the UI gates this too). */
-  async sendFile(_file: File): Promise<void> {
-    // TODO (step 2): chunk + backpressure over the DataChannel    (core/transfer/fileTransfer.ts)
-    throw notImplemented('sendFile');
-  }
-
   /** Tear everything down and reset state (cancel / session end / failure). */
   dispose(): void {
+    this.sender?.cancel();
+    this.receiver?.cancel();
+    this.sender = null;
+    this.receiver = null;
+    this.pendingOffer = null;
     this.peer?.close();
     this.signaling?.close();
     this.peer = null;
@@ -254,6 +438,7 @@ export class SessionController {
     this.isCreator = false;
     this.established = false;
     this.dispatch(connectionActions.reset());
+    this.dispatch(transferActions.reset());
     this.dispatch(devActions.reset());
   }
 }

@@ -1,6 +1,9 @@
 import { useState, type CSSProperties, type ReactElement } from 'react';
 import { useSession } from './SessionProvider';
 import { useAppSelector } from '../store/hooks';
+import { formatBytes } from '../core/transfer/fileTransfer';
+import type { SessionController } from '../core/SessionController';
+import type { TransferState } from '../store/transferSlice';
 
 /**
  * TEMPORARY step-1 transport harness — NOT a real screen. It only exists to drive
@@ -16,7 +19,9 @@ export function DevHarness(): ReactElement {
   const peerId = useAppSelector((s) => s.connection.peerId);
   const error = useAppSelector((s) => s.connection.error);
   const dev = useAppSelector((s) => s.dev);
+  const transfer = useAppSelector((s) => s.transfer);
   const [code, setCode] = useState('');
+  const [files, setFiles] = useState<File[]>([]);
 
   const connecting = status === 'creating' || status === 'pairing' || status === 'confirming';
 
@@ -25,7 +30,7 @@ export function DevHarness(): ReactElement {
       <p style={eyebrow}>step 1 · transport dev harness (temporary — real screens are step 5)</p>
 
       <p style={line}>
-        status: <strong>{status}</strong>
+        status: <strong data-testid="status">{status}</strong>
         {dev.selfId ? ` · you: ${dev.selfId}` : ''}
         {peerId ? ` · peer: ${peerId}` : ''}
       </p>
@@ -54,7 +59,7 @@ export function DevHarness(): ReactElement {
 
       {status === 'awaitingPeer' && (
         <p style={line}>
-          Share this code: <strong style={code4}>{room}</strong> — waiting for a peer to join…
+          Share this code: <strong style={code4} data-testid="room-code">{room}</strong> — waiting for a peer to join…
         </p>
       )}
 
@@ -70,6 +75,25 @@ export function DevHarness(): ReactElement {
           <button style={btn} onClick={() => void session.sendPing()}>
             Send ping
           </button>
+
+          <div style={{ ...row, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input
+              type="file"
+              multiple
+              data-testid="file-input"
+              onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+            />
+            <button
+              style={btn}
+              data-testid="send-btn"
+              disabled={files.length === 0}
+              onClick={() => session.sendFiles(files)}
+            >
+              Send {files.length > 1 ? `${files.length} files (zip)` : 'file'}
+            </button>
+          </div>
+
+          <TransferPanel session={session} transfer={transfer} />
         </div>
       )}
 
@@ -102,6 +126,68 @@ export function DevHarness(): ReactElement {
         )}
       </div>
     </section>
+  );
+}
+
+/** Transfer status + the incoming-offer accept/reject card. Throwaway dev UI. */
+function TransferPanel({
+  session,
+  transfer,
+}: {
+  session: SessionController;
+  transfer: TransferState;
+}): ReactElement | null {
+  const { phase, direction, fileName, totalBytes, transferredBytes, error } = transfer;
+  if (phase === 'idle') return null;
+
+  const pct = totalBytes > 0 ? Math.min(100, Math.round((transferredBytes / totalBytes) * 100)) : 0;
+  const incoming = phase === 'offered' && direction === 'receive';
+
+  return (
+    <div style={panel} data-testid="transfer">
+      <p style={panelLabel}>file transfer · {direction}</p>
+      <p style={line} data-testid="transfer-phase">
+        <strong>{phase}</strong> · {fileName ?? '—'} · {formatBytes(totalBytes)}
+      </p>
+
+      {incoming && (
+        <div style={row}>
+          <button style={btn} data-testid="accept-btn" onClick={() => void session.acceptIncoming()}>
+            Accept
+          </button>
+          <button style={btn} data-testid="reject-btn" onClick={() => session.rejectIncoming()}>
+            Reject
+          </button>
+        </div>
+      )}
+
+      {phase === 'offered' && direction === 'send' && <p style={line}>Waiting for peer to accept…</p>}
+
+      {(phase === 'transferring' || phase === 'done') && (
+        <>
+          <div style={progressTrack} aria-hidden>
+            <div style={{ ...progressFill, width: `${pct}%` }} />
+          </div>
+          <p style={mono} data-testid="transfer-bytes">
+            {transferredBytes} / {totalBytes} bytes ({pct}%)
+          </p>
+        </>
+      )}
+
+      {phase === 'done' && <p style={{ ...line, color: 'var(--fg)' }}>✓ complete</p>}
+      {(phase === 'rejected' || phase === 'error') && (
+        <p style={{ ...line }} data-testid="transfer-reason">
+          {phase}: {error}
+        </p>
+      )}
+      {phase === 'cancelled' && <p style={line} data-testid="transfer-reason">cancelled</p>}
+
+      {(phase === 'transferring' || phase === 'offered') && (
+        <button style={{ ...btn, marginTop: 8 }} onClick={() => session.cancelTransfer()}>
+          Cancel
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -153,3 +239,14 @@ const panel: CSSProperties = {
 };
 const panelLabel: CSSProperties = { ...eyebrow };
 const mono: CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 'var(--t-meta)', wordBreak: 'break-all' };
+const progressTrack: CSSProperties = {
+  height: 8,
+  borderRadius: 'var(--r-pill)',
+  background: 'var(--line)',
+  overflow: 'hidden',
+};
+const progressFill: CSSProperties = {
+  height: '100%',
+  background: 'var(--fg)',
+  transition: 'width var(--dur-2, 0.2s) var(--ease-out, ease)',
+};
