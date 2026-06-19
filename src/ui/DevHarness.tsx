@@ -19,11 +19,14 @@ export function DevHarness(): ReactElement {
   const method = useAppSelector((s) => s.connection.method);
   const room = useAppSelector((s) => s.connection.room);
   const credential = useAppSelector((s) => s.connection.credential);
+  const sas = useAppSelector((s) => s.connection.sas);
   const peerId = useAppSelector((s) => s.connection.peerId);
   const error = useAppSelector((s) => s.connection.error);
   const dev = useAppSelector((s) => s.dev);
   const transfer = useAppSelector((s) => s.transfer);
   const [code, setCode] = useState('');
+  const [sasCode, setSasCode] = useState('');
+  const [reconnectCode, setReconnectCode] = useState('');
   const [files, setFiles] = useState<File[]>([]);
 
   const connecting = status === 'creating' || status === 'pairing' || status === 'confirming';
@@ -67,7 +70,99 @@ export function DevHarness(): ReactElement {
             …or reproduce the 5 spoken words below (type ≥3 letters per box, then pick):
           </p>
           <WordPicker onJoin={(words) => void session.joinWordsSession(words)} />
+
+          <hr style={hr} />
+          <p style={eyebrow}>room method (4-digit · SAS)</p>
+          <button
+            style={btn}
+            data-testid="create-room-sas-btn"
+            onClick={() => void session.createRoomSession()}
+          >
+            New SAS room
+          </button>
+          <div style={row}>
+            <input
+              style={input}
+              value={sasCode}
+              onChange={(e) => setSasCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              placeholder="4-digit code"
+              inputMode="numeric"
+              maxLength={4}
+              aria-label="SAS code"
+              data-testid="room-sas-input"
+            />
+            <button
+              style={btn}
+              data-testid="join-room-sas-btn"
+              disabled={!/^\d{4}$/.test(sasCode)}
+              onClick={() => void session.joinRoomSession(sasCode)}
+            >
+              Connect (SAS)
+            </button>
+          </div>
+
+          <hr style={hr} />
+          <p style={eyebrow}>reconnect (4b-ii · pinned key · no SAS)</p>
+          <p style={{ ...line, color: 'var(--faint)' }}>
+            Re-authenticates against a peer you already pinned — no spoken words. Falls back to a
+            SAS comparison if either side has no pin; a different key under the same pairing is a
+            visible hard stop.
+          </p>
+          <button
+            style={btn}
+            data-testid="create-reconnect-btn"
+            onClick={() => void session.createReconnectSession()}
+          >
+            Reconnect (uses stored pin)
+          </button>
+          <div style={row}>
+            <input
+              style={input}
+              value={reconnectCode}
+              onChange={(e) => setReconnectCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              placeholder="4-digit code"
+              inputMode="numeric"
+              maxLength={4}
+              aria-label="reconnect code"
+              data-testid="reconnect-input"
+            />
+            <button
+              style={btn}
+              data-testid="join-reconnect-btn"
+              disabled={!/^\d{4}$/.test(reconnectCode)}
+              onClick={() => void session.joinReconnectSession(reconnectCode)}
+            >
+              Connect (reconnect)
+            </button>
+          </div>
         </div>
+      )}
+
+      {status === 'awaitingSas' && sas && (
+        <div style={col}>
+          <p style={line}>Compare these 3 words out loud with the other person:</p>
+          <p style={words5} data-testid="sas-words">
+            {sas}
+          </p>
+          <p style={{ ...line, color: 'var(--faint)' }}>
+            The 4-digit code is public — this comparison is what stops a man-in-the-middle. Only
+            confirm if BOTH of you read the SAME three words.
+          </p>
+          <div style={row}>
+            <button style={btn} data-testid="sas-match-btn" onClick={() => session.confirmSas(true)}>
+              They match
+            </button>
+            <button style={btn} data-testid="sas-nomatch-btn" onClick={() => session.confirmSas(false)}>
+              Don&apos;t match
+            </button>
+          </div>
+        </div>
+      )}
+
+      {status === 'confirming' && method === 'room' && (
+        <p style={line} data-testid="sas-waiting">
+          You confirmed — waiting for the other person to confirm…
+        </p>
       )}
 
       {status === 'awaitingPeer' && method === 'words' && credential && (
@@ -102,9 +197,17 @@ export function DevHarness(): ReactElement {
         <div style={col}>
           <p style={line}>
             Connected to {peerId} in room {room}.{' '}
-            {method === 'words' ? (
+            {dev.reconnect.outcome === 'authenticated' ? (
+              <span style={{ color: 'var(--fg)' }} data-testid="auth-state">
+                (authenticated — reconnect via pinned key, no SAS)
+              </span>
+            ) : method === 'words' ? (
               <span style={{ color: 'var(--fg)' }} data-testid="auth-state">
                 (authenticated — CPace + key-confirmation)
+              </span>
+            ) : sas ? (
+              <span style={{ color: 'var(--fg)' }} data-testid="auth-state">
+                (authenticated — SAS)
               </span>
             ) : (
               <span style={{ color: 'var(--faint)' }} data-testid="auth-state">
@@ -139,6 +242,12 @@ export function DevHarness(): ReactElement {
 
       {status === 'failed' && (
         <div style={col}>
+          {dev.reconnect.outcome === 'key-changed' && (
+            <div style={keyChangedBanner} data-testid="key-changed">
+              ⚠ KEY CHANGED — the peer under this pairing presented a different identity key. This is
+              a hard stop: no connection, no file transfer. Re-verify out-of-band before trusting it.
+            </div>
+          )}
           <p style={{ ...line, color: 'var(--fg)' }} data-testid="error">
             Failed: {error}
           </p>
@@ -151,10 +260,42 @@ export function DevHarness(): ReactElement {
       )}
 
       {(status === 'connected' || status === 'failed') && (
-        <button style={{ ...btn, marginTop: 8 }} onClick={() => session.dispose()}>
+        <button style={{ ...btn, marginTop: 8 }} data-testid="reset-btn" onClick={() => session.dispose()}>
           Reset
         </button>
       )}
+
+      <div style={panel}>
+        <p style={panelLabel}>identity (TOFU · step 4b-i)</p>
+        <p style={line}>
+          you: <strong>{short(dev.ownPublicKey)}</strong>
+        </p>
+        <p style={mono} data-testid="own-pubkey">
+          {dev.ownPublicKey ?? '—'}
+        </p>
+        {dev.pinnedPeer ? (
+          <>
+            <p style={{ ...line, marginTop: 6 }}>
+              pinned peer: <strong>{short(dev.pinnedPeer.peerPublicKey)}</strong>
+            </p>
+            <p style={mono} data-testid="pinned-peer-id">
+              {dev.pinnedPeer.pairingId}
+            </p>
+            <p style={mono} data-testid="pinned-peer-pubkey">
+              {dev.pinnedPeer.peerPublicKey}
+            </p>
+          </>
+        ) : (
+          <p style={{ ...mono, color: 'var(--faint)' }}>no peer pinned this session</p>
+        )}
+        <button
+          style={{ ...btn, marginTop: 8 }}
+          data-testid="reset-identity-btn"
+          onClick={() => void session.resetIdentity()}
+        >
+          Forget pins / reset identity
+        </button>
+      </div>
 
       <div style={panel}>
         <p style={panelLabel}>DTLS fingerprints</p>
@@ -334,6 +475,12 @@ function WordPosition({
   );
 }
 
+/** A short, readable fingerprint of a hex key for the dev UI: first 8 bytes, colon-grouped. */
+function short(hex: string | null): string {
+  if (!hex) return '—';
+  return (hex.slice(0, 16).match(/.{2}/g) ?? []).join(':');
+}
+
 // Bare, token-only inline styles (no new scales) — this harness is throwaway.
 const wrap: CSSProperties = {
   maxWidth: 560,
@@ -408,6 +555,15 @@ const panel: CSSProperties = {
   gap: 4,
 };
 const panelLabel: CSSProperties = { ...eyebrow };
+const keyChangedBanner: CSSProperties = {
+  border: '1px solid var(--ink)',
+  borderRadius: 'var(--r-md)',
+  padding: 14,
+  fontSize: 'var(--t-body)',
+  fontWeight: 600,
+  color: 'var(--fg)',
+  background: 'var(--bg)',
+};
 const mono: CSSProperties = { fontFamily: 'var(--font-mono)', fontSize: 'var(--t-meta)', wordBreak: 'break-all' };
 const progressTrack: CSSProperties = {
   height: 8,

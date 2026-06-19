@@ -18,6 +18,15 @@ export interface DevState {
    *  projection of the core's online-guessing counter — shown by the harness. */
   pairingAttempts: number;
   maxPairingAttempts: number;
+  /** our own long-term Ed25519 public key, hex (TOFU identity — step 4b-i). Public value. */
+  ownPublicKey: string | null;
+  /** the peer pinned on this connection (TOFU): pairingId + peer pubkey, both hex. A projection
+   *  of what was written to the keystore on enrollment; null until pinned. */
+  pinnedPeer: { pairingId: string; peerPublicKey: string } | null;
+  /** reconnect (step 4b-ii) outcome projection for the harness: `active` once a reconnect is being
+   *  attempted; `outcome` is the resolution — authenticated (no SAS), the visible key-changed hard
+   *  stop, or a fall-back to the SAS comparison (a pin was missing). Throwaway dev display. */
+  reconnect: { active: boolean; outcome: 'authenticated' | 'key-changed' | 'fell-back' | null };
 }
 
 const initialState: DevState = {
@@ -27,6 +36,9 @@ const initialState: DevState = {
   log: [],
   pairingAttempts: 0,
   maxPairingAttempts: 0,
+  ownPublicKey: null,
+  pinnedPeer: null,
+  reconnect: { active: false, outcome: null },
 };
 
 const slice = createSlice({
@@ -46,6 +58,18 @@ const slice = createSlice({
     setPairingAttempts(state, action: PayloadAction<{ attempts: number; max: number }>) {
       state.pairingAttempts = action.payload.attempts;
       state.maxPairingAttempts = action.payload.max;
+    },
+    setOwnPublicKey(state, action: PayloadAction<string | null>) {
+      state.ownPublicKey = action.payload;
+    },
+    setPinnedPeer(state, action: PayloadAction<{ pairingId: string; peerPublicKey: string } | null>) {
+      state.pinnedPeer = action.payload;
+    },
+    setReconnect(
+      state,
+      action: PayloadAction<{ active: boolean; outcome: 'authenticated' | 'key-changed' | 'fell-back' | null }>,
+    ) {
+      state.reconnect = action.payload;
     },
     reset: () => initialState,
   },
