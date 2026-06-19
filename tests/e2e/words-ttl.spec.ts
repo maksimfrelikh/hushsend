@@ -1,8 +1,9 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { createWords, pickWords } from './helpers';
 
 /**
  * The word-room TTL bounds the PAIRING WINDOW only — it must NOT cut off an already-established
@@ -26,15 +27,6 @@ let server: ChildProcess;
 
 function sha256(buf: Buffer): string {
   return createHash('sha256').update(buf).digest('hex');
-}
-
-async function pickWords(page: Page, words: string[]): Promise<void> {
-  for (let i = 0; i < words.length; i++) {
-    await page.getByTestId(`word-input-${i}`).fill(words[i]);
-    await page.getByTestId(`word-pos-${i}`).getByRole('button', { name: words[i], exact: true }).click();
-    await expect(page.getByTestId(`word-picked-${i}`)).toContainText(words[i]);
-  }
-  await page.getByTestId('words-join-btn').click();
 }
 
 async function waitForHealth(timeoutMs = 10000): Promise<void> {
@@ -73,10 +65,7 @@ test('word-room TTL expiry after connected does NOT drop the live P2P transfer',
   await receiver.goto(url);
 
   // A creates the word room (the short TTL starts ticking now); B reproduces the 5 words.
-  await sender.getByTestId('create-words-btn').click();
-  await expect(sender.getByTestId('status')).toHaveText('awaitingPeer', { timeout: 30_000 });
-  const words = (await sender.getByTestId('words').textContent())!.trim().split(/\s+/).filter(Boolean);
-  expect(words).toHaveLength(5);
+  const words = await createWords(sender);
   await pickWords(receiver, words);
 
   // Both authenticate (CPace + key-confirmation) and reach connected.

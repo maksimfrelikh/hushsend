@@ -2,6 +2,7 @@ import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { createWords as readCreatedWords, pickWords } from './helpers';
 
 /**
  * Step-3b "words" method, end to end through two Chromium tabs:
@@ -29,23 +30,8 @@ async function createWords(
 ): Promise<{ sender: Page; words: string[] }> {
   const sender = await context.newPage();
   await sender.goto(`/?forceBlob=1${extraQuery ? `&${extraQuery}` : ''}`);
-  await sender.getByTestId('create-words-btn').click();
-  await expect(sender.getByTestId('status')).toHaveText('awaitingPeer', { timeout: 30_000 });
-  const text = (await sender.getByTestId('words').textContent())?.trim() ?? '';
-  const words = text.split(/\s+/).filter(Boolean);
-  expect(words).toHaveLength(5);
+  const words = await readCreatedWords(sender);
   return { sender, words };
-}
-
-/** B reproduces a 5-word credential in the picker (type the word → click the narrowed match). */
-async function pickWords(page: Page, words: string[]): Promise<void> {
-  for (let i = 0; i < words.length; i++) {
-    await page.getByTestId(`word-input-${i}`).fill(words[i]);
-    // ≥3 chars narrows to the unique word (unique-3-char-prefix list); select it by exact text.
-    await page.getByTestId(`word-pos-${i}`).getByRole('button', { name: words[i], exact: true }).click();
-    await expect(page.getByTestId(`word-picked-${i}`)).toContainText(words[i]);
-  }
-  await page.getByTestId('words-join-btn').click();
 }
 
 async function joinWithWords(context: BrowserContext, words: string[]): Promise<Page> {

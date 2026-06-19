@@ -1,10 +1,12 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 
 /**
- * TEMPORARY — state for the step-1 transport dev harness only. Delete this slice
- * (and src/ui/DevHarness.tsx, and its line in store/index.ts) once the real screens
- * land in step 5. Holds nothing security-relevant — fingerprints are public values
- * shown only to confirm the DTLS channel was established.
+ * Auxiliary serializable projections the SessionController publishes for the UI and the DEV
+ * diagnostics strip: our own identity pubkey, the pinned peer, DTLS fingerprints, the words
+ * attempt counter, the reconnect outcome, and a signaling activity log. Holds nothing
+ * security-relevant — public keys, a pairing identifier, and public DTLS fingerprints. The real
+ * screens read the non-secret bits they need (own key, pinned peer, attempts, reconnect outcome);
+ * the rest is shown only by the DEV-only <Diagnostics> (tree-shaken from production builds).
  */
 export interface DevState {
   /** our readable signaling id from `welcome` (a label, not identity) */

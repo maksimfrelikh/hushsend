@@ -3,11 +3,16 @@ import { createHash, randomBytes } from 'node:crypto';
 import { closeSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { createWords, pickWords } from './helpers';
 
 /**
  * Step-2 file transfer, end to end through the live DataChannel. Every test forces the
  * RAM-bound Blob receive path (`?forceBlob=1`) so the download is observable by Playwright
  * — the native FSA save dialog cannot be automated (that path is verified manually).
+ *
+ * The pair is brought up through the REAL "words" screens (CPace + key-confirmation → an
+ * authenticated `connected`), the simplest fully-automatable real flow (no human SAS step). The
+ * old no-crypto transport rendezvous is no longer exposed by the real UI.
  */
 
 const TMP = join(process.cwd(), 'e2e-tmp');
@@ -54,16 +59,14 @@ async function sampleProgress(page: Page): Promise<number[]> {
   return seen;
 }
 
-/** Bring up two connected tabs via the no-crypto room rendezvous (forced Blob receive path). */
+/** Bring up two connected tabs via the real words flow (authenticated, forced Blob receive path). */
 async function connectPair(
   context: BrowserContext,
   opts: { receiverMaxBytes?: number } = {},
 ): Promise<{ sender: Page; receiver: Page }> {
   const sender = await context.newPage();
   await sender.goto('/?forceBlob=1');
-  await sender.getByRole('button', { name: 'Create room' }).click();
-  const code = (await sender.getByTestId('room-code').textContent())?.trim();
-  expect(code).toMatch(/^\d{4}$/);
+  const words = await createWords(sender);
 
   const receiver = await context.newPage();
   if (opts.receiverMaxBytes != null) {
@@ -72,8 +75,7 @@ async function connectPair(
     }, opts.receiverMaxBytes);
   }
   await receiver.goto('/?forceBlob=1');
-  await receiver.getByLabel('room code').fill(code!);
-  await receiver.getByRole('button', { name: 'Join' }).click();
+  await pickWords(receiver, words);
 
   await expect(sender.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
   await expect(receiver.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });

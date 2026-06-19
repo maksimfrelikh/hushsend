@@ -2,6 +2,7 @@ import { test, expect, type Browser, type Page } from '@playwright/test';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { createSasRoom, joinSasRoom, confirmSas } from './helpers';
 
 /**
  * Step-4b-ii reconnect (TOFU re-auth under pinned keys), end to end through two Chromium tabs.
@@ -41,18 +42,12 @@ async function openTab(browser: Browser, extraQuery = ''): Promise<Page> {
 /** Drive A (creator) + B (joiner) through a SAS room to an authenticated connected, so enrollment
  *  pins each other's identity under a shared pairingId. Leaves both at `connected`. */
 async function enrollViaSas(a: Page, b: Page): Promise<void> {
-  await a.getByTestId('create-room-sas-btn').click();
-  await expect(a.getByTestId('status')).toHaveText('awaitingPeer', { timeout: 30_000 });
-  const code = (await a.getByTestId('room-code').textContent())?.trim() ?? '';
-  expect(code).toMatch(/^\d{4}$/);
-  await b.getByTestId('room-sas-input').fill(code);
-  await b.getByTestId('join-room-sas-btn').click();
+  const code = await createSasRoom(a);
+  await joinSasRoom(b, code);
 
-  // Both render the SAS; confirm a match on both → authenticated connected → enrollment pins.
-  await expect(a.getByTestId('status')).toHaveText('awaitingSas', { timeout: 60_000 });
-  await expect(b.getByTestId('status')).toHaveText('awaitingSas', { timeout: 60_000 });
-  await a.getByTestId('sas-match-btn').click();
-  await b.getByTestId('sas-match-btn').click();
+  // Asymmetric SAS: A (creator) READS its phrase; B (joiner) is the BLIND picker → both confirm →
+  // authenticated connected → enrollment pins.
+  await confirmSas(a, b);
   await expect(a.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
   await expect(b.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
 
@@ -143,7 +138,14 @@ test('key-changed hard-stop: a peer presenting a different key under the same pa
   await expect(a.getByTestId('error')).toContainText('key changed');
   await expect(b.getByTestId('status')).toHaveText('failed', { timeout: 60_000 });
 
-  // Neither side ever rendered the file UI (only shown when connected) → no byte crossed.
-  await expect(a.getByTestId('file-input')).toHaveCount(0);
-  await expect(b.getByTestId('file-input')).toHaveCount(0);
+  // No DataChannel transfer happened on EITHER side — not just "the banner is shown". The transfer
+  // surface (the file picker AND the transfer panel/plaque + send control) renders ONLY at status
+  // `connected` (TransferScreen), so its total absence here is the structural proof that no byte
+  // could have crossed the DataChannel: never connected ⇒ no transfer UI ⇒ no transfer.
+  for (const page of [a, b]) {
+    await expect(page.getByTestId('file-input')).toHaveCount(0);
+    await expect(page.getByTestId('send-btn')).toHaveCount(0);
+    await expect(page.getByTestId('transfer')).toHaveCount(0);
+    await expect(page.getByTestId('status')).not.toHaveText('connected');
+  }
 });

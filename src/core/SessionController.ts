@@ -9,7 +9,15 @@ import { SignalingClient } from './signaling/SignalingClient';
 import { PeerConnection } from './webrtc/PeerConnection';
 import { generateWords, splitWords } from './words/words';
 import { init as cpaceInit, finish as cpaceFinish, type CPaceState } from './crypto/cpace';
-import { makeConfirmation, verifyConfirmation, type ConfirmationRole } from './crypto/keyConfirmation';
+import {
+  makeConfirmation,
+  verifyConfirmation,
+  CPACE_CONFIRM_DOMAIN,
+  LINK_CONFIRM_DOMAIN,
+  type ConfirmationRole,
+  type ConfirmationDomain,
+} from './crypto/keyConfirmation';
+import { generateLinkSecret, buildLinkUrl } from './link/link';
 import { generateNonce, sasCommit, verifySasCommit, computeSasWords, NONCE_BYTES } from './crypto/sas';
 import {
   getOrCreateIdentity,
@@ -339,7 +347,19 @@ export class SessionController {
   private isCreator = false;
   /** Which rendezvous+auth method this session is running. Drives the welcome/peer-joined
    *  branch and whether onChannelOpen runs real CPace key-confirmation or the step-1 no-op. */
-  private method: 'room' | 'words' | null = null;
+  private method: 'room' | 'words' | 'link' | 'qr' | null = null;
+
+  // --- link / qr method (step 5b) — high-entropy URL-fragment secret, NO PAKE, NO SAS.
+  //     Rendezvous is a 4-digit room (same as room method); the secret S authenticates the
+  //     channel via the same key-confirmation as words, under the LINK domain. Lives ONLY in
+  //     the core; the encoded form is surfaced to the creator's own screen as the link to share. ---
+  /** The 16-byte one-time secret S (key-confirmation IKM). Non-null iff this is a link/qr session. */
+  private linkSecret: Uint8Array | null = null;
+  /** base64url(S) for building the shareable link (creator side only). Never sent to the server. */
+  private linkSecretEncoded: string | null = null;
+  /** One-shot guard for the link/qr connected | failed decision (mirrors confirmSettled's role for
+   *  the failure-teardown re-entrancy from onChannelClose / onPeerLeft). */
+  private linkSettled = false;
 
   // --- room method (step 4a) — 4-digit rendezvous + mandatory SAS. Lives ONLY in the core. ---
   /** Non-null iff this is the SAS-authenticated room path (vs the step-1 UNauthenticated room). */
@@ -472,6 +492,10 @@ export class SessionController {
       if (this.method === 'words') {
         this.role = 'responder';
         this.attemptResolved = false; // B's single shot
+      } else if (this.method === 'link' || this.method === 'qr') {
+        // link/qr: B is the responder. No PAKE, no SAS — the DataChannel comes up and the
+        // key-confirmation runs over the URL-fragment secret S at channel-open.
+        this.role = 'responder';
       } else if (this.sas) {
         // room + SAS: B is the responder. COMMIT to nonceB now — before A reveals nonceA — so B
         // is locked to its nonce and cannot grind it against A's. The reveal of nonceB waits
@@ -501,6 +525,11 @@ export class SessionController {
       this.role = 'initiator';
       this.attemptResolved = false; // a new guess attempt begins
       this.beginCpaceAsInitiator();
+    } else if (this.method === 'link' || this.method === 'qr') {
+      // link/qr: A is the initiator. No PAKE — bring up WebRTC straight away; the secret S is
+      // already in hand, and key-confirmation over it runs once the DataChannel opens.
+      this.role = 'initiator';
+      this.startPeer(peerId, /* initiator */ true);
     } else {
       // room method: we initiate WebRTC. On the SAS path, also arm the pre-SAS pairing deadline
       // now — the 4-digit room has no server TTL yet, so without this a peer that joins but stalls
@@ -518,6 +547,10 @@ export class SessionController {
     // drop, so we leave it alone (also the step-1 room behavior).
     if (this.method === 'words' && !this.established) {
       this.onWordsPairingFailure('peer left during pairing');
+    }
+    // link/qr: a peer dropping before connected aborts this single-use attempt (no bytes).
+    if ((this.method === 'link' || this.method === 'qr') && !this.established) {
+      this.failLink('peer left during pairing');
     }
     // reconnect (pre-fallback): a peer dropping mid-re-auth is a hard stop (no bytes). After
     // fallback it's the plain SAS path below; failReconnect closes out SAS so failSas can't re-fire.
@@ -651,6 +684,14 @@ export class SessionController {
       return;
     }
 
+    if (this.linkSecret) {
+      // link/qr method: SAME channel-bound key-confirmation as words, but the IKM is the
+      // high-entropy URL-fragment secret S (LINK domain), not a CPace ISK. Match ⇒ authenticated
+      // `connected`; no S / wrong S / MITM with different certs ⇒ mismatch ⇒ failed, no byte.
+      this.runKeyConfirmation(local, remote);
+      return;
+    }
+
     // ⚠️ step-1 "room" transport path: NO authentication. This `connected` is UNAUTHENTICATED
     // (anyone who reached the rendezvous is trusted). It exists only to prove the DataChannel
     // comes up; the real room method (4-digit + mandatory SAS) is a later step. The words
@@ -660,49 +701,94 @@ export class SessionController {
     this.dispatch(connectionActions.connectionEstablished());
   }
 
+  /** The shared secret the key-confirmation MACs the DTLS fingerprints under: the CPace ISK for
+   *  words, or the URL-fragment secret S for link/qr. Null off both confirmation paths. */
+  private confirmSecret(): Uint8Array | null {
+    return this.sessionKey ?? this.linkSecret;
+  }
+
+  /** Domain separation for the confirmation: link/qr use their own HKDF info + tag label so an
+   *  S-derived tag can never be confused with an ISK-derived one; words use the CPace default. */
+  private confirmDomain(): ConfirmationDomain {
+    return this.linkSecret ? LINK_CONFIRM_DOMAIN : CPACE_CONFIRM_DOMAIN;
+  }
+
   /**
-   * Words method: produce our confirmation tag over (sessionKey, localFp, remoteFp, ourRole),
-   * send it to the peer, and verify the peer's tag. The two sides hold the same fingerprint
-   * pair (labelled local/remote oppositely) — keyConfirmation canonicalises the order — so a
-   * shared ISK + an honest channel ⇒ both tags verify ⇒ authenticated `connected`. A wrong
-   * password yields divergent ISKs ⇒ verification fails ⇒ `failed`, channel torn down.
+   * Produce our confirmation tag over (secret, localFp, remoteFp, ourRole) under this method's
+   * domain, send it to the peer, and verify the peer's tag. The two sides hold the same
+   * fingerprint pair (labelled local/remote oppositely) — keyConfirmation canonicalises the order
+   * — so a shared secret + an honest channel ⇒ both tags verify ⇒ authenticated `connected`. A
+   * wrong/absent secret (wrong words / wrong S) yields divergent confirmation keys, and a MITM
+   * with different certs yields divergent fingerprints ⇒ verification fails ⇒ `failed`, torn down.
+   * Shared by the words (CPace ISK) and link/qr (URL-fragment S) paths.
    */
   private runKeyConfirmation(local: string | null, remote: string | null): void {
-    if (!this.sessionKey || !this.role || !local || !remote) {
-      this.onWordsPairingFailure('key-confirmation: missing session key or DTLS fingerprints');
+    const secret = this.confirmSecret();
+    if (!secret || !this.role || !local || !remote) {
+      this.onConfirmFailure('key-confirmation: missing session key or DTLS fingerprints');
       return;
     }
     this.confirmFps = { local, remote };
-    const tag = makeConfirmation(this.sessionKey, local, remote, this.role);
+    const tag = makeConfirmation(secret, local, remote, this.role, this.confirmDomain());
     void this.peer
       ?.send(JSON.stringify({ kind: 'confirm', role: this.role, tag: bytesToHex(tag) }))
-      .catch((err) => this.onWordsPairingFailure(`key-confirmation: failed to send tag (${errText(err)})`));
+      .catch((err) => this.onConfirmFailure(`key-confirmation: failed to send tag (${errText(err)})`));
     this.tryVerifyConfirmation(); // the peer's tag may already be waiting (order-independent)
   }
 
   /** Verify the peer's tag once BOTH our fingerprints and the peer's tag are known. One-shot. */
   private tryVerifyConfirmation(): void {
     if (this.confirmSettled) return;
-    if (!this.sessionKey || !this.role || !this.confirmFps || !this.peerConfirmTag) return;
+    const secret = this.confirmSecret();
+    if (!secret || !this.role || !this.confirmFps || !this.peerConfirmTag) return;
     // Reflection defense: verify under the role we EXPECT the peer to hold (the opposite of
     // ours), never a role claimed on the wire — an echoed copy of our own tag fails here.
     const peerRole: ConfirmationRole = this.role === 'initiator' ? 'responder' : 'initiator';
     const ok = verifyConfirmation(
-      this.sessionKey,
+      secret,
       this.confirmFps.local,
       this.confirmFps.remote,
       peerRole,
       this.peerConfirmTag,
+      this.confirmDomain(),
     );
     this.confirmSettled = true;
     if (ok) {
-      this.attemptResolved = true; // success — no later signal should count as a failure
+      this.attemptResolved = true; // success — no later signal should count as a failure (words)
+      this.linkSettled = true; // success — link/qr teardown guards are now closed
       this.established = true;
       this.dispatch(connectionActions.connectionEstablished());
       this.startEnrollment(); // TOFU enrollment over the now-authenticated channel (does NOT gate)
     } else {
-      this.onWordsPairingFailure('key-confirmation mismatch — wrong words or a man-in-the-middle');
+      this.onConfirmFailure(
+        this.method === 'words'
+          ? 'key-confirmation mismatch — wrong words or a man-in-the-middle'
+          : 'key-confirmation mismatch — wrong or missing secret, or a man-in-the-middle',
+      );
     }
+  }
+
+  /** Route a key-confirmation failure to the right per-method teardown: the words retry/attempt
+   *  counter, or the single-use link/qr hard stop. */
+  private onConfirmFailure(reason: string): void {
+    if (this.method === 'words') {
+      this.onWordsPairingFailure(reason);
+      return;
+    }
+    this.failLink(reason);
+  }
+
+  /** Hard stop on the link/qr path (wrong/absent secret, MITM, channel drop, send failure): tear
+   *  down the channel + signaling and fail. No file byte ever crossed (we are not yet `connected`),
+   *  and the link is single-use so there is no retry. Guarded one-shot so a mismatch and the
+   *  ensuing channel-close don't double-fire. No-op off the link/qr methods. */
+  private failLink(reason: string): void {
+    if ((this.method !== 'link' && this.method !== 'qr') || this.linkSettled) return;
+    this.linkSettled = true;
+    this.peer?.close();
+    this.peer = null;
+    this.signaling?.close();
+    this.fail(new Error(reason));
   }
 
   /**
@@ -752,8 +838,19 @@ export class SessionController {
     this.confirmSettled = false;
   }
 
-  /** The full 5-word credential (rendezvous + 4 secret) for display, or null if not yet known. */
+  /**
+   * The credential to surface to the creator's OWN screen, or null if not yet known. For words it
+   * is the full 5-word phrase (rendezvous + 4 secret) to read aloud; for link/qr it is a
+   * single-element array holding the shareable link `<origin>/#<roomCode>.<S>` (the secret lives in
+   * the fragment and is shown only to the creator — it never reaches the server). Consistent with
+   * how the words method surfaces its secret words to the creator for display.
+   */
   private fullCredential(): string[] | null {
+    if (this.method === 'link' || this.method === 'qr') {
+      if (!this.rendezvous || !this.linkSecretEncoded) return null;
+      const origin = (typeof window !== 'undefined' && window.location?.origin) || '';
+      return [buildLinkUrl(origin, this.rendezvous, this.linkSecretEncoded)];
+    }
     return this.rendezvous && this.pendingSecretWords ? [this.rendezvous, ...this.pendingSecretWords] : null;
   }
 
@@ -782,9 +879,11 @@ export class SessionController {
     this.fail(new Error('expired'));
   }
 
-  /** Stash the peer's confirmation tag and try to settle (order-independent with our own). */
+  /** Stash the peer's confirmation tag and try to settle (order-independent with our own). Used by
+   *  both confirmation paths (words = CPace ISK, link/qr = URL-fragment S); the SAS/step-1 paths
+   *  hold no confirmation secret, so tryVerifyConfirmation no-ops for them. */
   private onConfirmMessage(tagHex: string): void {
-    if (this.method !== 'words' || this.confirmSettled) return;
+    if (this.confirmSettled || !this.confirmSecret()) return;
     try {
       this.peerConfirmTag = hexToBytes(tagHex);
     } catch {
@@ -801,6 +900,11 @@ export class SessionController {
     // waiting for a tag that was never delivered. (Guarded, so it never double-counts.)
     if (this.method === 'words' && !this.established) {
       this.onWordsPairingFailure('channel closed during pairing');
+    }
+    // link/qr: the channel closing before connected means the peer hard-stopped its
+    // key-confirmation (e.g. it detected the tag mismatch and tore down) — fail in step, no bytes.
+    if ((this.method === 'link' || this.method === 'qr') && !this.established) {
+      this.failLink('channel closed during pairing');
     }
     // reconnect (pre-fallback): the channel closing before connected means the peer hard-stopped
     // its re-auth (e.g. it detected OUR key changed and tore down) — fail in step, no bytes.
@@ -1092,6 +1196,63 @@ export class SessionController {
       this.openSignaling();
       await this.signaling!.connect({ join: rendezvous, codeType: 'word' });
       // `welcome` (peers non-empty) → we're the responder; CPace + confirmation follow.
+    } catch (err) {
+      this.fail(err);
+    }
+  }
+
+  // ===========================================================================
+  // STEP 5b — link / qr method (high-entropy URL-fragment secret, NO PAKE, NO SAS).
+  // The secret S (≥16 CSPRNG bytes) is not offline-guessable, so it authenticates the
+  // channel on its own — there is no human comparison and no reader/picker. Rendezvous
+  // is a 4-digit room (the SAME server allocate as the room method; the server is
+  // untrusted and unchanged). The link `<origin>/#<roomCode>.<S>` carries BOTH the public
+  // room code and the secret in the fragment; the joiner reads the fragment, SCRUBS it,
+  // and sends only the room code to the server. qr is identical — the link is just
+  // rendered/scanned as a QR. Flow: rendezvous → SDP/ICE → DTLS → key-confirmation over S
+  // → connected (mapped onto creating/joining → pairing → confirming → connected|failed;
+  // no new FSM states). TOFU enrollment runs after `connected` exactly as for words/room.
+  // ===========================================================================
+
+  /**
+   * A-side: start a link or qr session. Generate the one-time secret S locally (it becomes the
+   * key-confirmation IKM and NEVER reaches the server), then ask the server to allocate a 4-digit
+   * rendezvous room. On `welcome` we surface the shareable link (rendezvous + S in the fragment);
+   * on `peer-joined` we initiate WebRTC and run key-confirmation over S at channel-open. `method`
+   * only tags the projection (link vs qr) — the auth/transport are identical.
+   */
+  async createLinkSession(method: 'link' | 'qr'): Promise<void> {
+    this.dispatch(connectionActions.createStarted({ method }));
+    this.isCreator = true;
+    this.method = method;
+    const secret = generateLinkSecret();
+    this.linkSecret = secret.bytes;
+    this.linkSecretEncoded = secret.encoded;
+    try {
+      this.openSignaling();
+      await this.signaling!.connect({ create: true }); // 4-digit allocate — unchanged server path
+      // `welcome` carries the allocated room; onWelcome then shows the full link via fullCredential().
+    } catch (err) {
+      this.fail(err);
+    }
+  }
+
+  /**
+   * B-side: join a link or qr session. The roomCode + secret S come from the link fragment
+   * (link: read from `location.hash` on page load; qr: decoded from a scanned/pasted link) — the
+   * caller has ALREADY scrubbed the fragment from the address bar/history. Only the roomCode goes
+   * to the server (`join`); S stays local. On `welcome` (A already present) we become the
+   * responder and run key-confirmation over S when the DataChannel opens.
+   */
+  async joinLinkSession(roomCode: string, secret: Uint8Array, method: 'link' | 'qr'): Promise<void> {
+    this.dispatch(connectionActions.joinStarted({ method, room: roomCode }));
+    this.isCreator = false;
+    this.method = method;
+    this.linkSecret = secret;
+    try {
+      this.openSignaling();
+      await this.signaling!.connect({ join: roomCode }); // 4-digit join — S never sent
+      // `welcome` (peers non-empty) → we're the responder; key-confirmation over S follows.
     } catch (err) {
       this.fail(err);
     }
@@ -1662,7 +1823,14 @@ export class SessionController {
     }
   }
 
-  /** Our role on the authenticated path (SAS or words); null off those paths. */
+  /** True on the AUTHENTICATED methods (words / link / qr key-confirmation, or SAS room) — i.e.
+   *  everywhere TOFU enrollment may run. The step-1 UNauthenticated transport-only room is the
+   *  sole `connected` that is not authenticated, so it never enrolls. */
+  private isAuthenticatedMethod(): boolean {
+    return this.method === 'words' || this.method === 'link' || this.method === 'qr' || this.sas != null;
+  }
+
+  /** Our role on the authenticated path (SAS, words, or link/qr); null off those paths. */
   private authRole(): ConfirmationRole | null {
     if (this.sas) return this.sas.role;
     return this.role;
@@ -1680,7 +1848,7 @@ export class SessionController {
    * No-op off the authenticated paths (the step-1 unauthenticated room never enrolls).
    */
   private startEnrollment(): void {
-    if (this.method !== 'words' && !this.sas) return; // authenticated paths only
+    if (!this.isAuthenticatedMethod()) return; // authenticated paths only
     void this.runEnrollment().catch((err) => this.dispatch(devActions.appendLog(`enroll: ${errText(err)}`)));
   }
 
@@ -1715,7 +1883,7 @@ export class SessionController {
    * we skip the pin and log a non-fatal warning. Pins exactly once per connection.
    */
   private async onEnrollFrame(frame: EnrollFrame): Promise<void> {
-    if (this.method !== 'words' && !this.sas) return; // authenticated paths only
+    if (!this.isAuthenticatedMethod()) return; // authenticated paths only
     if (this.enrollPinned) return; // one pin per connection
     const fps = this.authFingerprints();
     if (!fps) return;
@@ -1806,6 +1974,10 @@ export class SessionController {
     this.role = null;
     this.pendingSecretWords = null;
     this.prs = null;
+    // link/qr (5b) state
+    this.linkSecret = null;
+    this.linkSecretEncoded = null;
+    this.linkSettled = false;
     this.cpaceState = null;
     this.sessionKey = null;
     this.confirmFps = null;

@@ -17,6 +17,8 @@ work. So whenever a change alters the app's actual state, update this file in th
 - adding / removing / renaming a core module → update the file lists in **Current state**;
 - changing a protocol, constant, or invariant → update the relevant **Crypto** / method section;
 - deferring something → note it under **Known residuals / deferred**.
+- forward-looking / deferred work (step 6, follow-ups, nice-to-haves) lives in **BACKLOG.md** —
+  read it when picking the next task, and update it in the SAME pass as this file when items land.
 Stale markers (e.g. a finished step still marked 🚧, or a built module missing from the
 inventory) cause real rework for the next session. Treat doc drift as a bug.
 
@@ -56,9 +58,10 @@ this as a single gate check.
 ## Connection methods (4)
 All four resolve to the same FSM and the same DataChannel transfer; they differ only in how
 peers rendezvous + authenticate.
-- **link** — secret in the URL **fragment** (`#…`), scrubbed via `history.replaceState`
-  immediately after read (never sent to the server). *(planned)*
-- **qr** — same as link, payload shown/scanned as a QR. *(planned)*
+- **link** — high-entropy one-time secret S in the URL **fragment** (`#…`), scrubbed via
+  `history.replaceState` immediately after read (never sent to the server). No PAKE, no SAS —
+  S authenticates the channel itself via key-confirmation. *(done — 5b; see below)*
+- **qr** — same as link; the same link is shown/scanned as a QR. *(done — 5b; see below)*
 - **room** — server allocates a 4-digit code (public, not secret); after connect the two
   humans compare a **SAS** (3 words from EFF short #2) out-of-band. SAS is mandatory and
   unskippable; the key-changed / mismatch path is a hard stop, not a dismissable toast.
@@ -129,6 +132,24 @@ nonces:
   any deny/timeout/abort → `failed`. This is not a cryptographic boundary (SAS already
   authenticated the channel via fingerprint binding), but a **coordination gate** ensuring both
   sides agree on authenticity before allowing data transfer.
+- **UI confirmation — ASYMMETRIC "pick from 3 phrases" (step 5a, crypto unchanged)**: `sas.ts` and
+  the `sas-confirm{ok}` protocol are untouched. The screen is split by role so the pick actually
+  defends against a MITM:
+  - the **creator/initiator is the READER** — it is shown its phrase (`sas-words`), reads the 3
+    words aloud, then confirms (or aborts);
+  - the **joiner/responder is the BLIND PICKER** — it is NEVER shown the phrase on its own, only
+    3 indistinguishable options (the REAL phrase + **2 LOCAL display-only decoys**: same EFF short #2
+    list, same 3-word format, distinct from the real one and each other, randomised order, never
+    sent), and must identify the phrase by LISTENING to the reader.
+
+  This split is the whole point: a picker that could see its own phrase would click it without
+  listening, giving no protection. Blind, the picker catches a MITM (which makes the two sides derive
+  DIFFERENT phrases) — the read phrase is not among the picker's options → "none of these match" →
+  `confirmSas(false)` → both abort. `confirmSas(true)` fires only when the picker selects the real
+  phrase (the reader confirms its peer found it). Entropy is preserved (full phrase vs full phrase);
+  the decoys are pure UI. The role is a UI-only signal (`sessionRole.tsx`: create→reader, join→picker;
+  default picker = fail-closed, never exposes the phrase). The decoy build + pick scoring is isolated
+  in `sasOptions.ts` and unit-tested (`sasOptions.test.ts`).
 - **Timeouts**: one reused timer bounds the coordination phases, default **120000 ms** (~2 min).
   It arms at peer-joined to bound the pre-SAS pairing window (peer sent commit but withheld its
   nonce → no longer hangs; this deadline is fixed / non-overridable), then re-arms at SAS-display
@@ -140,7 +161,48 @@ nonces:
   lengths (commit = 32 bytes, nonce = 16 bytes); malformed / short / odd-hex frames are rejected
   before any crypto (untrusted relay).
 - **Server cap / TTL**: the 4-digit room still needs anti-farming (max 2 peers, TTL before
-  `connected`, regenerate). **Deferred** — separate server pass (see Known residuals).
+  `connected`, regenerate). **Deferred to step 6** (hardening) — separate server pass.
+
+### link / qr method (finalized — 5b)
+A high-entropy ONE-TIME secret in the URL fragment authenticates the channel directly — **no PAKE,
+no SAS, no human comparison, no reader/picker**. (The full-entropy secret is not offline-guessable,
+so a PAKE is unnecessary; the secret authenticates by itself, so a SAS is unnecessary.) link and qr
+are the SAME path — qr only renders/scans the same link. Lives in `src/core/link/link.ts` (pure:
+generate / build / parse) + the link/qr branches in `SessionController`; no new FSM states.
+
+- **Secret S**: `LINK_SECRET_BYTES = 16` CSPRNG bytes (128 bits), base64url-encoded, never
+  user-chosen. It is the key-confirmation IKM and **never reaches the server**.
+- **Rendezvous**: a **4-digit room** — the SAME server `create=1` allocate as the room method (the
+  server is untrusted and **unchanged** for 5b). Public routing only.
+- **Link shape**: `<origin>/#<roomCode>.<S>` (`buildLinkUrl`). The roomCode is PUBLIC; S rides in the
+  **fragment**, which browsers never send to the server.
+- **Authentication = channel-bound key-confirmation over S** (reuses `keyConfirmation.ts`, the same
+  primitive + lv-canonicalisation as words/SAS, under the **`LINK_CONFIRM_DOMAIN`** domain —
+  `confKey = HKDF-SHA512(S, salt=∅, info="hushsend/link/confirm")`, `tag = HMAC-SHA256(confKey,
+  lv(label) || lv(fp_min) || lv(fp_max) || lv(role))`). Tags exchanged over the existing
+  `{kind:'confirm', tag}` DataChannel control message; verify with `equalBytes` → `connected`;
+  mismatch (no S / wrong S / MITM with different certs) → `failed`, **no byte**. The words domain
+  is unchanged — `makeConfirmation`/`verifyConfirmation` gained an optional trailing `domain` arg
+  that defaults to `CPACE_CONFIRM_DOMAIN`, so the words call sites are byte-for-byte identical.
+- **Flow** (maps onto existing states, no new ones): A `create=1` → `awaitingPeer` shows the link
+  (creator only; surfaced as `credential[0]`, same as words surfaces its secret words) → `peer-joined`
+  → A initiates WebRTC → DTLS → key-confirmation over S → `connected`. B `joining` → responder →
+  DTLS → key-confirmation → `connected`. (`creating`/`joining` → `pairing`[DTLS] → `confirming`[S
+  key-confirm] → `connected`|`failed`.)
+- **One-time / replay**: the link/QR is for ONE connection; the room is session-scoped (TTL, cap 2 —
+  the same 4-digit-room hardening tracked under step 6). Replay is closed by a fresh DTLS cert per
+  session **plus** S being single-use (scrubbed after read).
+- **Fragment scrub**: the joiner reads `location.hash` on page load, extracts roomCode + S, **scrubs
+  the fragment immediately** via `history.replaceState` (before any await — see `LinkFragmentJoin`
+  in `App.tsx`), and sends only roomCode to the server. A malformed/absent fragment is a no-op (stay
+  home); a valid-but-dead room surfaces later as the "room not found" failure. `parseLink` validates
+  strictly (4-digit code, S decodes to exactly 16 bytes) — the input is attacker-influenced.
+- **qr**: the SAME link, rendered to an SVG QR locally (`src/ui/qr.ts`, `qrcode`); the joiner SCANS
+  it with the camera (`getUserMedia` + the `barcode-detector` ponyfill — native `BarcodeDetector`,
+  else zxing-wasm, lazily imported) → decodes to the link → same join path. Camera denial/absence
+  falls back to a **paste-the-link** input (also the deterministic e2e injection point).
+- **Enrollment**: TOFU pinning runs after `connected` exactly as for words/room (method-agnostic),
+  so link/qr pairs can later reconnect.
 
 ## Crypto
 - **CPace** (balanced PAKE) for the words method — over `@noble/curves` ristretto255
@@ -200,13 +262,18 @@ nonces:
   and pinned peer keys (`pairingId → { peerPublicKey, firstSeen, label? }`). Pinning on first
   successful connect (enrollment, above) and the **"key changed" hard stop on reconnect** (presented
   key ≠ pin → abort, never silent — `presentedKeyMatchesPin`) are both **done** (4b-i / 4b-ii).
-- **Key-confirmation / channel binding**: each side derives `confKey = HKDF-SHA512(ISK,
-  info="hushsend/cpace/confirm")`, then `tag = HMAC-SHA256(confKey, lv(role) || lv(fp_min)
-  || lv(fp_max))`, where `fp_min/fp_max` are the DTLS fingerprints (lexicographically sorted)
-  from the local cert and the received SDP; `lv` = length-prefixed encoding (same as in CPace);
-  role = initiator/responder. Exchange `tag` over DataChannel control message; verify with
-  `equalBytes` (constant-time). This binds both the session key (via ISK) and the actual DTLS
-  channel (via fingerprints) — a MITM with different certs on each leg produces mismatched tags.
+- **Key-confirmation / channel binding**: each side derives `confKey = HKDF-SHA512(secret,
+  info=domain)`, then `tag = HMAC-SHA256(confKey, lv(label) || lv(fp_min) || lv(fp_max) ||
+  lv(role))`, where `fp_min/fp_max` are the DTLS fingerprints (lexicographically sorted) from the
+  local cert and the received SDP; `lv` = length-prefixed encoding (same as in CPace); role =
+  initiator/responder. Exchange `tag` over a DataChannel control message; verify with `equalBytes`
+  (constant-time). This binds both the shared secret AND the actual DTLS channel (via fingerprints)
+  — a MITM with different certs on each leg produces mismatched tags. The construction is
+  **domain-parameterised** (`makeConfirmation`/`verifyConfirmation` take a `ConfirmationDomain`
+  defaulting to `CPACE_CONFIRM_DOMAIN`): the **words** method feeds the CPace ISK under
+  `info="hushsend/cpace/confirm"`; the **link/qr** methods feed the URL-fragment secret S under
+  `LINK_CONFIRM_DOMAIN` (`info="hushsend/link/confirm"`). Same primitive + lv-canonicalisation; the
+  distinct domains keep the two methods' tags independent and the words tags byte-for-byte unchanged.
 
 ## File transfer
 - DataChannel with chunking + **backpressure** (`bufferedAmount` /
@@ -216,26 +283,37 @@ nonces:
   Cap very large files on the Blob path — multi-GB streaming-to-disk is unreliable on iOS
   (platform limit). The transfer itself works on all browsers.
 
-## QR
-Add `barcode-detector` + `qrcode` when building the QR screen (not in the scaffold yet). Use
-the **`barcode-detector` ponyfill** (native `BarcodeDetector` where available, zxing-wasm
-fallback) so scanning works on iOS/Firefox/everywhere from one path; `getUserMedia` for the
-camera; `qrcode` for generation.
+## QR (built — step 5b)
+`barcode-detector` + `qrcode` are installed. Generation: `qrcode` → an SVG QR rendered locally
+(`src/ui/qr.ts`, dark-on-light so it scans in either theme). Scanning: `getUserMedia` for the
+camera + the **`barcode-detector` ponyfill** (native `BarcodeDetector` where available, zxing-wasm
+fallback) so one path works on iOS/Firefox/everywhere; the ponyfill is **lazily imported** so its
+WASM never loads unless the user actually scans. Camera denial/absence falls back to a paste-the-link
+input (`src/ui/screens/ScanScreen.tsx`).
 
 ## UI / styling — stark-ui-kit (required)
 Install: `npm install github:maksimfrelikh/stark-ui-kit`.
 - Import `stark-ui-kit/styles.css` once, at the app root (`src/main.tsx`).
-- Set the theme by overriding `--brand-*` in a global CSS file.
-- Build ALL styling on kit tokens. Do **not** introduce new color/spacing/radius scales:
-  - radii `--r-*`; typography `--t-*` + weight / label tokens; spacing `--gut` / `--scale` /
-    `--maxw`; semantic colors `--bg` / `--fg` / `--muted` / `--line` / `--ink`; motion
-    `--ease-*` / `--dur-*`.
+- **Strictly MONOCHROME — there is NO accent colour.** Emphasis / selected / danger is the single
+  ink-INVERSION language: `--ink` (the strong ink) on `--ink-fg` (text on ink). Do not add any
+  colour/accent token, ever.
+- **Theme is switched via `[data-theme]` on `<html>`** (light is the default; `[data-theme="dark"]`
+  is opt-in — `prefs.tsx` reflects the choice). The monochrome light/dark palette lives in
+  `src/ui/theme.css` and is consumed by the kit; the app never introduces new colour/spacing/radius
+  scales.
+- **Build ALL styling on the kit's real tokens** (do not invent scales): semantic colours
+  `--bg` / `--fg` / `--muted` / `--faint` / `--line` / `--line-2` / `--ink` / `--ink-fg`;
+  radii `--r-*`; typography `--t-*` + weight / label tokens; fonts `--font-grotesk` / `--font-mono`;
+  spacing `--gut` / `--maxw` / `--scale`; motion `--ease-*` / `--dur-*`. (These are the ACTUAL kit
+  names — NOT the prototype's `--line2` / `--inkfg` / `--sans`.)
 - For focus-trap, scroll-lock, and copy-to-clipboard use the kit's hooks/utilities —
   `useFocusTrap`, `useScrollLock`, `copyToClipboard` — do not reimplement.
-- Build screens against the Claude Design mockups (provided separately).
-- Design priority: kit is the source of truth; mockups are reference for layout/flow — where
-  they conflict with kit components/tokens, the kit wins; never derive new tokens from
-  mockups, only `--brand-*` values.
+- The kit ships **tokens + a11y base CSS + headless hooks ONLY (no React components).** Screens are
+  composed from the app component layer in `src/ui/app.css` (classes prefixed `.hs-*`, all built on
+  the kit tokens above), imported in `src/main.tsx` AFTER the kit base + `theme.css`.
+- Build screens against the Claude Design mockups in `uploads/design-reference/` (HTML prototype
+  + screenshots; bilingual EN/RU). Design priority: **the kit is the source of truth**; mockups are
+  reference for layout/flow/copy — where they conflict with kit components/tokens, the kit wins.
 
 ## Signaling server (`server/signaling-server.js`)
 Self-contained Node + `ws`; PURE signaling, never carries file data. Already corrected:
@@ -257,18 +335,39 @@ X-Forwarded-For; binds to `127.0.0.1` (only the local nginx reaches it). Run wit
 3. ✅ **words path** — wordlist (EFF short #2, programmatic), `generateWords` (CSPRNG);
    `cpace` (CFRG draft-21 vectors, ristretto255+SHA512); `keyConfirmation` (ISK→HMAC, channel
    binding); rate-limit (≤10 attempts); TTL (3 min, does not tear down live P2P).
-4. ✅ **room + SAS** — 4-digit code, commit-before-reveal, SAS = 3 words, fingerprint binding,
-   mutual confirmation over DataChannel, pre-SAS + comparison timeouts, zod length checks.
-   Deferred: server cap/TTL for 4-digit rooms.
-5. **Identity + TOFU** — two parts:
-   - ✅ **4b-i** — Ed25519 identity key + IndexedDB keystore + TOFU **enrollment** (pin peer key
-     on first successful connect, channel-bound).
-   - ✅ **4b-ii** — **reconnect**: mutual challenge-response signatures (channel-bound, replay-
-     resistant) under the pinned keys; two-check verify (key-changed vs MITM) + "key changed" hard
-     stop; falls back to SAS + enrollment when a pin is missing. `reconnect.ts` + e2e (happy +
-     key-changed).
-6. 📋 **Real UI screens** — replace dev harness with kit-based screens; link/QR; persistent
-   state across tabs / page reload.
+4. **room + SAS, then Identity + TOFU**:
+   - ✅ **4a — room + SAS** — 4-digit code, commit-before-reveal, SAS = 3 words, fingerprint
+     binding, mutual confirmation over DataChannel, pre-SAS + comparison timeouts, zod length
+     checks. (Server cap/TTL for 4-digit rooms is **step 6**, below.)
+   - ✅ **4b — Identity + TOFU** — two parts:
+     - **4b-i** — Ed25519 identity key + IndexedDB keystore + TOFU **enrollment** (pin peer key
+       on first successful connect, channel-bound).
+     - **4b-ii** — **reconnect**: mutual challenge-response signatures (channel-bound, replay-
+       resistant) under the pinned keys; two-check verify (key-changed vs MITM) + "key changed" hard
+       stop; falls back to SAS + enrollment when a pin is missing. `reconnect.ts` + e2e (happy +
+       key-changed).
+5. **Real UI screens** — kit-based, status-driven screens (no router), persistent state across
+   tabs / reload.
+   - ✅ **5a (this step)** — real screens for the existing methods: home (method select + recent
+     devices), room create/join, words create/join (5-slot autocomplete picker), **SAS as an
+     ASYMMETRIC "pick from 3 phrases"** (creator reads its phrase; joiner is the blind picker),
+     reconnect (pinned-key → no SAS; visible key-changed hard stop),
+     transfer (progress / backpressure / FSA-Blob / cancel), failed/error screens, light-dark +
+     EN/RU. Dev harness removed; a DEV-only diagnostics strip (tree-shaken from prod) carries the
+     test-observable projections. **Recent devices are read from the keystore** (`recentDevices.ts`
+     → `listPins()`) — the single source of pins/keys; localStorage (`persistence.ts`) holds ONLY
+     non-key metadata (transfer history) and prefs (`prefs.tsx`, lang/theme) — no peer keys, no
+     pairingIds, no secrets; "forget" clears the keystore pins AND the history. The SAS pick-from-3
+     display logic is isolated + unit-tested in `sasOptions.ts` (`sasOptions.test.ts`). Privacy/
+     Reliable toggle rendered disabled ("soon") — no transport behaviour behind it.
+   - ✅ **5b** — link + QR methods. High-entropy one-time secret S in the URL fragment
+     (scrub-after-read), 4-digit-room rendezvous, channel-bound key-confirmation over S
+     (`LINK_CONFIRM_DOMAIN`) — no PAKE, no SAS. qr = the same link via `qrcode` (generate) +
+     `barcode-detector` ponyfill + `getUserMedia` (scan, with a paste fallback). `src/core/link/` +
+     link/qr screens + `src/ui/qr.ts` + e2e (link happy / link wrong-secret / qr post-scan).
+6. 📋 **Hardening** — server cap/TTL/rate-limit for 4-digit rooms, TURN relay + Reliable/Max-privacy
+   mode, cross-browser pass, nginx deployment. Plus smaller follow-ups (SAS fail-closed on unset
+   role; high-entropy rendezvous for link/qr) and nice-to-haves. **Details + scope: see BACKLOG.md.**
 
 ## Current state
 - ✅ `src/core/crypto/` — `cpace` (CFRG draft-21 vectors passing), `keyConfirmation` (channel
@@ -282,15 +381,34 @@ X-Forwarded-For; binds to `127.0.0.1` (only the local nginx reaches it). Run wit
   identity-generation single-flight via `navigator.locks`; "key changed" detection on reconnect.
 - ✅ `src/core/words/` — `generateWords` (CSPRNG, rejection-sampled), rate-limit counter (≤10
   attempts), TTL handling (does not kill live P2P).
+- ✅ `src/core/link/` — `link.ts` (pure): `generateLinkSecret` (16 CSPRNG bytes, base64url),
+  `buildLinkUrl` (`<origin>/#<roomCode>.<S>`), `parseLink` (strict: 4-digit code + 16-byte S, no
+  throw). Used by the link/qr methods; the secret never reaches the server. (`link.test.ts`.)
 - ✅ `src/core/` — transport (SignalingClient, PeerConnection), file transfer, SessionController
-  orchestration (incl. SAS + post-connect enrollment wiring). FSM in store (status, transitions,
-  invariants enforced).
-- 🚧 `src/ui/` — dev harness: room + words pickers, SAS display + confirm, reconnect (create /
-  join-by-code) with the authenticated-no-SAS outcome + visible key-changed hard-stop banner, own
-  identity fingerprint + pinned peer + "Forget pins / reset". Real screens pending (step 6).
+  orchestration (incl. SAS + post-connect enrollment wiring + the link/qr key-confirmation-over-S
+  path, step 5b). FSM in store (status, transitions, invariants enforced).
+- ✅ `src/ui/` — **real, status-driven screens (steps 5a + 5b)**, built on kit tokens (monochrome,
+  inversion-as-emphasis, light/dark via `[data-theme]`, EN/RU). `ScreenRouter` picks a screen by
+  FSM status (+ method/phase); `HomeScreen` (landing → method picker [link / qr / words / room] →
+  words-receive + QR-scan-receive, recent devices, join-by-code, reconnect-by-code, disabled "Max
+  privacy" toggle), `RoomCreateScreen`, `WordsCreateScreen`, `LinkCreateScreen` (one-time link +
+  copy/share), `QrCreateScreen` (the link as an SVG QR), `ScanScreen` (qr receive: camera +
+  paste-link fallback), `ConnectingScreen` (creating/joining/pairing-lobby/confirming), `SasScreen`
+  (**asymmetric pick-from-3**: creator = reader shows its phrase; joiner = blind picker among the
+  real + 2 local decoys — role from `sessionRole.tsx`), `TransferScreen`, `FailedScreen`
+  (+ key-changed hard stop). The link fragment auto-join + scrub lives in `App.tsx`
+  (`LinkFragmentJoin`). Shared `ui.tsx` (TopBar, StatusBeacon, PrivacyToggle, CopyButton,
+  ShareButton, Eyebrow, …), `components/` (`WordPicker`, DEV-only `Diagnostics`), `qr.ts`
+  (link→SVG QR via `qrcode`; `qr.test.ts`), `prefs.tsx` + `i18n.ts` (lang/theme), `sasOptions.ts`
+  (+ `sasOptions.test.ts`: SAS pick-from-3 decoys + scoring) over `random.ts` (CSPRNG),
+  `recentDevices.ts` (recent devices read from the keystore), `persistence.ts` (localStorage
+  transfer history — non-key metadata only). The `dev` store slice stays as the auxiliary projection
+  feed (identity pubkey / pinned peer / public DTLS fingerprints / log) the SessionController
+  publishes; all fields are serializable + non-sensitive (RTK `serializableCheck` stays ON), and the
+  DEV-only `Diagnostics` is what surfaces them (display gated behind `import.meta.env.DEV`).
 - ✅ Server — signaling, corrected `clientIp()`, word-room allocation, 2-peer cap, TTL, creator
   destroy. Ready for deployment behind nginx.
-- 📋 Pending: server rate-limit/TTL on 4-digit rooms; real UI screens (step 6).
+- 📋 Pending: step 6 hardening + follow-ups + nice-to-haves — tracked in **BACKLOG.md**.
 
 ## Known residuals / deferred
 - **Pre-SAS pairing deadline is untested in the firing direction** (room method). The timer
@@ -307,9 +425,7 @@ X-Forwarded-For; binds to `127.0.0.1` (only the local nginx reaches it). Run wit
   back to SAS + a FRESH enrollment → a NEW pairingId. The other side keeps the stale pin AND gains
   the new one (two pins for the same human). Benign (the fresh enrollment is itself human-verified),
   but the keystore accumulates a dead pin. Not fixed (no GC / pin-merge yet).
-- **Server cap/TTL for 4-digit rooms** still deferred (parallel to the word-room cap/TTL). SAS
-  catches a MITM regardless; this is anti-farming / 1:1 hygiene. link/QR also ride 4-digit rooms,
-  so this server pass is deferred until those are in view.
+  (Server cap/TTL for 4-digit rooms is now tracked as **step 6 hardening**, not a residual.)
 
 ## Cross-cutting invariants
 - No file bytes before the connection is authenticated (`connected` / `established`).

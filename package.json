@@ -16,7 +16,9 @@
   "dependencies": {
     "@noble/curves": "^2.0.0",
     "@reduxjs/toolkit": "^2.5.0",
+    "barcode-detector": "^3.2.0",
     "client-zip": "^2.5.0",
+    "qrcode": "^1.5.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-redux": "^9.2.0",
@@ -27,6 +29,7 @@
     "@eslint/js": "^9.17.0",
     "@playwright/test": "^1.61.0",
     "@types/node": "^22.10.0",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",

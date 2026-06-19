@@ -2,6 +2,7 @@ import { test, expect, type Browser, type Page } from '@playwright/test';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { createWords, pickWords } from './helpers';
 
 /**
  * Step-4b-i TOFU enrollment, end to end. Two tabs connect via the "words" method (CPace +
@@ -31,16 +32,6 @@ async function readOwnPubkey(page: Page): Promise<string> {
   return (await loc.textContent())!.trim();
 }
 
-/** B reproduces a 5-word credential in the picker (type the word → click the narrowed match). */
-async function pickWords(page: Page, words: string[]): Promise<void> {
-  for (let i = 0; i < words.length; i++) {
-    await page.getByTestId(`word-input-${i}`).fill(words[i]);
-    await page.getByTestId(`word-pos-${i}`).getByRole('button', { name: words[i], exact: true }).click();
-    await expect(page.getByTestId(`word-picked-${i}`)).toContainText(words[i]);
-  }
-  await page.getByTestId('words-join-btn').click();
-}
-
 /** Open one isolated context+page (own IndexedDB), pointed at the Blob receive path. */
 async function openTab(browser: Browser): Promise<Page> {
   const context = await browser.newContext({ baseURL: BASE, acceptDownloads: true });
@@ -66,10 +57,7 @@ test('words connect → both sides pin the peer identity (same pairingId); trans
   expect(aPub).not.toBe(bPub);
 
   // A creates a words session; B reproduces the 5 words and joins.
-  await a.getByTestId('create-words-btn').click();
-  await expect(a.getByTestId('status')).toHaveText('awaitingPeer', { timeout: 30_000 });
-  const words = ((await a.getByTestId('words').textContent())?.trim() ?? '').split(/\s+/).filter(Boolean);
-  expect(words).toHaveLength(5);
+  const words = await createWords(a);
   await pickWords(b, words);
 
   // Both reach an AUTHENTICATED connected (CPace + key-confirmation).

@@ -2,6 +2,7 @@ import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { createSasRoom as openSasRoom, joinSasRoom as fillSasJoin, expectSas, confirmSas } from './helpers';
 
 /**
  * Step-4a "room" method, end to end through two Chromium tabs:
@@ -34,10 +35,7 @@ async function createSasRoom(
 ): Promise<{ sender: Page; code: string }> {
   const sender = await context.newPage();
   await sender.goto(harnessUrl(extraQuery));
-  await sender.getByTestId('create-room-sas-btn').click();
-  await expect(sender.getByTestId('status')).toHaveText('awaitingPeer', { timeout: 30_000 });
-  const code = (await sender.getByTestId('room-code').textContent())?.trim() ?? '';
-  expect(code).toMatch(/^\d{4}$/);
+  const code = await openSasRoom(sender);
   return { sender, code };
 }
 
@@ -45,20 +43,13 @@ async function createSasRoom(
 async function joinSasRoom(context: BrowserContext, code: string, extraQuery = ''): Promise<Page> {
   const receiver = await context.newPage();
   await receiver.goto(harnessUrl(extraQuery));
-  await receiver.getByTestId('room-sas-input').fill(code);
-  await receiver.getByTestId('join-room-sas-btn').click();
+  await fillSasJoin(receiver, code);
   return receiver;
 }
 
-/** Wait until both tabs render the SAS triple, and assert they agree. Returns the shared triple. */
-async function readMatchingSas(a: Page, b: Page): Promise<string> {
-  await expect(a.getByTestId('status')).toHaveText('awaitingSas', { timeout: 60_000 });
-  await expect(b.getByTestId('status')).toHaveText('awaitingSas', { timeout: 60_000 });
-  const sasA = (await a.getByTestId('sas-words').textContent())?.trim() ?? '';
-  const sasB = (await b.getByTestId('sas-words').textContent())?.trim() ?? '';
-  expect(sasA.split(/\s+/).filter(Boolean)).toHaveLength(3); // 3 EFF short #2 words
-  expect(sasA).toBe(sasB); // channel binding: both sides derive the SAME triple
-  return sasA;
+/** Assert the asymmetric SAS choreography (reader shows phrase; blind picker has it among options). */
+async function readMatchingSas(reader: Page, picker: Page): Promise<string> {
+  return expectSas(reader, picker);
 }
 
 test.beforeAll(() => {
@@ -72,12 +63,10 @@ test('happy path: matching SAS on both sides → authenticated connected → sma
   const { sender, code } = await createSasRoom(context);
   const receiver = await joinSasRoom(context, code);
 
-  // Both sides show the SAME 3-word SAS (proves the channel binding + same nonces).
-  await readMatchingSas(sender, receiver);
-
-  // Both humans confirm a match → mutual confirmation gates an AUTHENTICATED connected.
-  await sender.getByTestId('sas-match-btn').click();
-  await receiver.getByTestId('sas-match-btn').click();
+  // Asymmetric SAS: the creator (sender) READS its phrase; the joiner (receiver) is the BLIND
+  // picker that identifies it among 3 look-alikes. confirmSas asserts the choreography, has the
+  // picker select the heard phrase, and both confirm → AUTHENTICATED connected.
+  await confirmSas(sender, receiver);
 
   await expect(sender.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
   await expect(receiver.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });

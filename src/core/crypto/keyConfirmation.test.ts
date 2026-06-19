@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { bytesToHex } from '@noble/curves/utils.js';
-import { makeConfirmation, verifyConfirmation } from './keyConfirmation';
+import {
+  makeConfirmation,
+  verifyConfirmation,
+  CPACE_CONFIRM_DOMAIN,
+  LINK_CONFIRM_DOMAIN,
+} from './keyConfirmation';
 
 const ISK = new Uint8Array(64).map((_, i) => (i * 7 + 3) & 0xff); // deterministic fixture
 const FP_A = 'sha-256 11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00';
@@ -93,5 +98,47 @@ describe('key confirmation', () => {
     const tagB = makeConfirmation(ISK, FP_B, FP_A, 'responder'); // B: local=FP_B, remote=FP_A
     expect(verifyConfirmation(ISK, FP_B, FP_A, 'initiator', tagA)).toBe(true);
     expect(verifyConfirmation(ISK, FP_A, FP_B, 'responder', tagB)).toBe(true);
+  });
+});
+
+/**
+ * link / qr method (step 5b): the SAME construction, fed the high-entropy URL-fragment secret S
+ * (LINK domain) instead of the CPace ISK (CPACE domain). The default domain is the CPace one, so
+ * the words tags are unchanged; these cases prove the link domain works AND is independent.
+ */
+describe('key confirmation — link/qr domain over the URL-fragment secret S', () => {
+  const S = new Uint8Array(16).map((_, i) => (i * 13 + 5) & 0xff); // a 16-byte fixture secret
+
+  it('the default domain is the CPace/words domain (words tags unchanged)', () => {
+    const dflt = makeConfirmation(S, FP_A, FP_B, 'initiator');
+    const explicit = makeConfirmation(S, FP_A, FP_B, 'initiator', CPACE_CONFIRM_DOMAIN);
+    expect(bytesToHex(dflt)).toBe(bytesToHex(explicit));
+  });
+
+  it('binds the fingerprints under the link domain (a MITM with different certs is rejected)', () => {
+    const FP_M = 'sha-256 99:88:77:66:55:44:33:22:11:00:FF:EE:DD:CC:BB:AA';
+    // Honest channel: same pair on both sides ⇒ both tags verify under the link domain.
+    const tagA = makeConfirmation(S, FP_A, FP_B, 'initiator', LINK_CONFIRM_DOMAIN);
+    const tagB = makeConfirmation(S, FP_B, FP_A, 'responder', LINK_CONFIRM_DOMAIN);
+    expect(verifyConfirmation(S, FP_B, FP_A, 'initiator', tagA, LINK_CONFIRM_DOMAIN)).toBe(true);
+    expect(verifyConfirmation(S, FP_A, FP_B, 'responder', tagB, LINK_CONFIRM_DOMAIN)).toBe(true);
+    // MITM: the two legs see different fingerprint pairs ({FP_A,FP_M} vs {FP_B,FP_M}) → reject.
+    const mitmA = makeConfirmation(S, FP_A, FP_M, 'initiator', LINK_CONFIRM_DOMAIN);
+    expect(verifyConfirmation(S, FP_B, FP_M, 'initiator', mitmA, LINK_CONFIRM_DOMAIN)).toBe(false);
+  });
+
+  it('a wrong / absent secret S fails (no offline-guess shortcut — divergent confirmation keys)', () => {
+    const wrong = new Uint8Array(16).map((_, i) => (i * 13 + 6) & 0xff);
+    const tag = makeConfirmation(S, FP_A, FP_B, 'initiator', LINK_CONFIRM_DOMAIN);
+    expect(verifyConfirmation(wrong, FP_A, FP_B, 'initiator', tag, LINK_CONFIRM_DOMAIN)).toBe(false);
+  });
+
+  it('is domain-separated from the words path (same S + fps ⇒ different tag per domain)', () => {
+    const link = makeConfirmation(S, FP_A, FP_B, 'initiator', LINK_CONFIRM_DOMAIN);
+    const cpace = makeConfirmation(S, FP_A, FP_B, 'initiator', CPACE_CONFIRM_DOMAIN);
+    expect(bytesToHex(link)).not.toBe(bytesToHex(cpace));
+    // …and a tag from one domain never verifies under the other.
+    expect(verifyConfirmation(S, FP_A, FP_B, 'initiator', link, CPACE_CONFIRM_DOMAIN)).toBe(false);
+    expect(verifyConfirmation(S, FP_A, FP_B, 'initiator', cpace, LINK_CONFIRM_DOMAIN)).toBe(false);
   });
 });

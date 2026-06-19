@@ -1,35 +1,49 @@
 import { type ReactElement } from 'react';
 import { useAppSelector } from '../../store/hooks';
-import type { ConnectionStatus } from '../../store/connectionSlice';
-
-function Placeholder({ title, hint }: { title: string; hint?: string }): ReactElement {
-  return (
-    <section className="screen">
-      <h1>{title}</h1>
-      {hint ? <p>{hint}</p> : null}
-    </section>
-  );
-}
+import { HomeScreen } from './HomeScreen';
+import { RoomCreateScreen } from './RoomCreateScreen';
+import { WordsCreateScreen } from './WordsCreateScreen';
+import { LinkCreateScreen } from './LinkCreateScreen';
+import { QrCreateScreen } from './QrCreateScreen';
+import { ConnectingScreen } from './ConnectingScreen';
+import { SasScreen } from './SasScreen';
+import { TransferScreen } from './TransferScreen';
+import { FailedScreen } from './FailedScreen';
 
 /**
- * Screens are driven by connection.status (the FSM), NOT by a URL router.
- * This Record is exhaustive over ConnectionStatus — add a status and TypeScript
- * forces you to give it a screen here.
+ * Screens are driven by connection.status (the FSM), NOT by a URL router — exactly as the
+ * architecture requires. The host-side `awaitingPeer` view additionally branches on the method
+ * (words credential / link / qr / 4-digit room code). The hard invariant holds structurally: only
+ * <TransferScreen> (status `connected`) renders the file UI, so no byte UI exists before auth.
  */
 export function ScreenRouter(): ReactElement {
   const status = useAppSelector((s) => s.connection.status);
+  const method = useAppSelector((s) => s.connection.method);
 
-  const screens: Record<ConnectionStatus, ReactElement> = {
-    idle: <Placeholder title="hushsend" hint="Home — pick a method: link · QR · words · room" />,
-    creating: <Placeholder title="Creating session…" />,
-    awaitingPeer: <Placeholder title="Share your words" hint="Read the words to the other person" />,
-    joining: <Placeholder title="Enter the words" hint="Pick the words you were told" />,
-    pairing: <Placeholder title="Connecting…" />,
-    awaitingSas: <Placeholder title="Compare the code" hint="Room method: confirm the SAS matches" />,
-    confirming: <Placeholder title="Verifying…" />,
-    connected: <Placeholder title="Connected" hint="Transfer screen goes here" />,
-    failed: <Placeholder title="Something went wrong" hint="See the error / retry" />,
-  };
-
-  return screens[status];
+  switch (status) {
+    case 'idle':
+      return <HomeScreen />;
+    case 'awaitingPeer':
+      switch (method) {
+        case 'words':
+          return <WordsCreateScreen />;
+        case 'link':
+          return <LinkCreateScreen />;
+        case 'qr':
+          return <QrCreateScreen />;
+        default:
+          return <RoomCreateScreen />;
+      }
+    case 'awaitingSas':
+      return <SasScreen />;
+    case 'connected':
+      return <TransferScreen />;
+    case 'failed':
+      return <FailedScreen />;
+    case 'creating':
+    case 'joining':
+    case 'pairing':
+    case 'confirming':
+      return <ConnectingScreen />;
+  }
 }
