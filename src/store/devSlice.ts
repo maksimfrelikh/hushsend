@@ -14,6 +14,10 @@ export interface DevState {
   remoteFingerprint: string | null;
   /** ping/echo trace, newest last */
   log: string[];
+  /** words method (A-side): failed pairing attempts against the rendezvous, and the cap. A
+   *  projection of the core's online-guessing counter — shown by the harness. */
+  pairingAttempts: number;
+  maxPairingAttempts: number;
 }
 
 const initialState: DevState = {
@@ -21,6 +25,8 @@ const initialState: DevState = {
   localFingerprint: null,
   remoteFingerprint: null,
   log: [],
+  pairingAttempts: 0,
+  maxPairingAttempts: 0,
 };
 
 const slice = createSlice({
@@ -36,6 +42,10 @@ const slice = createSlice({
     },
     appendLog(state, action: PayloadAction<string>) {
       state.log.push(action.payload);
+    },
+    setPairingAttempts(state, action: PayloadAction<{ attempts: number; max: number }>) {
+      state.pairingAttempts = action.payload.attempts;
+      state.maxPairingAttempts = action.payload.max;
     },
     reset: () => initialState,
   },

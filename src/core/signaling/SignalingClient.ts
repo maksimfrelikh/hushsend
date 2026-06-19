@@ -5,12 +5,21 @@ export interface SignalingHandlers {
   onPeerJoined?: (peerId: string) => void;
   onPeerLeft?: (peerId: string) => void;
   onSignal?: (from: string, data: unknown) => void;
+  /** Server invalidated our word room (TTL expiry / creator destroy). `reason` is informational. */
+  onRoomClosed?: (reason: string) => void;
   /** Server-initiated close (e.g. 4009 "room not found"). NOT fired when WE call close(). */
   onClose?: (code: number, reason: string) => void;
   onError?: (err: Event) => void;
 }
 
-export type ConnectOptions = { create: true } | { join: string };
+/**
+ * `codeType` picks the rendezvous-code shape the server allocates/validates:
+ * default (omitted) = the 4-digit code used by room/link/QR; `'word'` = a single
+ * EFF-short-#2 rendezvous word, used by the "words" method.
+ */
+export type ConnectOptions =
+  | { create: true; codeType?: 'word' }
+  | { join: string; codeType?: 'word' };
 
 const APP_ID = 'filetransfer';
 
@@ -38,6 +47,7 @@ export class SignalingClient {
     const params = new URLSearchParams({ app: APP_ID });
     if ('create' in opts) params.set('create', '1');
     else params.set('room', opts.join);
+    if (opts.codeType) params.set('codeType', opts.codeType);
 
     const ws = new WebSocket(`${this.url}?${params}`);
     this.ws = ws;
@@ -93,6 +103,9 @@ export class SignalingClient {
       case 'signal':
         this.handlers.onSignal?.(msg.from, msg.data);
         break;
+      case 'room-closed':
+        this.handlers.onRoomClosed?.(msg.reason);
+        break;
     }
   }
 
@@ -103,6 +116,12 @@ export class SignalingClient {
       return;
     }
     this.ws.send(JSON.stringify({ type: 'signal', to, data }));
+  }
+
+  /** Words method, creator only: ask the server to invalidate our word room (free the word,
+   *  evict the joiner). The server honors it only from the socket that created the room. */
+  destroyRoom(): void {
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: 'destroy' }));
   }
 
   close(): void {

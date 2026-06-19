@@ -31,11 +31,21 @@ export const signalSchema = z.object({
   data: z.unknown(),
 });
 
+/**
+ * The server invalidated our word room (words method): TTL expiry (`reason: 'expired'`) or the
+ * creator's destroy command (`reason: 'destroyed'`). The client treats either as "room gone".
+ */
+export const roomClosedSchema = z.object({
+  type: z.literal('room-closed'),
+  reason: z.string(),
+});
+
 export const serverMessageSchema = z.discriminatedUnion('type', [
   welcomeSchema,
   peerJoinedSchema,
   peerLeftSchema,
   signalSchema,
+  roomClosedSchema,
 ]);
 
 export type ServerMessage = z.infer<typeof serverMessageSchema>;

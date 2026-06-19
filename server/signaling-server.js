@@ -39,6 +39,7 @@
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import { randomInt } from 'crypto';
+import { WORDLIST } from './wordlist.js'; // server's OWN copy (client/server share no code)
 const PORT         = Number(process.env.PORT) || 8080;
 const HOST         = process.env.HOST || '127.0.0.1'; // loopback — only the local nginx reaches us
 const HEARTBEAT_MS = Number(process.env.PING_MS) || 30000;
@@ -55,17 +56,32 @@ const ALLOC_TRIES         = 50;                                             // f
 const MSG_WINDOW_MS       = Number(process.env.MSG_WINDOW_MS)       || 10000;
 const MSG_SOFT_LIMIT      = Number(process.env.MSG_SOFT_LIMIT)      || 100;  // over → drop (don't relay)
 const MSG_HARD_LIMIT      = Number(process.env.MSG_HARD_LIMIT)      || 300;  // over → close (clear flood)
+// "words" method hardening (codeType=word ONLY — the 4-digit room/link/QR path is untouched).
+// Bounds online guessing of the 4 secret words: a word room is strictly 1:1 (so guesses are
+// serialized) and self-destructs after a short TTL (so a leaked rendezvous can't be farmed).
+const WORD_ROOM_MAX_PEERS = 2;                                              // creator + one joiner
+const WORD_ROOM_TTL_MS    = Number(process.env.WORD_ROOM_TTL_MS)    || 180000; // ~3 min from creation
 const devOrigins = DEV ? ['http://localhost:5173'] : [];
 // base32-ish alphabet without ambiguous chars (no 0/o/1/l), for longer codes if needed.
 const SAFE32 = 'abcdefghijkmnpqrstuvwxyz23456789';
 const randStr = (n, alphabet = SAFE32) =>
   Array.from({ length: n }, () => alphabet[randomInt(alphabet.length)]).join('');
+// "words" method rendezvous: a PUBLIC room id drawn from EFF short #2. Membership lookup
+// (handles e.g. "yo-yo") instead of a regex, since we own the authoritative list anyway.
+const WORD_SET = new Set(WORDLIST);
+const pickWord = () => WORDLIST[randomInt(WORDLIST.length)];
 const APPS = {
   // hushsend.frelikh.dev — create/join, 1:1 transfer inside a small lobby (coturn fallback client-side)
   filetransfer: {
     maxPeers: Number(process.env.FILETRANSFER_MAX_PEERS) || 8,
     code: /^\d{4}$/,                                  // 4-digit rendezvous label (NOT a secret)
     allocate: () => String(randomInt(10000)).padStart(4, '0'),  // ← lengthen here for unguessable codes
+    // Parallel "words" rendezvous (?codeType=word). The 4-digit path is UNCHANGED —
+    // room/link/QR keep using `code`/`allocate`; only the words method asks for a word.
+    wordCode: {
+      valid: (s) => WORD_SET.has(s),                  // membership, not regex (covers "yo-yo")
+      allocate: () => pickWord(),                      // one PUBLIC word from EFF short #2
+    },
     joinMayCreate: false,                             // join must hit an EXISTING room
     origins: ['https://hushsend.frelikh.dev', ...devOrigins],
   },
@@ -92,13 +108,20 @@ function makeReadableId(peers) {
   do { id = `${pick(ADJECTIVES)}-${pick(ANIMALS)}-${randomInt(100)}`; } while (peers.has(id));
   return id;
 }
-// allocate a fresh code not currently in use for this app (atomic: handler is synchronous)
-function allocateCode(app, cfg) {
+// allocate a fresh code not currently in use for this app (atomic: handler is synchronous).
+// `allocate` is the per-codeType generator (4-digit for room/link/QR, a word for "words").
+function allocateCode(app, allocate) {
   for (let i = 0; i < ALLOC_TRIES; i++) {
-    const c = cfg.allocate();
+    const c = allocate();
     if (!rooms.has(`${app}:${c}`)) return c;
   }
   return null; // space too crowded
+}
+// Resolve the code shape (validator + allocator) for this connection's codeType. The default
+// is the app's 4-digit `code`/`allocate`; `?codeType=word` selects the optional word rendezvous.
+function codeSpec(cfg, codeType) {
+  if (codeType === 'word' && cfg.wordCode) return cfg.wordCode;
+  return { valid: (s) => cfg.code.test(s), allocate: cfg.allocate };
 }
 // Strip the IPv6-mapped-IPv4 prefix so "::ffff:203.0.113.7" is counted as "203.0.113.7".
 function normalizeIp(ip) {
@@ -128,7 +151,24 @@ function clientIp(req) {
   return normalizeIp(req.socket.remoteAddress);
 }
 const rooms    = new Map(); // "appId:code" -> Map<peerId, ws>
+const roomMeta = new Map(); // "appId:code" -> { creatorId, timer } — word rooms ONLY (TTL + destroy)
 const ipCounts = new Map(); // ip -> live connection count (global per-IP cap)
+// Invalidate a word room: notify its members (except an optional initiator), close their
+// sockets, free the rendezvous word, and cancel the TTL. Used by the TTL timer (reason
+// 'expired') and the creator's destroy command (reason 'destroyed'). Safe to call once.
+function closeWordRoom(key, reason, exceptId) {
+  const meta = roomMeta.get(key);
+  if (meta && meta.timer) clearTimeout(meta.timer);
+  roomMeta.delete(key);
+  const peers = rooms.get(key);
+  if (!peers) return;
+  rooms.delete(key); // free the word immediately so a new create can reuse it
+  for (const [id, peer] of peers) {
+    if (id === exceptId) continue;
+    sendJSON(peer, { type: 'room-closed', reason });
+    peer.close(4010, reason);
+  }
+}
 // Health endpoint for LB/uptime checks; WS upgrades are handled separately by the WSS.
 const server = createServer((req, res) => {
   if (req.method === 'GET' && (req.url === '/health' || req.url === '/')) {
@@ -146,6 +186,7 @@ wss.on('connection', (ws, req) => {
   const app        = url.searchParams.get('app') || '';
   const wantCreate = url.searchParams.get('create') === '1';
   const roomParam  = url.searchParams.get('room') || '';
+  const codeType   = url.searchParams.get('codeType') || ''; // '' = default 4-digit; 'word' = EFF short #2
   const origin     = req.headers.origin;
   const ip         = clientIp(req);
   const cfg = APPS[app];
@@ -155,17 +196,19 @@ wss.on('connection', (ws, req) => {
   // Global resource caps (checked before we create/join anything).
   if (wss.clients.size > MAX_CONNS_TOTAL)             return ws.close(4005, 'server busy');
   if ((ipCounts.get(ip) || 0) >= MAX_CONNS_PER_IP)   return ws.close(4006, 'too many connections');
+  // Resolve the code shape for this codeType (4-digit by default; a word for ?codeType=word).
+  const spec = codeSpec(cfg, codeType);
   // Resolve the room: CREATE (server allocates) vs JOIN (must already exist, unless app opts in).
   let code, key, peers;
   if (wantCreate) {
     if (rooms.size >= MAX_ROOMS)                      return ws.close(4005, 'server busy');
-    code = allocateCode(app, cfg);
+    code = allocateCode(app, spec.allocate);
     if (code == null)                                 return ws.close(4005, 'no free rooms');
     key = `${app}:${code}`;
     peers = new Map();
     rooms.set(key, peers);
   } else {
-    if (!cfg.code.test(roomParam))                    return ws.close(4001, 'bad room');
+    if (!spec.valid(roomParam))                       return ws.close(4001, 'bad room');
     code = roomParam;
     key = `${app}:${code}`;
     peers = rooms.get(key);
@@ -176,7 +219,10 @@ wss.on('connection', (ws, req) => {
       rooms.set(key, peers);
     }
   }
-  if (peers.size >= cfg.maxPeers)                     return ws.close(4002, 'room full');
+  // Word rooms are strictly 1:1 (creator + one joiner) so guessing is serialized; other
+  // codeTypes keep the app's lobby size. An extra joiner is bounced with a clear "room full".
+  const maxPeers = codeType === 'word' ? WORD_ROOM_MAX_PEERS : cfg.maxPeers;
+  if (peers.size >= maxPeers)                         return ws.close(4002, 'room full');
   // Per-IP-per-room cap: stops a single IP from filling a lobby on its own (anti-squat).
   let sameIp = 0;
   for (const p of peers.values()) if (p._ip === ip) sameIp++;
@@ -192,6 +238,14 @@ wss.on('connection', (ws, req) => {
   // everyone else learns a peer arrived
   for (const peer of peers.values()) sendJSON(peer, { type: 'peer-joined', peerId: selfId });
   peers.set(selfId, ws);
+  // Word-room lifecycle: on CREATE pin the creator (only it may destroy the room) and arm the
+  // TTL so a leaked rendezvous word can't be guessed against forever. unref() so a pending
+  // timer never keeps the process alive.
+  if (codeType === 'word' && wantCreate) {
+    const timer = setTimeout(() => closeWordRoom(key, 'expired'), WORD_ROOM_TTL_MS);
+    if (timer.unref) timer.unref();
+    roomMeta.set(key, { creatorId: selfId, timer });
+  }
   ws.on('message', (data) => {
     // fixed-window message rate limit (bounds relay-flood and parse-CPU abuse)
     const now = Date.now();
@@ -200,6 +254,14 @@ wss.on('connection', (ws, req) => {
     if (ws._msgCount > MSG_SOFT_LIMIT) return;              // drop, don't relay
     let msg;
     try { msg = JSON.parse(data); } catch { return; }       // binary / garbage -> ignored
+    // Creator-only word-room teardown: free the word + evict the joiner. Honored ONLY from the
+    // socket that created the room (a joiner can't tear down someone else's rendezvous). The
+    // creator's own socket is left open (exceptId) — it manages its own next step client-side.
+    if (msg.type === 'destroy') {
+      const meta = roomMeta.get(ws._roomKey);
+      if (meta && meta.creatorId === selfId) closeWordRoom(ws._roomKey, 'destroyed', selfId);
+      return;
+    }
     if (msg.type !== 'signal' || !msg.to || msg.to === selfId) return;
     const target = peers.get(msg.to);                        // only peers in THIS room are addressable
     if (!target || target.readyState !== target.OPEN) return;
@@ -211,7 +273,14 @@ wss.on('connection', (ws, req) => {
     peers.delete(selfId);
     for (const peer of peers.values()) sendJSON(peer, { type: 'peer-left', peerId: selfId });
     // identity-guarded delete: stays correct even if a future async close handler interleaves
-    if (rooms.get(key) === peers && peers.size === 0) rooms.delete(key);
+    if (rooms.get(key) === peers && peers.size === 0) {
+      rooms.delete(key);
+      // Cancel a word room's TTL when it empties on its own, so the timer can't later fire on a
+      // DIFFERENT room that reused the same freed word.
+      const meta = roomMeta.get(key);
+      if (meta && meta.timer) clearTimeout(meta.timer);
+      roomMeta.delete(key);
+    }
   });
 });
 // Heartbeat: drop ghosts that never fired 'close' (frees their room + IP slot).

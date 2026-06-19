@@ -53,9 +53,11 @@ const ALLOWED: Record<ConnectionStatus, ConnectionStatus[]> = {
   creating: ['awaitingPeer', 'failed'],
   awaitingPeer: ['pairing', 'failed'],
   joining: ['pairing', 'failed'],
-  pairing: ['awaitingSas', 'confirming', 'failed'],
+  // words method: a failed pairing attempt below the cap returns A to awaitingPeer (same words,
+  // wait for the next joiner) — hence pairing/confirming → awaitingPeer. No new states added.
+  pairing: ['awaitingSas', 'confirming', 'awaitingPeer', 'failed'],
   awaitingSas: ['confirming', 'failed'],
-  confirming: ['connected', 'failed'],
+  confirming: ['connected', 'awaitingPeer', 'failed'],
   connected: ['idle', 'failed'], // 'idle' = clean session end / reset
   failed: ['idle'],
 };

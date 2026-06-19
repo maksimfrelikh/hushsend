@@ -1,23 +1,9 @@
-/**
- * "Words" credential for the words method.
- *
- * Wordlist: the official **EFF short wordlist #2** (1296 words). Each word has a
- * unique 3-character prefix (fast autocomplete) and the list is misread-resistant
- * (chosen for a voice out-of-band channel). A credential is TOTAL_WORDS words:
- * RENDEZVOUS_WORDS rendezvous word(s) — the room id, PUBLIC routing, NOT secret —
- * plus SECRET_WORDS secret words — the CPace password (~41 bits at 4 words from
- * 1296: 1296^4 ~= 2^41.4). Generated with a CSPRNG, uniform, never user-chosen.
- *
- * Source: https://www.eff.org/files/2016/09/08/eff_short_wordlist_2_0.txt
- * (Bischoff/EFF, "Deep Dive: EFF's New Wordlists for Random Passphrases", 2016.)
- * The server keeps its OWN copy (server/wordlist.js) — client and server never
- * share code; the duplication is intentional.
- */
-export const RENDEZVOUS_WORDS = 1;
-export const SECRET_WORDS = 4;
-export const TOTAL_WORDS = RENDEZVOUS_WORDS + SECRET_WORDS;
-
-export const WORDLIST: readonly string[] = [
+// EFF short wordlist #2 (1296 words). SERVER'S OWN COPY — the signaling server and
+// the client deliberately do NOT share code (see CLAUDE.md). This list is used only
+// to allocate / validate the PUBLIC rendezvous word for the "words" method; the 4
+// SECRET words never reach the server. Source:
+// https://www.eff.org/files/2016/09/08/eff_short_wordlist_2_0.txt
+export const WORDLIST = [
   'aardvark', 'abandoned', 'abbreviate', 'abdomen', 'abhorrence', 'abiding', 'abnormal', 'abrasion',
   'absorbing', 'abundant', 'abyss', 'academy', 'accountant', 'acetone', 'achiness', 'acid',
   'acoustics', 'acquire', 'acrobat', 'actress', 'acuteness', 'aerosol', 'aesthetic', 'affidavit',
@@ -181,32 +167,3 @@ export const WORDLIST: readonly string[] = [
   'yo-yo', 'yodel', 'yogurt', 'yuppie', 'zealot', 'zebra', 'zeppelin', 'zestfully',
   'zigzagged', 'zillion', 'zipping', 'zirconium', 'zodiac', 'zombie', 'zookeeper', 'zucchini',
 ];
-
-/**
- * TOTAL_WORDS uniform picks from WORDLIST via crypto.getRandomValues, with
- * rejection sampling to avoid modulo bias. Picks are independent, so repeats are
- * possible (acceptable: the credential is a uniform draw, not a permutation).
- */
-export function generateWords(): string[] {
-  const n = WORDLIST.length; // 1296
-  // Reject the biased tail: keep only values in [0, limit) where limit is the
-  // largest multiple of n that fits in a uint16, so v % n is uniform over [0,n).
-  const limit = Math.floor(0x1_0000 / n) * n;
-  const out: string[] = [];
-  const buf = new Uint16Array(1);
-  while (out.length < TOTAL_WORDS) {
-    crypto.getRandomValues(buf);
-    const v = buf[0];
-    if (v >= limit) continue; // discard biased tail, resample
-    out.push(WORDLIST[v % n]);
-  }
-  return out;
-}
-
-/** Split a credential into the public rendezvous (room id) and the secret words. */
-export function splitWords(words: string[]): { rendezvous: string; secret: string[] } {
-  return {
-    rendezvous: words.slice(0, RENDEZVOUS_WORDS).join('-'),
-    secret: words.slice(RENDEZVOUS_WORDS),
-  };
-}
