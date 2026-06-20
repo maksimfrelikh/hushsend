@@ -1,4 +1,4 @@
-# hushsend — deployment checklist (step 6f)
+# hushsend — deployment checklist (step 6f) — ✅ LIVE (hushsend.frelikh.dev, 2026-06-20)
 
 Live-instance bring-up for **hushsend.frelikh.dev**. The app is feature-complete (6a–6d done);
 this is the ops runbook + the artifacts it needs. The signaling server is **untrusted** — all
@@ -13,6 +13,63 @@ Config cross-reference: **CLAUDE.md § Deployment / configuration**.
 Topology: one web host (nginx + static `dist/` + the loopback Node signaling server) and a
 **separate** coturn host. nginx terminates TLS, serves the SPA, and reverse-proxies the WebSocket to
 `127.0.0.1:8080`.
+
+---
+
+## 0. Live instance — as deployed (hushsend.frelikh.dev, 2026-06-20)
+
+✅ Deployed and **externally verified** on `frelikhmax.fvds.ru` (Ubuntu 24.04, nginx 1.24, Node 24
+via nvm; the box also runs other apps — nginx is hand-managed, process manager is systemd). The
+realized layout differs from the generic topology above in two ways, plus a few pinned specifics:
+
+- **coturn on the SAME host** as nginx (not a separate host), `turn:`-only on **:3478**, **no
+  `turns:`/TLS** (no 5349, no extra cert). STUN + TURN both from this one coturn; relay + auth
+  verified with `turnutils_uclient`. (turns: can be added later for strict networks — see § 3.)
+- **Signaling = its own repo** at `~/projects/hush-signaling-server` (the universal, multi-app
+  server — NOT the `server/` dir inside the frontend repo); built/run there under systemd.
+- **Frontend** repo at `~/projects/hushsend`, built on-server (`cp -a dist/. /var/www/hushsend/dist`
+  — no `rsync` on the host). TLS via `certbot certonly --webroot -w /var/www/certbot`. DNS for
+  `hushsend.` + `turn.hushsend.` already points at the box.
+- **nginx-template fix during deploy:** the repo template's `http2 on;` (nginx ≥1.25.1 only) was
+  changed to the portable `listen 443 ssl http2;`; the deployed `hushsend.conf` is already patched.
+  The template itself is now fixed, so a future `git pull` on the server's frontend-repo clone makes
+  re-running the step-4 `cp` valid again — the "re-cp reintroduces the error" caveat no longer
+  applies once the clone is pulled. (If you ever see `unknown directive "http2"`, the clone predates
+  the fix.)
+
+systemd unit actually in use (Node is from nvm → `ExecStart` pins the absolute node path; an nvm
+node-version bump needs this line updated):
+
+```ini
+# /etc/systemd/system/hushsend-signaling.service
+[Unit]
+Description=hushsend signaling server
+After=network.target
+[Service]
+Type=simple
+User=clawd
+WorkingDirectory=/home/clawd/projects/hush-signaling-server
+EnvironmentFile=/home/clawd/projects/hush-signaling-server/.env
+Environment=NODE_ENV=production
+ExecStart=/home/clawd/.nvm/versions/node/v24.15.0/bin/node signaling-server.js
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+[Install]
+WantedBy=multi-user.target
+```
+
+External smoke — all green: security headers (HSTS/CSP/Permissions-Policy/nosniff/Referrer/X-Frame);
+`GET /health` → `ok`; `http` → `301 https`; `/assets/*.js|css` immutable-cached; **`/assets/*.wasm`
+→ `application/wasm`** (the QR-scan compile path); `/ws` → `426 Upgrade Required` (reaches Node, not
+served as static); unknown deep-link → `200` (SPA fallback). **Still pending:** the in-browser
+P2P/SAS/transfer test on two devices, and a cross-network TURN relay check (only provable across
+different networks).
+
+The numbered steps below are the generic runbook; the live deploy followed them with the deltas above.
 
 ---
 
@@ -112,6 +169,10 @@ Use [`nginx.conf.example`](nginx.conf.example) → `/etc/nginx/sites-available/`
   `curl -sI https://hushsend.frelikh.dev/assets/<zxing>.wasm | grep -i content-type` → `application/wasm`.
 - The security headers (HSTS / **CSP** / Permissions-Policy / nosniff / Referrer-Policy) are in the
   template — **see the CSP gotcha in step 6.**
+- **HTTP/2 syntax is nginx-version-sensitive.** The template enables HTTP/2 via the `http2` PARAMETER
+  on `listen 443 ssl http2;` — portable across nginx 1.9.5+ (incl. the 1.24 on Ubuntu 24.04). The
+  standalone `http2 on;` directive is **nginx ≥ 1.25.1 ONLY** and errors as `unknown directive
+  "http2"` on 1.24; if you hit that, your template predates this fix.
 
 ---
 

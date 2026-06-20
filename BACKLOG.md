@@ -114,7 +114,14 @@ Forward-looking work only. Current built state + implementation caveats live in 
     only the missing mediaDevices guard added.
   - **Remaining (real devices, post-deploy):** transport + FSA→Blob caps + QR scan + camera
     permissions on actual iOS Safari / Firefox.
-- 🚧 **Deployment behind nginx (6f)** — **deploy-prep artifacts DONE; the live deploy is ops.** Built +
+- ✅ **Deployment behind nginx (6f) — LIVE (deployed 2026-06-20 at hushsend.frelikh.dev; see DEPLOY.md § 0).**
+  On `frelikhmax.fvds.ru` (Ubuntu 24.04, nginx 1.24, Node 24/nvm): frontend built on-server →
+  `/var/www/hushsend/dist`; signaling = the SEPARATE universal repo `~/projects/hush-signaling-server`
+  under systemd `hushsend-signaling` (127.0.0.1:8080); **coturn on the SAME host, `turn:`-only on :3478**
+  (no `turns:`); cert via certbot webroot. External smoke green (headers/CSP, /health, `.wasm`→
+  `application/wasm`, /ws→426, SPA fallback); **remaining: in-browser P2P/SAS/transfer + cross-network
+  relay**. Template fix during deploy: `http2 on;` → `listen … ssl http2;` (nginx 1.24 lacks the 1.25+
+  directive). Original deploy-prep artifacts Built +
   committed: `deploy/nginx.conf.example` (TLS, 80→443, SPA `try_files $uri /index.html`, the `/ws`
   proxy with `X-Real-IP` + WS-upgrade + raised `proxy_read_timeout`, HSTS / build-tuned **CSP**
   [`'wasm-unsafe-eval'` for the QR-scan WASM, now **self-hosted** (step 6e) so `connect-src` lists no
@@ -157,6 +164,14 @@ Forward-looking work only. Current built state + implementation caveats live in 
   SAME fix as "link/qr lobby-race resistance" above. (See CLAUDE.md § link/qr method + § Signaling server.)
 
 ## Nice-to-have / future
+- **coturn `turns:` (TURN over TLS on :5349)** *(deferred — agreed at deploy 2026-06-20)*. The live
+  deploy runs coturn **`turn:`-only on :3478** (no TLS, `no-tls`/`no-dtls`). Strict corporate networks
+  that only allow outbound 443/TLS can't reach a plain `turn:`/STUN relay; for those, enable `turns:`:
+  issue a cert for `turn.hushsend.frelikh.dev`, set `cert`/`pkey` + `tls-listening-port=5349` in
+  `/etc/turnserver.conf` (and drop `no-tls`/`no-dtls`), open `5349/tcp` in ufw, and append the
+  `turns:turn.hushsend.frelikh.dev:5349` URI to the server's `TURN_URLS`. No client/build change — the
+  client uses whatever URIs the signaling server hands out. (Until then Reliable mode falls back to
+  `turn:`/3478, which covers most networks.)
 - **stark-ui-kit componentization** — once a 2nd consumer exists (or the screen set is final),
   promote the generic primitives (button, input, toggle, pill, hairline-card, sheet) from the app's
   `.hs-*` layer into the kit as real React components (props + a11y + tests). Domain pieces (SAS

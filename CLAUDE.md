@@ -638,7 +638,7 @@ X-Forwarded-For; binds to `127.0.0.1` (only the local nginx reaches it). Run wit
   escalating to relay, both sides consenting) is also **done** — see **relax-retry (strict model)** there.
   (`tests/integration/turn-credentials.test.ts`.)
 
-## Deployment / configuration (step 6f — artifacts ready; live deploy is ops)
+## Deployment / configuration (step 6f — LIVE at hushsend.frelikh.dev, deployed 2026-06-20)
 One place that ties together every knob needed to run a live instance. The **artifacts** are built
 and committed — `deploy/nginx.conf.example`, `server/.env.example`, `deploy/coturn.conf.example`,
 and the step-by-step `deploy/DEPLOY.md`; the only code change for 6f is an **additive startup
@@ -660,10 +660,11 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   `IP_RL_MAX` per window → raise it for office/CGNAT deploys (defense-in-depth only — SAS stops a
   MITM). The startup `[config]` log echoes the effective values (TRUST_PROXY, TURN configured/count,
   caps, TTLs, IP_RL_MAX) **without secrets** — eyeball it after each restart.
-- **coturn (`deploy/coturn.conf.example`, separate host):** `static-auth-secret` **MUST EQUAL** the
+- **coturn (`deploy/coturn.conf.example`; MAY be a separate host — the live deploy runs it on the
+  SAME host, `turn:`-only on `:3478`, no `turns:`/5349):** `static-auth-secret` **MUST EQUAL** the
   server's `TURN_SECRET` (the one shared secret; coturn recomputes the HMAC offline). Empty
   `TURN_SECRET` ⇒ relay disabled ⇒ clients stay direct-only (a valid config). Open the firewall for
-  3478 udp/tcp, 5349 tls, and the relay-port range.
+  3478 udp/tcp (5349 tls only if you enable `turns:`) and the relay-port range.
 - **Cross-dependencies:** `TURN_SECRET` == coturn `static-auth-secret`; `VITE_STUN_URLS` + `TURN_URLS`
   both name the **coturn host** (DNS: `hushsend.frelikh.dev` → web host, `turn.hushsend.frelikh.dev`
   → coturn). **CSP must be verified against the built app — especially the QR-scan path** (zxing WASM
@@ -777,7 +778,7 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
      to direct call), `navigator.share`/`crypto.subtle`/`indexedDB` (all guarded with fallbacks).
      **Remaining (after deploy, real devices):** transport + FSA→Blob + QR scan + camera permissions
      verified on actual iOS Safari / Firefox.
-   - 🚧 **6f — nginx deployment (deploy-prep artifacts DONE; live deploy is ops)** — the config
+   - ✅ **6f — nginx deployment — LIVE (deployed 2026-06-20 at hushsend.frelikh.dev)** — the config
      templates + runbook are built and committed: `deploy/nginx.conf.example` (TLS, 80→443, SPA
      `try_files $uri /index.html`, the `/ws` proxy with `proxy_set_header X-Real-IP $remote_addr;` +
      WS-upgrade + raised `proxy_read_timeout`, and security headers — HSTS / a build-tuned **CSP**
@@ -786,10 +787,17 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
      `server/.env.example` (all server env in one place), `deploy/coturn.conf.example` (from 6d), and
      `deploy/DEPLOY.md` (step-by-step + inline gotchas). The only code change was an **additive startup
      `[config]` summary log** (no secrets) in `signaling-server.js`. Consolidated env reference:
-     **§ Deployment / configuration** above. **Remaining (ops, not code):** run nginx/coturn/DNS/TLS on
-     real hosts; verify the CSP against the deployed build (esp. QR scan on iOS/Firefox — overlaps 6e).
-     Plus nice-to-haves. (The high-entropy rendezvous for link/qr is now **done** — codeType=token,
-     pre-deploy.) **Details + scope: see BACKLOG.md.**
+     **§ Deployment / configuration** above. **LIVE bring-up done (2026-06-20)** on `frelikhmax.fvds.ru`
+     (Ubuntu 24.04, nginx 1.24, Node 24/nvm): frontend built on-server → `/var/www/hushsend/dist`;
+     signaling = the SEPARATE universal repo `~/projects/hush-signaling-server` under systemd
+     `hushsend-signaling` (`127.0.0.1:8080`); **coturn on the SAME host, `turn:`-only on `:3478`** (no
+     `turns:`/TLS); cert via `certbot certonly --webroot`. nginx-template fix applied during deploy:
+     `http2 on;` → `listen … ssl http2;` (the standalone directive is nginx ≥1.25.1; 1.24 errors).
+     External smoke ALL green (security headers/CSP, `/health`, `.wasm` as `application/wasm`,
+     `/ws`→426 reaching Node, SPA fallback). **Remaining (ops, not code):** the in-browser
+     P2P/SAS/transfer test on two devices + a cross-network TURN relay check (overlaps 6e real-device).
+     (link/qr high-entropy rendezvous = codeType=token, done pre-deploy.) **Runbook + as-realized
+     notes: DEPLOY.md § 0.**
 
 ## Current state
 - ✅ `src/core/crypto/` — `cpace` (CFRG draft-21 vectors passing), `keyConfirmation` (channel
@@ -874,8 +882,10 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   so the fallback decoder never fetches from a CDN. `zxingWasm.test.ts` proves the wired `locateFile`
   resolves to `'self'`, never jsdelivr/fastly. ScanScreen consumes it.
 - 📋 Pending: step 6 — **6d DONE**; **6e no-device parts DONE** (self-hosted QR WASM +
-  feature-detection review); remaining: 6e real-device test (post-deploy), 6f nginx deploy +
-  follow-ups + nice-to-haves — tracked in **BACKLOG.md**.
+  feature-detection review); **6f LIVE** — deployed + externally verified at hushsend.frelikh.dev
+  (coturn same-host `turn:`-only :3478; signaling = separate repo under systemd; see DEPLOY.md § 0);
+  remaining: in-browser P2P/SAS/transfer on two devices + cross-network TURN relay (6e real-device,
+  post-deploy), plus nice-to-haves — tracked in **BACKLOG.md**.
 
 ## Known residuals / deferred
 - **`pairingId` is a metadata leak to the relay** (reconnect). It is an identifier, not a secret,
