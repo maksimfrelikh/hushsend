@@ -1,12 +1,12 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import { useSession } from '../SessionProvider';
 import { useT } from '../prefs';
-import { useSessionRole } from '../sessionRole';
 import { Screen, Eyebrow, BackLink, PrivacyToggle } from '../ui';
 import { WordPicker } from '../components/WordPicker';
 import { ScanScreen } from './ScanScreen';
 import { loadRecentDevices, deviceLabel } from '../recentDevices';
-import { forgetTransfers } from '../persistence';
+import { useAppDispatch } from '../../store/hooks';
+import { historyActions } from '../../store/historySlice';
 import type { PinEntry } from '../../core/keystore';
 
 type View = 'landing' | 'method' | 'wordsJoin' | 'scan';
@@ -59,7 +59,7 @@ function LandingView({
 }): ReactElement {
   const session = useSession();
   const t = useT();
-  const { markCreator, markJoiner } = useSessionRole();
+  const dispatch = useAppDispatch();
   const [joinCode, setJoinCode] = useState('');
   const [reconnectCode, setReconnectCode] = useState('');
   // Recent devices are read from the keystore (the source of pins), not from localStorage.
@@ -80,7 +80,7 @@ function LandingView({
 
   const onForget = (): void => {
     void session.resetIdentity(); // wipes keystore pins (+ regenerates identity)
-    forgetTransfers(); // and the non-key transfer history
+    dispatch(historyActions.forgotten()); // and the in-memory (session-only) transfer history
     setDevices([]);
   };
 
@@ -120,10 +120,7 @@ function LandingView({
           className="hs-btn hs-btn--ghost"
           data-testid="join-room-sas-btn"
           disabled={!joinOk}
-          onClick={() => {
-            markJoiner(); // joiner = blind SAS picker
-            void session.joinRoomSession(joinCode);
-          }}
+          onClick={() => void session.joinRoomSession(joinCode)}
         >
           {t('joinBtn')}
         </button>
@@ -153,10 +150,7 @@ function LandingView({
                 type="button"
                 className="hs-btn hs-btn--ghost hs-btn--sm"
                 data-testid={i === 0 ? 'create-reconnect-btn' : undefined}
-                onClick={() => {
-                  markCreator(); // creator = SAS reader (if reconnect falls back to SAS)
-                  void session.createReconnectSession();
-                }}
+                onClick={() => void session.createReconnectSession()}
               >
                 {t('reconnectAction')}
               </button>
@@ -181,10 +175,7 @@ function LandingView({
           className="hs-btn hs-btn--ghost"
           data-testid="join-reconnect-btn"
           disabled={!reconnectOk}
-          onClick={() => {
-            markJoiner(); // joiner = blind SAS picker (if reconnect falls back to SAS)
-            void session.joinReconnectSession(reconnectCode);
-          }}
+          onClick={() => void session.joinReconnectSession(reconnectCode)}
         >
           {t('reconnectByCode')}
         </button>
@@ -202,7 +193,6 @@ function LandingView({
 function MethodView({ onBack }: { onBack: () => void }): ReactElement {
   const session = useSession();
   const t = useT();
-  const { markCreator } = useSessionRole();
   return (
     <Screen wide>
       <Eyebrow parts={[t('methodEyebrow')]} />
@@ -234,10 +224,7 @@ function MethodView({ onBack }: { onBack: () => void }): ReactElement {
           title={t('mRoom')}
           desc={t('mRoomDesc')}
           testId="create-room-sas-btn"
-          onClick={() => {
-            markCreator(); // creator = SAS reader (shows its phrase, reads it aloud)
-            void session.createRoomSession();
-          }}
+          onClick={() => void session.createRoomSession()}
         />
       </div>
       <BackLink onClick={onBack} />

@@ -3,12 +3,13 @@ import { useSession } from '../SessionProvider';
 import { useT } from '../prefs';
 import { Screen, Eyebrow, BackLink } from '../ui';
 import { parseLink } from '../../core/link/link';
+import { createQrDetector } from '../zxingWasm';
 
 /**
  * QR receive (step 5b): point the camera at the host's QR, decode it to the link, then join exactly
  * as the link method does. The decode uses the `barcode-detector` ponyfill (native `BarcodeDetector`
- * where available, zxing-wasm fallback) over a `getUserMedia` video stream — imported lazily so its
- * WASM never loads unless the user actually scans.
+ * where available, SELF-HOSTED zxing-wasm fallback — see `zxingWasm.ts`) over a `getUserMedia` video
+ * stream — imported lazily so its WASM never loads unless the user actually scans.
  *
  * Camera denial / absence is handled with a clear, always-present fallback: paste the link instead.
  * That fallback is also the deterministic injection point for the qr e2e (headless cameras can't
@@ -31,7 +32,7 @@ export function ScanScreen({ onBack }: { onBack: () => void }): ReactElement {
     if (!parsed) return false;
     if (!joinedRef.current) {
       joinedRef.current = true;
-      void session.joinLinkSession(parsed.roomCode, parsed.secret, 'qr');
+      void session.joinLinkSession(parsed.rendezvous, parsed.secret, 'qr');
     }
     return true;
   };
@@ -39,7 +40,7 @@ export function ScanScreen({ onBack }: { onBack: () => void }): ReactElement {
   useEffect(() => {
     let stream: MediaStream | null = null;
     let raf = 0;
-    let detector: import('barcode-detector/ponyfill').BarcodeDetector | null = null;
+    let detector: Awaited<ReturnType<typeof createQrDetector>> | null = null;
     let cancelled = false;
 
     const tick = async (): Promise<void> => {
@@ -57,6 +58,13 @@ export function ScanScreen({ onBack }: { onBack: () => void }): ReactElement {
     };
 
     const start = async (): Promise<void> => {
+      // Feature-detect the camera API up front: it is undefined on browsers / insecure (non-HTTPS,
+      // non-localhost) contexts where getUserMedia simply isn't exposed. Bail straight to the paste
+      // fallback rather than throwing on the property access.
+      if (!navigator.mediaDevices?.getUserMedia) {
+        if (!cancelled) setCameraError(true);
+        return;
+      }
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
       } catch {
@@ -76,8 +84,7 @@ export function ScanScreen({ onBack }: { onBack: () => void }): ReactElement {
         /* autoplay race — the stream is attached, detection still runs */
       }
       try {
-        const mod = await import('barcode-detector/ponyfill');
-        detector = new mod.BarcodeDetector({ formats: ['qr_code'] });
+        detector = await createQrDetector();
       } catch {
         if (!cancelled) setCameraError(true);
         return;

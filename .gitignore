@@ -6,3 +6,7 @@ dist
 test-results
 playwright-report
 e2e-tmp*
+# Real signaling-server secrets/config — NEVER commit. The committed template is
+# server/.env.example (see deploy/DEPLOY.md); the server source stays tracked.
+server/.env
+server/.env.local

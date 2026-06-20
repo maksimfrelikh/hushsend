@@ -2,11 +2,12 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { spawn, type ChildProcess } from 'node:child_process';
 
 /**
- * Integration coverage for the word-room hardening in server/signaling-server.js (codeType=word
- * ONLY). Spawns the real signaling server as a child process with a SHORT TTL so the
- * auto-expiry path is testable in milliseconds, and drives it with Node's global WebSocket
- * (undici — which lets us set the Origin the server requires). The 4-digit room/link/QR path is
- * untouched and a regression case below confirms it is not subject to the 1:1 word cap.
+ * Integration coverage for the word-room hardening in server/signaling-server.js (codeType=word).
+ * Spawns the real signaling server as a child process with a SHORT TTL so the auto-expiry path is
+ * testable in milliseconds, and drives it with Node's global WebSocket (undici — which lets us set
+ * the Origin the server requires). As of step 6a the 4-digit room/link/QR path shares the SAME 1:1
+ * cap + TTL + per-IP rate-limit (both are `managed` rooms); that path is covered by its own suite,
+ * room-server.test.ts. The cases here pin the words-specific knob (WORD_ROOM_TTL_MS) and behavior.
  */
 
 const PORT = 8091;

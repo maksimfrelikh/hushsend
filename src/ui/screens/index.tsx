@@ -2,6 +2,7 @@ import { type ReactElement } from 'react';
 import { useAppSelector } from '../../store/hooks';
 import { HomeScreen } from './HomeScreen';
 import { RoomCreateScreen } from './RoomCreateScreen';
+import { LobbyScreen } from './LobbyScreen';
 import { WordsCreateScreen } from './WordsCreateScreen';
 import { LinkCreateScreen } from './LinkCreateScreen';
 import { QrCreateScreen } from './QrCreateScreen';
@@ -19,6 +20,10 @@ import { FailedScreen } from './FailedScreen';
 export function ScreenRouter(): ReactElement {
   const status = useAppSelector((s) => s.connection.status);
   const method = useAppSelector((s) => s.connection.method);
+  // Reconnect (also room + awaitingPeer) auto-pairs 1:1 with NO human pick, so it keeps the simple
+  // code screen; the plain SAS room is a mesh LOBBY (roster + pick). reconnect.active distinguishes
+  // them. (reconnect-in-lobby — letting lobby picks reconnect — is deferred.)
+  const reconnectActive = useAppSelector((s) => s.dev.reconnect.active);
 
   switch (status) {
     case 'idle':
@@ -32,7 +37,7 @@ export function ScreenRouter(): ReactElement {
         case 'qr':
           return <QrCreateScreen />;
         default:
-          return <RoomCreateScreen />;
+          return reconnectActive ? <RoomCreateScreen /> : <LobbyScreen />;
       }
     case 'awaitingSas':
       return <SasScreen />;

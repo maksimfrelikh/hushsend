@@ -22,8 +22,12 @@ export const STR = {
   // --- home ---
   privacyTitle: { en: 'Max privacy', ru: 'Макс. приватность' },
   privacyDesc: {
-    en: 'Always direct, peer-to-peer. Never relay through a server — even if that means not connecting.',
-    ru: 'Всегда напрямую, точка-точка. Никогда через сервер — даже если соединиться не выйдет.',
+    en: 'On: always direct, peer-to-peer. Your peer sees your IP; never relayed through a server — even if that means not connecting.',
+    ru: 'Вкл: всегда напрямую, точка-точка. Собеседник видит ваш IP; никогда через сервер — даже если соединиться не выйдет.',
+  },
+  privacyDescReliable: {
+    en: 'Off (reliable): may relay through a server if a direct path fails. Your IP stays hidden from your peer; the relay only carries end-to-end-encrypted traffic.',
+    ru: 'Выкл (надёжно): может идти через сервер, если напрямую не вышло. Ваш IP скрыт от собеседника; relay видит только сквозь-шифрованный трафик.',
   },
   he1: { en: 'end-to-end encrypted', ru: 'сквозное шифрование' },
   he2: { en: 'no logs', ru: 'без логов' },
@@ -69,6 +73,19 @@ export const STR = {
     en: "You're first in the room · waiting for someone to join…",
     ru: 'Ты первый в комнате · ждём, пока кто-то войдёт…',
   },
+
+  // --- room lobby (mesh: roster + pick whom to connect with) ---
+  lobbyRoomEyebrow: { en: 'room · lobby', ru: 'комната · лобби' },
+  lobbyRoomTitle: { en: 'Share the code, then pick who to connect with', ru: 'Поделись кодом и выбери, с кем соединиться' },
+  lobbyEmpty: {
+    en: 'Waiting · share the code so someone can join…',
+    ru: 'Ожидание · поделитесь кодом, чтобы кто-то вошёл…',
+  },
+  lobbyConnect: { en: 'Connect', ru: 'Соединить' },
+  lobbyJoined: { en: 'joined', ru: 'вошёл' },
+  lobbyDeviceUnknown: { en: 'device', ru: 'устройство' },
+  lobbyBusyPrefix: { en: '', ru: '' },
+  lobbyBusySuffix: { en: 'is busy with another peer — pick someone else.', ru: 'занят с другим — выберите другого.' },
 
   // --- words create ---
   wcrEyebrow: { en: 'code words · read aloud', ru: 'кодовые слова · вслух' },
@@ -139,6 +156,25 @@ export const STR = {
     ru: 'Вы подтвердили — ждём подтверждения собеседника…',
   },
 
+  // --- relax-retry (Max-privacy ICE failure → optional relay escalation, step 6d) ---
+  relaxEyebrow: { en: 'direct connection failed', ru: 'прямое соединение не удалось' },
+  relaxTitle: { en: "Couldn't connect directly", ru: 'Не удалось соединиться напрямую' },
+  relaxDesc: {
+    en: 'Route through a relay instead? The relay only carries end-to-end-encrypted bytes (it can’t read them) and your IP stays hidden from your peer — but it is visible to the relay. Both of you must agree before any relay is used.',
+    ru: 'Соединиться через relay? Relay передаёт только сквозь-зашифрованные байты (прочитать их он не может), ваш IP скрыт от собеседника — но виден relay. Relay включится только если согласятся обе стороны.',
+  },
+  relaxAccept: { en: 'Use a relay', ru: 'Через relay' },
+  relaxDecline: { en: "Don't relay — cancel", ru: 'Без relay — отмена' },
+  relaxPeerReady: {
+    en: 'Your peer already agreed to a relay — accept to connect.',
+    ru: 'Собеседник уже согласился на relay — примите, чтобы соединиться.',
+  },
+  relaxWaiting: { en: 'Connecting through a relay…', ru: 'Соединяемся через relay…' },
+  relaxWaitingDesc: {
+    en: 'Waiting for your peer to agree to the relay too.',
+    ru: 'Ждём, пока собеседник тоже согласится на relay.',
+  },
+
   // --- SAS (picker side — joiner is BLIND, identifies the phrase by listening) ---
   sasEyebrow: { en: 'verify over a second channel', ru: 'проверка по второму каналу' },
   sasTitle: { en: 'Which phrase is your peer reading?', ru: 'Какую фразу называет собеседник?' },
@@ -158,6 +194,14 @@ export const STR = {
   },
   sasReaderConfirm: { en: 'My peer found it — connect', ru: 'Собеседник нашёл — соединить' },
   sasReaderAbort: { en: "They don't see this phrase", ru: 'Собеседник не видит эту фразу' },
+  // --- SAS fail-closed (role could not be resolved — missing id; never a functional blind picker) ---
+  sasRestartEyebrow: { en: 'verification interrupted', ru: 'проверка прервана' },
+  sasRestartTitle: { en: "Can't verify safely — restart", ru: 'Не удаётся проверить — начните заново' },
+  sasRestartDesc: {
+    en: 'We could not determine who reads and who listens for this verification (the session lost its peer details). Start over so the check is done safely — do not send files until you do.',
+    ru: 'Не удалось определить, кто читает, а кто слушает при этой проверке (сессия потеряла данные собеседника). Начните заново, чтобы проверка прошла безопасно — не передавайте файлы до этого.',
+  },
+  sasRestartBtn: { en: 'Restart verification', ru: 'Начать проверку заново' },
 
   // --- transfer ---
   trEyebrow: { en: 'transfer', ru: 'передача' },

@@ -2,7 +2,7 @@ import { test, expect, type Browser, type Page } from '@playwright/test';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createWords, pickWords, createSasRoom, joinSasRoom, confirmSas } from './helpers';
+import { createWords, pickWords, createSasRoom, joinSasRoom, confirmSas, resolveSasParties } from './helpers';
 
 /**
  * Smoke coverage for each REAL screen flow (home → method/join → connected), driven through the
@@ -74,7 +74,9 @@ test('smoke · room: home → invite → SAS room → join → pick the real phr
   await b.goto('/?forceBlob=1');
   await joinSasRoom(b, code);
 
-  await confirmSas(a, b); // a = reader (creator), b = blind picker (joiner)
+  // Role is fixed by the readable ids (not who created the room) — resolve reader/picker at runtime.
+  const { reader, picker } = await resolveSasParties(a, b);
+  await confirmSas(reader, picker);
 
   await expect(a.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
   await expect(b.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
@@ -86,10 +88,11 @@ test('smoke · reconnect: enrolled peers re-auth via the pinned key with NO SAS 
   const a = await openIsolatedTab(browser);
   const b = await openIsolatedTab(browser);
 
-  // First connect (SAS room) so each side pins the other's identity.
+  // First connect (SAS room) so each side pins the other's identity. Resolve reader/picker by id.
   const code = await createSasRoom(a);
   await joinSasRoom(b, code);
-  await confirmSas(a, b); // a = reader (creator), b = blind picker (joiner)
+  const { reader, picker } = await resolveSasParties(a, b);
+  await confirmSas(reader, picker);
   await expect(a.getByTestId('pinned-peer-pubkey')).toHaveText(/^[0-9a-f]{64}$/, { timeout: 30_000 });
   await expect(b.getByTestId('pinned-peer-pubkey')).toHaveText(/^[0-9a-f]{64}$/, { timeout: 30_000 });
 

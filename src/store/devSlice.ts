@@ -1,4 +1,5 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
+import type { PrivacyMode } from '../core/iceServers';
 
 /**
  * Auxiliary serializable projections the SessionController publishes for the UI and the DEV
@@ -29,6 +30,11 @@ export interface DevState {
    *  attempted; `outcome` is the resolution — authenticated (no SAS), the visible key-changed hard
    *  stop, or a fall-back to the SAS comparison (a pin was missing). Throwaway dev display. */
   reconnect: { active: boolean; outcome: 'authenticated' | 'key-changed' | 'fell-back' | null };
+  /** ICE config the PeerConnection was built with (step 6d): the privacy mode, whether a relay was
+   *  added, and the TURN creds it carried. Set at pairing start (startPeer). `relay` is true ONLY in
+   *  Reliable mode with a non-empty TURN url set. Non-secret dev projection (the credential is the
+   *  per-session value also sent to coturn; the shared TURN secret never reaches the client). */
+  iceConfig: { mode: PrivacyMode; relay: boolean; urls: string[]; username: string; credential: string } | null;
 }
 
 const initialState: DevState = {
@@ -41,6 +47,7 @@ const initialState: DevState = {
   ownPublicKey: null,
   pinnedPeer: null,
   reconnect: { active: false, outcome: null },
+  iceConfig: null,
 };
 
 const slice = createSlice({
@@ -72,6 +79,12 @@ const slice = createSlice({
       action: PayloadAction<{ active: boolean; outcome: 'authenticated' | 'key-changed' | 'fell-back' | null }>,
     ) {
       state.reconnect = action.payload;
+    },
+    setIceConfig(
+      state,
+      action: PayloadAction<{ mode: PrivacyMode; relay: boolean; urls: string[]; username: string; credential: string }>,
+    ) {
+      state.iceConfig = action.payload;
     },
     reset: () => initialState,
   },

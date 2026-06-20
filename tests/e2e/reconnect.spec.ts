@@ -2,7 +2,7 @@ import { test, expect, type Browser, type Page } from '@playwright/test';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createSasRoom, joinSasRoom, confirmSas } from './helpers';
+import { createSasRoom, joinSasRoom, confirmSas, resolveSasParties } from './helpers';
 
 /**
  * Step-4b-ii reconnect (TOFU re-auth under pinned keys), end to end through two Chromium tabs.
@@ -45,9 +45,11 @@ async function enrollViaSas(a: Page, b: Page): Promise<void> {
   const code = await createSasRoom(a);
   await joinSasRoom(b, code);
 
-  // Asymmetric SAS: A (creator) READS its phrase; B (joiner) is the BLIND picker → both confirm →
+  // Asymmetric SAS: one side READS its phrase, the other is the BLIND picker. The role is fixed by
+  // the readable ids (not by who created the room), so resolve it at runtime → both confirm →
   // authenticated connected → enrollment pins.
-  await confirmSas(a, b);
+  const { reader, picker } = await resolveSasParties(a, b);
+  await confirmSas(reader, picker);
   await expect(a.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
   await expect(b.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
 

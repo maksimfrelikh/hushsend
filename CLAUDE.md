@@ -58,13 +58,78 @@ this as a single gate check.
 ## Connection methods (4)
 All four resolve to the same FSM and the same DataChannel transfer; they differ only in how
 peers rendezvous + authenticate.
+
+### Per-pairing role (initiator/responder) — by readable-id order
+`this.role` (the transport/crypto initiator|responder) is fixed **PER-PAIRING from the two readable
+ids** — the lexicographically **smaller id is the `initiator`**, the larger the `responder`
+(`src/core/pairingRole.ts` `pairingRoleFor`, unit-tested in `pairingRole.test.ts`) — **NOT** from
+create/join. This is the SAME id ordering as the SAS reader/picker split (`sasRoleFor`: smaller id =
+reader), so on any pair the initiator is also the reader. **Why:** the room is a mesh lobby, so a 1:1
+pair can be creator↔joiner OR joiner↔joiner; under the old "creator = initiator" rule two joiners were
+**both `responder`** → nobody sent the WebRTC offer and the SAS commit-reveal (responder commits
+first) deadlocked. Fixing the role from the ids guarantees exactly one initiator + one responder for
+ANY pair; both peers compute it identically (ids are unique in a room) → opposite roles. It is
+assigned once at pairing start (`SessionController.beginPairing`, both ids known) and drives: the
+**WebRTC offer/answer** direction (initiator offers — sent by the smaller id, by EITHER side, not
+"always the creator"), **CPace** init/respond (words), the **SAS** nonce order + commit-reveal (room,
+mirrored into `sas.role`), and the **`lv(role)`** label in the **key-confirmation** (words/link/qr)
+and **enrollment** transcripts. **For a 1:1 creator↔joiner pair the OUTCOME is unchanged** — same
+connection, same authentication; only WHICH side offers/reveals first is now id-ordered. **Fail
+closed**: an unresolved role (missing/equal id) hard-fails the pairing rather than defaulting a side
+(a default could land both on the same role and deadlock). **Exception — reconnect:** the reconnect
+PROTOCOL role (who announces the pairingId / who proves first / `lv(role)` in the reconnect
+transcript) **stays create/join** (creator = reconnect initiator), independent of `this.role`, so the
+verifier-first side is fixed and a key change is caught before a forger can settle; reconnect is 1:1
+creator↔joiner (mesh reconnect is a later step). This per-pairing-role pass is the foundation for the
+**Room lobby** (below), which is now built (step 6): the room method no longer auto-pairs — the human
+picks whom to pair with, and the per-pairing role lets ANY pair (incl. joiner↔joiner) raise a correct
+1:1 channel. words/link/qr still auto-pair 1:1 with the single peer.
+
+### Room lobby (mesh — roster + pick) — done (step 6)
+The 4-digit room is a **mesh LOBBY**, and the client now exposes it: the room method NO LONGER
+auto-pairs. **Both the creator AND every joiner land in `awaitingPeer`** (a joiner takes the new
+`joining → awaitingPeer` transition — no new FSM state) and see the same `LobbyScreen`: the shareable
+4-digit code + a **roster** of everyone else in the room, each with a **Connect** button. The human
+PICKS whom to raise a 1:1 channel with.
+- **Roster projection**: `connection.roster: PeerInfo[]` (`{id, device, joinedAt}`), maintained by the
+  core from signaling — `welcome` (set the existing peers) / `peer-joined` (add) / `peer-left` (remove,
+  also clearing a stale busy notice). Serializable; the live objects stay in the core. (Seeded for all
+  methods, but only the room `LobbyScreen` renders it.)
+- **Pick → connect handshake** (room only, over the signaling relay; carries no secret — the SAS
+  authenticates). On a pick the client sends the target a **`pair-request`** and engages via
+  `beginPairing`, where the **per-pairing role decides who offers**: the **smaller id (initiator) sends
+  the WebRTC offer** — on its own pick OR on a `pair-request` from the responder — while the larger id
+  (responder) readies its answerer, sends its SAS commit, and waits. The `pair-request` readies the
+  counterpart before the offer arrives. **Glare** (both pick each other) resolves naturally — only the
+  smaller id offers; **dedup** is by `this.peerId`/`this.peer` (a duplicate pick, or a pair-request from
+  the peer we already engaged, is ignored). Then the normal pairing → SAS (reader/picker by id) →
+  `connected` → transfer runs, for ANY pair including **joiner↔joiner**.
+- **Busy-reject**: a `pair-request` from a peer while we are already pairing/connected with a DIFFERENT
+  peer → we send that peer **`busy`**. The picker receiving `busy` tears down its half-started attempt
+  and **returns to the lobby** (`pairing → awaitingPeer`, room + roster intact) with a clear "X is busy"
+  notice (`connection.notice`) — a clean rejection, never a hang; it can pick someone else. The busy
+  peer's own session is undisturbed (it drops the stray offer/commit via the `from !== peerId` gate).
+- **Lobby control frames** (`pair-request` / `busy`) are handled in `onSignal` BEFORE the 1:1
+  `from !== peerId` gate (a pick can come from a peer we are not yet paired with). `LobbyScreen` is
+  gated on the plain SAS room (`dev.reconnect.active` false); **reconnect** keeps the simple code screen
+  (`RoomCreateScreen`) and **auto-pairs** 1:1 (reconnect-in-lobby is deferred). **words/link/qr are NOT
+  lobbies** — they auto-pair 1:1 with the single peer (only `peers[0].id` is read from the new welcome
+  form). `LobbyScreen` (`src/ui/screens/`) + `pickPeer`/`onPairRequest`/`onBusy` in `SessionController`;
+  e2e in `tests/e2e/lobby.spec.ts` (joiner↔joiner + busy).
+
 - **link** — high-entropy one-time secret S in the URL **fragment** (`#…`), scrubbed via
   `history.replaceState` immediately after read (never sent to the server). No PAKE, no SAS —
   S authenticates the channel itself via key-confirmation. *(done — 5b; see below)*
 - **qr** — same as link; the same link is shown/scanned as a QR. *(done — 5b; see below)*
-- **room** — server allocates a 4-digit code (public, not secret); after connect the two
-  humans compare a **SAS** (3 words from EFF short #2) out-of-band. SAS is mandatory and
-  unskippable; the key-changed / mismatch path is a hard stop, not a dismissable toast.
+- **room** — server allocates a 4-digit code (public, not secret) that names a **mesh LOBBY**
+  (up to `maxPeers`, default 8). Several peers can sit in the same room; the client shows a **roster +
+  Connect button per peer** and the human PICKS whom to raise a 1:1 DataChannel with — any pair,
+  INCLUDING joiner↔joiner — and that pair runs its own SAS + transfer (see **Room lobby** below). After
+  a pair connects the two humans compare a **SAS** (3 words from EFF short #2) out-of-band. SAS is
+  mandatory and unskippable; the key-changed / mismatch path is a hard stop, not a dismissable toast.
+  **link/qr do NOT share this 4-digit lobby** — they rendezvous via their own high-entropy **token**
+  (`codeType=token`, strictly 1:1), so a stray peer can't reach the room. *(SAS done — 4a;
+  lobby UI done — 6c; lobby seat cap codeType-dependent — see below.)*
 - **words** — PAKE-authenticated, **no SAS**. See below.
 
 ### words method (finalized)
@@ -89,8 +154,10 @@ untrusted-server transcript is not offline-attackable).
   password (PRS), canonical join format: `utf8ToBytes(secret.map(w => w.toLowerCase()).join('\n'))`.
 - Pairing: **CPace** (draft-irtf-cfrg-cpace-21, CPACE-RISTRETTO255-SHA512) over signaling
   new `{kind:'cpace', sid?, msg}` frames (sid = 16-byte session nonce, initiator generates
-  and sends on first frame; responder echoes). → shared key K. Exchange offer/answer/ICE →
-  DTLS. **Key-confirmation:** each side MACs the negotiated DTLS fingerprint (the one from
+  and sends on first frame; responder echoes). → shared key K. The CPace initiator/responder is the
+  **per-pairing role** (smaller readable id = initiator, see **Per-pairing role**) — for words the
+  rendezvous is strictly 1:1 so it is always creator+joiner, but which of the two is the initiator
+  is id-ordered, not create/join. Exchange offer/answer/ICE → DTLS. **Key-confirmation:** each side MACs the negotiated DTLS fingerprint (the one from
   received SDP, that DTLS validates) + role label under K via HKDF-SHA512 derivation, exchanges
   it over a DataChannel control message `{kind:'confirm', role?, tag}`; verify with
   `equalBytes` → `connected`; mismatch (wrong words or MITM) → `failed`, no data. **No SAS** —
@@ -107,17 +174,24 @@ untrusted-server transcript is not offline-attackable).
   `4002 'room full'`). This serializes guesses and ensures the room is 1:1.
 
 ### room method (SAS) — done
-Server allocates a 4-digit public code; both sides connect, then humans compare a short
-string (SAS) **out-of-band** (voice/QR/etc.) — the MITM check.
+Server allocates a 4-digit public code that names a **mesh LOBBY** (see **Room lobby** above): peers
+join, see each other on a roster, and the human PICKS whom to raise a 1:1 channel with (any pair,
+incl. joiner↔joiner). Once a pair connects, the two humans compare a short string (SAS) **out-of-band**
+(voice/QR/etc.) — the MITM check.
 
 **SAS design (commit-before-reveal, per ZRTP / Vaudenay)**: to prevent a MITM-server from
 grinding certs to match SAS on both sides, reveal the SAS only after committing to random
 nonces:
-- Responder (B, joiner) sends `{kind:'sas-commit', c}` where `c = SHA-256("hushsend/sas/commit"
-  || nonceB)`, nonceB = 16 random bytes. Initiator (A) sends `{kind:'sas-nonce', nonce: nonceA}`.
-- B reveals `{kind:'sas-nonce', nonce: nonceB}`. A verifies `c = SHA-256(...)` with `equalBytes`
-  (abort on mismatch). Order is critical: B is committed before nonceA is revealed. Both derive
-  (HKDF-SHA512, same KDF as the words key-confirmation):
+  (Roles below are the PER-PAIRING transport/crypto roles — initiator = the lexicographically
+  SMALLER readable id, responder = the larger — NOT create/join. See **Per-pairing role** above; the
+  SAS responder commits first regardless of who created the room, so a joiner↔joiner pair never has
+  both sides committing.)
+- Responder sends `{kind:'sas-commit', c}` where `c = SHA-256("hushsend/sas/commit"
+  || nonceR)`, nonceR = 16 random bytes. Initiator sends `{kind:'sas-nonce', nonce: nonceI}`.
+- Responder reveals `{kind:'sas-nonce', nonce: nonceR}`. The initiator verifies `c = SHA-256(...)`
+  with `equalBytes` (abort on mismatch). Order is critical: the responder is committed before the
+  initiator's nonce is revealed. Both derive (HKDF-SHA512, same KDF as the words key-confirmation;
+  `nonceA`/`nonceB` below = initiator's/responder's nonce, bound in fixed role order):
 ```
   SAS = HKDF-SHA512(IKM = lv(nonceA) || lv(nonceB) || lv(fp_min) || lv(fp_max),
                     salt = ∅, info = "hushsend/sas")
@@ -132,36 +206,72 @@ nonces:
   any deny/timeout/abort → `failed`. This is not a cryptographic boundary (SAS already
   authenticated the channel via fingerprint binding), but a **coordination gate** ensuring both
   sides agree on authenticity before allowing data transfer.
-- **UI confirmation — ASYMMETRIC "pick from 3 phrases" (step 5a, crypto unchanged)**: `sas.ts` and
+- **UI confirmation — ASYMMETRIC "pick from 3 phrases" (crypto unchanged)**: `sas.ts` and
   the `sas-confirm{ok}` protocol are untouched. The screen is split by role so the pick actually
   defends against a MITM:
-  - the **creator/initiator is the READER** — it is shown its phrase (`sas-words`), reads the 3
-    words aloud, then confirms (or aborts);
-  - the **joiner/responder is the BLIND PICKER** — it is NEVER shown the phrase on its own, only
-    3 indistinguishable options (the REAL phrase + **2 LOCAL display-only decoys**: same EFF short #2
-    list, same 3-word format, distinct from the real one and each other, randomised order, never
-    sent), and must identify the phrase by LISTENING to the reader.
+  - the **READER** is shown its phrase (`sas-words`), reads the 3 words aloud, then confirms (or aborts);
+  - the **BLIND PICKER** is NEVER shown the phrase on its own, only 3 indistinguishable options (the
+    REAL phrase + **2 LOCAL display-only decoys**: same EFF short #2 list, same 3-word format, distinct
+    from the real one and each other, randomised order, never sent), and must identify the phrase by
+    LISTENING to the reader.
 
   This split is the whole point: a picker that could see its own phrase would click it without
   listening, giving no protection. Blind, the picker catches a MITM (which makes the two sides derive
   DIFFERENT phrases) — the read phrase is not among the picker's options → "none of these match" →
   `confirmSas(false)` → both abort. `confirmSas(true)` fires only when the picker selects the real
   phrase (the reader confirms its peer found it). Entropy is preserved (full phrase vs full phrase);
-  the decoys are pure UI. The role is a UI-only signal (`sessionRole.tsx`: create→reader, join→picker;
-  default picker = fail-closed, never exposes the phrase). The decoy build + pick scoring is isolated
-  in `sasOptions.ts` and unit-tested (`sasOptions.test.ts`).
+  the decoys are pure UI. The decoy build + pick scoring is isolated in `sasOptions.ts` and
+  unit-tested (`sasOptions.test.ts`).
+  - **SAS role is PER-PAIRING, by readable-id order (NOT create/join)**: since the room is a mesh
+    lobby, a pair can be creator↔joiner OR joiner↔joiner — "creator reads" would make two joiners both
+    pickers (no reader). Instead each 1:1 pair fixes the role from the two readable ids: the
+    lexicographically **smaller id is the reader**, the other the picker (`src/core/sasRole.ts`
+    `sasRoleFor`, unit-tested in `sasRole.test.ts`). Both peers compute it identically (ids are unique
+    in a room) → opposite roles, for ANY pair. The core computes it at pairing start (both ids known)
+    and projects it as `connection.sasRole`; `SasScreen` reads it. The readable id is a LABEL (not
+    identity) used ONLY to split the asymmetric UI roles — the SAS crypto is what authenticates. **Fail
+    closed**: if the role is unresolved (`null` — a missing id), `SasScreen` renders the "restart
+    verification" screen, NEVER a functional blind picker (this closes the BACKLOG fail-closed item).
+    The reader/picker split is a UI-only signal, but it shares the SAME id ordering as the
+    transport/crypto role (`sas.role`, see **Per-pairing role** above): the smaller id is both the
+    initiator (reveals after the commit) AND the reader. So reader↔initiator and picker↔responder line
+    up on every pair, by construction.
 - **Timeouts**: one reused timer bounds the coordination phases, default **120000 ms** (~2 min).
-  It arms at peer-joined to bound the pre-SAS pairing window (peer sent commit but withheld its
-  nonce → no longer hangs; this deadline is fixed / non-overridable), then re-arms at SAS-display
-  to bound the comparison + confirm window. The comparison value is dev-overridable for tests
-  (`?sasTimeoutMs=N` / `window.__HUSHSEND_SAS_TIMEOUT_MS__`, gated behind `import.meta.env.DEV`,
-  so it is dead code / tree-shaken in prod). On expiry → `failSas` → `failed` + close, same path
-  as deny/abort.
+  It arms at pairing-start (`beginPairing`) to bound the pre-SAS pairing window (peer sent commit but
+  withheld its nonce → no longer hangs), then re-arms at SAS-display to bound the comparison + confirm
+  window. **Both phases are PROD-fixed at the 120 s default** but each reads its duration through a
+  SEPARATE DEV-only override so e2e can drive each timeout branch in ~hundreds of ms / a few seconds
+  instead of a real 120 s wait, both gated behind `import.meta.env.DEV` (dead-code / tree-shaken in
+  prod): the pre-SAS window via **`preSasTimeoutMs()`** (`?preSasTimeoutMs=N` /
+  `window.__HUSHSEND_PRE_SAS_TIMEOUT_MS__`) and the comparison window via **`sasConfirmTimeoutMs()`**
+  (`?sasTimeoutMs=N` / `window.__HUSHSEND_SAS_TIMEOUT_MS__`). They are kept SEPARATE deliberately —
+  shrinking one must not pre-empt the other's state under test (the comparison-timeout e2e relies on
+  the pre-SAS window keeping its default while only the comparison one shrinks). On expiry → `failSas`
+  → `failed` + close, same path as deny/abort. The pre-SAS deadline is **RE-ARMED when the relax relay
+  offer surfaces** (legitimate longer escalation window — see § Privacy mode + ICE / relax-retry). The
+  pre-SAS deadline's **FIRING direction is e2e-tested** (`?stallSasNonce=1` makes a peer reach the SAS
+  but withhold its nonce reveal → the other side fails at the shrunk pre-SAS deadline, not hangs —
+  `tests/e2e/room-sas.spec.ts`).
 - **Inbound validation**: `sas-commit` / `sas-nonce` frames are zod-validated to exact decoded
   lengths (commit = 32 bytes, nonce = 16 bytes); malformed / short / odd-hex frames are rejected
   before any crypto (untrusted relay).
-- **Server cap / TTL**: the 4-digit room still needs anti-farming (max 2 peers, TTL before
-  `connected`, regenerate). **Deferred to step 6** (hardening) — separate server pass.
+- **Server cap / TTL / rate-limit (done — 6a, lobby cap added later)**: the 4-digit room is a
+  **`managed`** room, which governs the TTL + per-IP rate-limit. The **seat cap is codeType-dependent,
+  NOT the `managed` flag**: the 4-digit **room** rendezvous is a **LOBBY** up to **`maxPeers`**
+  (`FILETRANSFER_MAX_PEERS`, default **8**); the **words** AND the link/qr **token** rendezvous are
+  strictly 1:1 (`ONE_TO_ONE_MAX_PEERS = 2`) — words to serialize secret-word guessing, token because a
+  one-time link/qr has a single receiver. A joiner past the cap is bounced with **4002 `'room full'`**.
+  The room self-destructs after a short TTL **before `connected`**, freeing the code (a later join →
+  **4009 `'room not found'`**; after `connected`, closing signaling does NOT drop the live P2P
+  channel). The **4-digit lobby TTL is an IDLE timeout** (`ROOM_TTL_MS = 180000`, ~3 min): every JOIN
+  re-arms it, so an actively-joined lobby lives while a stale one expires. The **words AND token TTLs
+  stay armed from CREATE** (`WORD_ROOM_TTL_MS` / `TOKEN_ROOM_TTL_MS`, both 180000) and do NOT re-arm (a
+  re-arm would let an attacker keep a 1:1 room alive by rejoining). **Per-IP create/join attempts are
+  rate-limited** (`IP_RL_MAX =
+  60` / `IP_RL_WINDOW_MS = 60000`; over → **4011 `'too many attempts'`**) to slow enumeration of the
+  small 10k space; loopback is EXEMPT (behind nginx a real client always arrives via `X-Real-IP`, never
+  loopback). SAS still defeats a MITM regardless — this is abuse hygiene. See **Signaling server**
+  below; tested in `tests/integration/room-server.test.ts`.
 
 ### link / qr method (finalized — 5b)
 A high-entropy ONE-TIME secret in the URL fragment authenticates the channel directly — **no PAKE,
@@ -172,10 +282,16 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
 
 - **Secret S**: `LINK_SECRET_BYTES = 16` CSPRNG bytes (128 bits), base64url-encoded, never
   user-chosen. It is the key-confirmation IKM and **never reaches the server**.
-- **Rendezvous**: a **4-digit room** — the SAME server `create=1` allocate as the room method (the
-  server is untrusted and **unchanged** for 5b). Public routing only.
-- **Link shape**: `<origin>/#<roomCode>.<S>` (`buildLinkUrl`). The roomCode is PUBLIC; S rides in the
-  **fragment**, which browsers never send to the server.
+- **Rendezvous**: a **high-entropy token** (`codeType=token`) — the server allocates a 128-bit
+  CSPRNG, base64url, 22-char token (`server/signaling-server.js` `tokenCode`, `TOKEN_ROOM_BYTES=16`),
+  NOT the 4-digit room. The link already carries the rendezvous, so a high-entropy token costs nothing
+  in UX while making the rendezvous **unguessable**: a stranger can't enumerate/squat a token room the
+  way the 10k 4-digit space can be scanned, so interloper-resistance is **structural** (the old
+  link/qr lobby-race is closed by construction, not just by rate-limit). Public routing only. The
+  **room method keeps the 4-digit code; words keeps its word**; only link/qr moved to the token.
+- **Link shape**: `<origin>/#<token>.<S>` (`buildLinkUrl`). The token is PUBLIC (routing); S rides in
+  the **fragment**, which browsers never send to the server. Both halves are base64url with no
+  padding, so neither contains `.` and `parseLink` splits cleanly on the first `.`.
 - **Authentication = channel-bound key-confirmation over S** (reuses `keyConfirmation.ts`, the same
   primitive + lv-canonicalisation as words/SAS, under the **`LINK_CONFIRM_DOMAIN`** domain —
   `confKey = HKDF-SHA512(S, salt=∅, info="hushsend/link/confirm")`, `tag = HMAC-SHA256(confKey,
@@ -186,21 +302,28 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
   that defaults to `CPACE_CONFIRM_DOMAIN`, so the words call sites are byte-for-byte identical.
 - **Flow** (maps onto existing states, no new ones): A `create=1` → `awaitingPeer` shows the link
   (creator only; surfaced as `credential[0]`, same as words surfaces its secret words) → `peer-joined`
-  → A initiates WebRTC → DTLS → key-confirmation over S → `connected`. B `joining` → responder →
-  DTLS → key-confirmation → `connected`. (`creating`/`joining` → `pairing`[DTLS] → `confirming`[S
-  key-confirm] → `connected`|`failed`.)
-- **One-time / replay**: the link/QR is for ONE connection; the room is session-scoped (TTL, cap 2 —
-  the same 4-digit-room hardening tracked under step 6). Replay is closed by a fresh DTLS cert per
-  session **plus** S being single-use (scrubbed after read).
-- **Fragment scrub**: the joiner reads `location.hash` on page load, extracts roomCode + S, **scrubs
+  → at pairing start the WebRTC **initiator is the smaller readable id** (see **Per-pairing role**;
+  either side may offer, not necessarily the creator) → DTLS → key-confirmation over S → `connected`.
+  (`creating`/`joining` → `pairing`[DTLS] → `confirming`[S key-confirm] → `connected`|`failed`.)
+- **One-time / replay**: the link/QR is for ONE connection; the token room is session-scoped (TTL +
+  per-IP rate-limit — the managed-room hardening — see room/SAS § *Server cap / TTL / rate-limit*).
+  The token room is **strictly 1:1** (`ONE_TO_ONE_MAX_PEERS = 2`, like words), NOT the 4-digit lobby:
+  the unguessable token keeps strangers OUT structurally, and the cap-2 guarantees a **single
+  receiver** even if the link is forwarded (a 2nd joiner is bounced **4002 `'room full'`**; S would
+  also fail key-confirmation for it — defense in depth). Its TTL is armed **from CREATE** and never
+  re-armed (`TOKEN_ROOM_TTL_MS = 180000`, the natural pre-connect wait of a 1:1 link). Replay is closed
+  by a fresh DTLS cert per session **plus** S being single-use (scrubbed after read).
+- **Fragment scrub**: the joiner reads `location.hash` on page load, extracts the token + S, **scrubs
   the fragment immediately** via `history.replaceState` (before any await — see `LinkFragmentJoin`
-  in `App.tsx`), and sends only roomCode to the server. A malformed/absent fragment is a no-op (stay
-  home); a valid-but-dead room surfaces later as the "room not found" failure. `parseLink` validates
-  strictly (4-digit code, S decodes to exactly 16 bytes) — the input is attacker-influenced.
+  in `App.tsx`), and sends only the token to the server (`join`, `codeType=token`). A malformed/absent
+  fragment is a no-op (stay home); a valid-but-dead room surfaces later as the "room not found"
+  failure. `parseLink` validates strictly (token = `RENDEZVOUS_TOKEN_LEN`=22 base64url chars, S decodes
+  to exactly 16 bytes) — the input is attacker-influenced; an old 4-digit-style code is now rejected.
 - **qr**: the SAME link, rendered to an SVG QR locally (`src/ui/qr.ts`, `qrcode`); the joiner SCANS
   it with the camera (`getUserMedia` + the `barcode-detector` ponyfill — native `BarcodeDetector`,
-  else zxing-wasm, lazily imported) → decodes to the link → same join path. Camera denial/absence
-  falls back to a **paste-the-link** input (also the deterministic e2e injection point).
+  else **self-hosted** zxing-wasm via `src/ui/zxingWasm.ts`, lazily imported) → decodes to the link →
+  same join path. Camera denial/absence falls back to a **paste-the-link** input (also the
+  deterministic e2e injection point). The zxing WASM is served from our own origin, not a CDN — see § QR.
 - **Enrollment**: TOFU pinning runs after `connected` exactly as for words/room (method-agnostic),
   so link/qr pairs can later reconnect.
 
@@ -221,9 +344,11 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
   SAS/words-authenticated channel, where the MITM is already defeated, so exchanging public keys
   is trustworthy (this is the trust-on-first-use moment). It is an action on `connected`, NOT an
   FSM state, and does NOT gate `connected` or transfer; a bad enrollment signature only skips the
-  pin + warns, never tears down the human/PAKE-authenticated session. The initiator generates a
+  pin + warns, never tears down the human/PAKE-authenticated session. The initiator (the
+  **per-pairing role** — the smaller readable id, NOT necessarily the creator) generates a
   key-independent random `pairingId` (16 bytes) — key-independent so a swapped key under the same
-  id is detectable on reconnect. Each side signs its OWN public key:
+  id is detectable on reconnect; `lv(role)` below is that per-pairing role. Each side signs its OWN
+  public key:
 ```
   sign( lv("hushsend/identity/enroll") || lv(pairingId) || lv(ownPubKey) || lv(fp_min) || lv(fp_max) || lv(role) )
 ```
@@ -239,6 +364,11 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
   SAS state, which stays primed as the fallback. Path selection: the initiator announces the
   pairingId (`reconnect-init`); both look up their pin. Both-have-pin → reconnect-auth; a pin
   missing on either side → `reconnect-fallback` → the normal first connect (SAS + enrollment).
+  **Reconnect's `role` is the EXCEPTION to the per-pairing rule: it stays create/join** (creator =
+  reconnect initiator = the side that announces the pairingId and is the verifier-first), NOT the
+  id-derived `this.role`. This is deliberate — the verifier-first side must be fixed so a key change
+  is caught before a forger can settle; reconnect is 1:1 creator↔joiner (mesh reconnect is a later
+  step). `lv(role)` in the transcript below uses this reconnect role.
   Each side proves possession of its pinned private key over a fresh, channel-bound transcript:
 ```
   sign( lv("hushsend/identity/reconnect") || lv(pairingId) || lv(challengeInitiator) || lv(challengeResponder) || lv(fp_min) || lv(fp_max) || lv(role) )
@@ -265,8 +395,9 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
 - **Key-confirmation / channel binding**: each side derives `confKey = HKDF-SHA512(secret,
   info=domain)`, then `tag = HMAC-SHA256(confKey, lv(label) || lv(fp_min) || lv(fp_max) ||
   lv(role))`, where `fp_min/fp_max` are the DTLS fingerprints (lexicographically sorted) from the
-  local cert and the received SDP; `lv` = length-prefixed encoding (same as in CPace); role =
-  initiator/responder. Exchange `tag` over a DataChannel control message; verify with `equalBytes`
+  local cert and the received SDP; `lv` = length-prefixed encoding (same as in CPace); role = the
+  **per-pairing** initiator/responder (smaller readable id = initiator, see **Per-pairing role**).
+  Exchange `tag` over a DataChannel control message; verify with `equalBytes`
   (constant-time). This binds both the shared secret AND the actual DTLS channel (via fingerprints)
   — a MITM with different certs on each leg produces mismatched tags. The construction is
   **domain-parameterised** (`makeConfirmation`/`verifyConfirmation` take a `ConfirmationDomain`
@@ -283,13 +414,126 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
   Cap very large files on the Blob path — multi-GB streaming-to-disk is unreliable on iOS
   (platform limit). The transfer itself works on all browsers.
 
-## QR (built — step 5b)
+## Privacy mode + ICE (Max-privacy / Reliable — step 6d, DONE)
+The home **"Max privacy" toggle is FUNCTIONAL** and drives the WebRTC `iceServers` (the only transport
+behaviour behind it). It is a persisted UI pref (`prefs.tsx`, `hushsend.privacy`, **default `max`**),
+pushed into the core via `<PrivacyModeSync>` (App) → `SessionController.setPrivacyMode`. The mode is
+**read at pairing start** (when `iceServers` are assembled), so flipping it mid-session affects the
+**NEXT** connection, NOT the live one. A LIVE Max-privacy ICE failure escalating to a relay on the fly
+is the **relax-retry** strict model — now DONE (see **relax-retry (strict model)** below).
+- **Builder** (`src/core/iceServers.ts`, pure + unit-tested in `iceServers.test.ts`):
+  `buildIceServers({mode, stunUrls, turn})`.
+  - **Max-privacy (`max`, default)**: `iceServers = [{urls: <STUN>}]` (or `[]` if no STUN) — **STUN
+    only, NO TURN, and creds are NEVER requested** (the relay is never contacted; the peer sees your IP).
+  - **Reliable (`reliable`)**: `[{urls: <STUN>}, {urls: <TURN urls>, username, credential}]` — STUN +
+    TURN, so a pair that can't connect directly relays through coturn (your IP stays hidden from the
+    peer; the relay only carries E2E-encrypted bytes). TURN is added **ONLY when the fetched `urls` is
+    non-empty** — empty urls (TURN undeployed) ⇒ STUN-only (we IGNORE username/credential then; relay
+    availability is keyed off `urls.length`, never off a credential being present).
+- **STUN config**: build-time `VITE_STUN_URLS` (comma-separated → array; `parseStunUrls`). Empty in
+  dev/test = no STUN (two loopback tabs use host candidates).
+- **Cred fetch (Reliable only)**: `SignalingClient.requestTurnCredentials()` sends `{type:'turn-request'}`
+  and awaits the zod-validated `{type:'turn-credentials', urls, username, credential, ttl}` reply (the
+  untrusted relay — validated before use). Fetched **after** the WS is up (`welcome` arrived) and
+  **before** the PeerConnection is created, so TURN is in `iceServers` from the first ICE candidate:
+  `SessionController.ensureTurnReady()` is kicked off at the START of `beginPairing` (runs in parallel
+  with CPace/SAS) and `startPeer` awaits the SAME memoized fetch before building the PC. Never throws —
+  a closed socket / timeout / absent relay resolves to **NO_TURN (empty urls)** → direct-only. Creds are
+  reset per session (`openSignaling`) since they are bound to the live socket. The built ICE config is
+  published to the DEV diagnostics (`dev.iceConfig` — mode/relay/urls/username/credential) for the e2e.
+- **Tests**: `iceServers.test.ts` (builder: max→STUN-only/empty, max ignores TURN, reliable+creds→STUN+TURN,
+  reliable+empty-urls→STUN-only, default=max never relays); `tests/e2e/privacy.spec.ts` (toggle renders +
+  flips + default max; Max-privacy still connects directly with no TURN; Reliable fetches creds via
+  `turn-request` and assembles a correct TURN iceServer — the relay itself is not run, both modes connect
+  over loopback). Server `turn-credentials` minting is **done (6d server side)** — see Signaling server §.
+
+### relax-retry (strict model — done, completes 6d)
+**Max-privacy NEVER relays without consent.** The strict model enforces this bilaterally, then offers a
+human-consented escalation to a relay when a direct connection fails. Pure state machine + the
+candidate predicate live in **`src/core/relax.ts`** (`relax.test.ts`); the live wiring (PeerConnection
++ signaling) is in `SessionController`. **No new FSM state** — status stays `pairing`; a projection
+`connection.relax = { available, localRelaxed, peerRelaxed }` drives the UI.
+- **Strict relay-candidate filter**: in Max-privacy (not yet relaxed) the PeerConnection **DROPS the
+  peer's incoming `typ relay` ICE candidates** (`PeerConnection.addIce` → `shouldDropCandidate` /
+  `isRelayCandidate`). Combined with Max-privacy never requesting local TURN (B1), this means we cannot
+  be relayed **either locally or via the peer's relay** without consent. In Reliable, or after WE relax,
+  filtering is off (`setRelayFilter(false)`).
+- **ICE-fail → offer relax**: an ICE failure (`iceconnectionstatechange`/`connectionstatechange` →
+  `failed`) WHILE filtering routes to `onIceFailed` (NOT the hard-close `onClose`); SessionController
+  sets `relax.available` and the connecting screen shows the relay offer. (In Reliable / already-relaxed,
+  ICE failure is a genuine `onClose` → `failed`.) A peer's relax signal ALSO surfaces the offer to us
+  (`relax.available`) so we never relay silently.
+- **Relax flow (each side consents; restart only when BOTH relaxed)**: a `relax` **signaling** frame
+  (`{kind:'relax'}`, over the relay — NOT the DataChannel, which never opened) is exchanged between the
+  paired peers (`from === peerId`, routed after the 1:1 gate like cpace/sas). On OUR accept
+  (`relaxConnection`): `localRelaxed = true`; fetch coturn creds (the B1 fetch, **forced** even in
+  Max-privacy); `pc.setConfiguration(STUN+TURN)`; `setRelayFilter(false)`; send `relax` to the peer. On
+  RECEIVING `relax`: `peerRelaxed = true`. **Restart rule** (`shouldRestartForRelay`): when
+  `localRelaxed && peerRelaxed` AND we are the **per-pairing initiator** → `pc.restartIce()`
+  (`createOffer({iceRestart:true})`) → the relay path renegotiates. A one-sided relax is useless (the
+  other side is still filtering) → **self-enforcing bilateral**. Decline → `failed` (we'd rather not
+  connect than relay without consent), no auto-retry.
+- **Restart preserves DTLS fingerprint + SAS binding (critical)**: the ICE restart is on the **EXISTING**
+  PeerConnection (`setConfiguration` + `createOffer({iceRestart:true})`) — **no teardown, no new
+  certificate** → the DTLS fingerprint is stable → the SAS / key-confirmation channel binding
+  (`fp_min`/`fp_max`) survives. The pairing/SAS state (nonces, derived SAS) is NOT reset; only ICE
+  restarts. **SAS is confirmed exactly ONCE, already over the relay** — ICE fails before the
+  DataChannel / `sas-confirm`, so the SAS is never re-negotiated. If the relay restart also fails →
+  `failed` (no further auto-retry).
+- **Pre-SAS deadline RE-ARM when the relay offer surfaces (room method robustness)**: surfacing the
+  relay offer (`onIceFailed` sets `relax.available`) opens a human-in-the-loop bilateral escalation —
+  each side must SEE the offer, accept, then ICE-restart + relay-connect — that legitimately runs
+  LONGER than the original pre-SAS pairing window (a single ICE-failure detection alone can eat
+  ~15–30 s). So on the room/SAS path, when the offer is shown AND the SAS has not yet surfaced (it
+  hasn't — ICE fails before the DataChannel opens, so no fingerprints / no SAS yet), `onIceFailed`
+  **RE-ARMS the pre-SAS deadline** (`armSasTimeout('SAS pairing timed out', preSasTimeoutMs())`) to
+  grant a fresh window for accept + restart + relay-connect. SAFE to extend: it is a **liveness** bound,
+  not a security one (the SAS hasn't happened), the escalation is ACTIVE (not a stall), and the deadline
+  STILL fires if the relax is never accepted/completed (a hung relax fails, just later). The re-arm is
+  guarded to the PRE-SAS window (`this.sas && !this.sas.surfaced`) so it can't clobber the comparison
+  timer, and is a NO-OP off the SAS path (words/link/qr have no `this.sas`) — the non-relax / non-SAS
+  paths are untouched.
+- **DEV/TEST knob**: `?forceIceFail=1` (DEV-gated, like `forgeReconnectKey`) makes the PeerConnection
+  treat ICE as failed AND suppress its own candidates, driving the relax flow in e2e without a real
+  network failure.
+- **Tests**: `relax.test.ts` (filter drops relay only while filtering; state machine — restart only
+  when both relaxed AND initiator); `connectionSlice.test.ts` (relax projection + pairing/lobby resets);
+  `tests/e2e/relax.spec.ts` (`forceIceFail` Max-privacy → offer appears; decline → `failed`; accept →
+  relax signal reaches the peer). The relay actually carrying bytes needs coturn → **verified at deploy**.
+
+## QR (built — step 5b; WASM self-hosted — step 6e)
 `barcode-detector` + `qrcode` are installed. Generation: `qrcode` → an SVG QR rendered locally
 (`src/ui/qr.ts`, dark-on-light so it scans in either theme). Scanning: `getUserMedia` for the
 camera + the **`barcode-detector` ponyfill** (native `BarcodeDetector` where available, zxing-wasm
 fallback) so one path works on iOS/Firefox/everywhere; the ponyfill is **lazily imported** so its
 WASM never loads unless the user actually scans. Camera denial/absence falls back to a paste-the-link
 input (`src/ui/screens/ScanScreen.tsx`).
+- **Self-hosted WASM (no CDN — step 6e):** the zxing reader `.wasm` (the fallback decoder on
+  iOS/Firefox) is **vendored into the build** and served from our OWN origin — it is NEVER fetched
+  from a third-party CDN. `barcode-detector@3.2.0`'s default Emscripten `locateFile` would pull
+  `zxing_reader.wasm` from `fastly.jsdelivr.net` at scan time (leaking the client IP + executing
+  WASM from a host we don't control — a privacy + supply-chain risk). `src/ui/zxingWasm.ts`
+  (`createQrDetector`) overrides it: it `import`s the `.wasm` as a Vite **`?url` asset**
+  (`zxing-wasm/reader/zxing_reader.wasm?url` → fingerprinted into `dist/assets/`, same-origin) and
+  calls `setZXingModuleOverrides({ locateFile })` to point the loader at that asset **before** the
+  detector instantiates. Lazy loading is preserved (only the URL string is in the bundle; the
+  ponyfill JS + WASM still load only on a real scan, now from `'self'`). `zxing-wasm@3.1.0` is pinned
+  as a direct dep (exact, matching barcode-detector's inlined copy) so the import resolves
+  independent of hoisting. The wired `locateFile` is unit-tested in `zxingWasm.test.ts` (resolves to
+  a same-origin asset, never jsdelivr/fastly). ScanScreen calls `createQrDetector()` instead of
+  constructing the ponyfill detector directly. **CSP consequence:** `connect-src` no longer lists any
+  CDN (see § Deployment).
+- **⚠️ Version-coupling — re-check the `zxing-wasm` pin on every `barcode-detector` bump.** Our direct
+  `zxing-wasm@3.1.0` pin MUST stay equal to the version `barcode-detector` inlines internally: at scan
+  time the ponyfill's JS expects a `zxing_reader.wasm` whose ABI matches ITS inlined copy, but
+  `locateFile` now points the loader at OUR vendored asset. If a future `barcode-detector` upgrade
+  silently inlines a DIFFERENT zxing-wasm version, our vendored `.wasm` would be ABI-mismatched against
+  the loader JS → the QR-scan FALLBACK breaks **at runtime on iOS/Firefox** (the `.wasm` import still
+  resolves and the build still passes — the mismatch is invisible to `tsc`/`vite build`, and Chromium's
+  native `BarcodeDetector` path masks it in most dev/CI). So when bumping `barcode-detector`, re-verify
+  the exact zxing-wasm version it inlines (e.g. inspect its `package.json`/lockfile entry) and move our
+  direct `zxing-wasm` pin to match in the SAME pass, then re-run `zxingWasm.test.ts` and a real
+  non-Chromium scan. Keep both pins EXACT (no `^`/`~`).
 
 ## UI / styling — stark-ui-kit (required)
 Install: `npm install github:maksimfrelikh/stark-ui-kit`.
@@ -323,11 +567,111 @@ X-Forwarded-For; binds to `127.0.0.1` (only the local nginx reaches it). Run wit
 - Frontend (static `dist/`) and the WS share one host behind nginx; nginx must set
   `proxy_set_header X-Real-IP $remote_addr;` and proxy the WS (e.g. `location /ws`) to
   `127.0.0.1:8080`. Client connects to `wss://<host>/ws?app=filetransfer&…`.
-- **Word-room allocation** (codeType=word): server maintains its own copy of EFF short #2,
-  allocates rendezvous word via the same collision-retry loop (dual codeType). Validates word
-  membership on join. Returns `codeType=word` in welcome. 4-digit `allocate` is unchanged;
-  room/link/QR continue to use it. Word-rooms expire on TTL or cap-reached; freed words return
-  to the pool.
+- **Lobby roster protocol (step 6c)**: `welcome.peers` and `peer-joined` now carry the room roster as
+  `{id, device, joinedAt}` (was a bare id / `{peerId}`). `device` is a COARSE cosmetic label the client
+  sends on connect (query `?device=` — e.g. `Desktop`/`Mobile`, never a full UA); the server strips
+  control chars + **caps it ≤32** (untrusted, cosmetic — the SAS authenticates) and **stamps `joinedAt`
+  on its own clock**. `peer-left` is unchanged (`{peerId}`). The client validates the new shape with
+  zod (`peerInfoSchema`) before it reaches the store. Used only for the room mesh-lobby roster UI.
+- **codeType allocation (`codeSpec`)**: the server resolves a per-connection `codeType` to a
+  validator + allocator. THREE codeTypes for `filetransfer`: **''** (default, 4-digit `code`/`allocate`
+  — the ROOM method); **`word`** (server keeps its own EFF short #2 copy, allocates a rendezvous word
+  via the same collision-retry loop, validates membership on join — the WORDS method); **`token`** (a
+  128-bit CSPRNG base64url token, `TOKEN_ROOM_BYTES=16` → 22 chars, allocated via `randomBytes` +
+  `allocateCode`, validated by `TOKEN_RE` strict format/length on join — the link/QR method). The
+  client selects via `?codeType=word` / `?codeType=token`. Word/token rooms expire on TTL or
+  cap-reached; freed words return to the pool.
+- **Managed-room hardening (all codeTypes — done in 6a; token added pre-deploy)**: the `filetransfer`
+  app is flagged **`managed: true`**, which governs the TTL + per-IP rate-limit for ALL its rooms
+  (4-digit, word, token). The **seat cap is a SEPARATE, codeType-dependent decision** (`managed` ≠ 1:1):
+  - **Seat cap (codeType-dependent)** — `const maxPeers = is1to1 ? ONE_TO_ONE_MAX_PEERS : cfg.maxPeers`,
+    where `is1to1 = isWordRoom || isTokenRoom` (`isWordRoom = codeType==='word' && !!cfg.wordCode`;
+    `isTokenRoom = codeType==='token' && !!cfg.tokenCode`). The 4-digit ROOM rendezvous is a **LOBBY**
+    of `cfg.maxPeers` (`FILETRANSFER_MAX_PEERS`, default **8**) — several peers see each other and each
+    picks whom to open a 1:1 channel with; the **words AND link/QR token** rendezvous are strictly 1:1
+    (`ONE_TO_ONE_MAX_PEERS = 2`) — words so secret-word guessing stays serialized, token so a forwarded
+    one-time link still reaches a SINGLE receiver. A joiner past the cap is bounced with close
+    **4002 `'room full'`** (the room-full check runs before the per-IP-per-room cap). (The `clipboard`
+    mesh has no `wordCode`/`tokenCode` → `is1to1` is always false → it keeps its own `cfg.maxPeers`
+    lobby, unchanged.)
+  - **TTL until connected** — `closeRoom(key,'expired')` notifies members (`{type:'room-closed'}`),
+    closes their sockets (**4010**), and FREES the code (a later join → **4009 `'room not found'`**),
+    via the extracted `makeTtlTimer(key, ttlMs)` (unref'd). The **4-digit lobby uses an IDLE timeout**
+    (`ROOM_TTL_MS`, default **180000** ~3 min): armed on CREATE and **re-armed on every JOIN** (only
+    when `cfg.managed && !is1to1`), so an actively-joined lobby lives while a stale one expires.
+    The **1:1 words AND token rooms arm their TTL once at CREATE and NEVER re-arm** (`WORD_ROOM_TTL_MS`
+    / `TOKEN_ROOM_TTL_MS`, default 180000) — a re-arm would let an attacker keep a 1:1 room alive by
+    rejoining (for words it would also defeat the guessing bound). All env-overridable. The creator may
+    also tear down early via `{type:'destroy'}`
+    (reason `'destroyed'`). After `connected`, closing signaling does NOT drop the live P2P channel —
+    the TTL only bounds the pre-connection rendezvous window (client treats the close as benign once
+    `established`).
+  - **Per-IP create/join rate-limit** — UNCHANGED. Fixed window keyed on `clientIp()`: `IP_RL_MAX =
+    60` attempts per `IP_RL_WINDOW_MS = 60000` (both env-overridable). Over budget → close **4011 `'too
+    many attempts'`** (counts failed joins too, so it bounds enumeration of the 10k space). **Loopback
+    is EXEMPT** (`127.0.0.1` / `::1`) — behind nginx a real client always arrives via `X-Real-IP` and
+    never looks like loopback, so the local proxy / dev / e2e are never throttled. Defense-in-depth
+    only; SAS / key-confirmation are what actually stop a MITM. (`tests/integration/room-server.test.ts`.)
+  - The `clipboard` mesh app is NOT `managed` — it keeps its shared-code mesh (`maxPeers` lobby, no
+    TTL, no rate-limit), since those are one user's own devices typing the same code on purpose.
+- **TURN credentials for Reliable mode (server side — done; client side — done incl. relax-retry, see
+  Privacy mode + ICE §)**: the server
+  answers a **`turn-request`** frame with short-lived, HMAC-derived **coturn** credentials
+  (`use-auth-secret` / "REST API" scheme) so a 1:1 pair that can't connect directly can fall back to
+  a relay. Gated on **`cfg.managed`** (the `filetransfer` rendezvous only; `clipboard` has no server
+  fallback). The reply is `{type:'turn-credentials', urls, username, credential, ttl}` where
+  `username = String(floor(now/1000) + TURN_CRED_TTL_S)` (a FUTURE unix-expiry) and
+  `credential = base64(HMAC-SHA1(TURN_SECRET, username))`. **coturn recomputes the same HMAC and
+  enforces the embedded expiry**, so there is NO signaling↔coturn round-trip. The **`TURN_SECRET` is
+  shared with coturn's `static-auth-secret` and lives ONLY on the server — it is NEVER sent to the
+  client**; only the derived per-session credential leaves the process. **Graceful when unconfigured**:
+  empty `TURN_SECRET` (or a non-managed app) → reply with **empty `urls`** (`{urls:[], username:'',
+  credential:'', ttl:0}`) → the client treats relay as unavailable and stays **direct-only**
+  (= Max-privacy). The handler is bounded by the **existing per-socket message rate-limit** (no
+  separate limiter). Env: `TURN_SECRET` (server-only shared secret), `TURN_URLS` (comma-separated
+  `turn:`/`turns:` URIs → array), `TURN_CRED_TTL_S` (default **3600**). **coturn is deployed
+  SEPARATELY** — template + line-by-line hardening (open relay-port range + firewall, `user-quota` /
+  `total-quota` / `max-bps`, anti-SSRF `no-multicast-peers` / `no-loopback-peers` / `denied-peer-ip`
+  on RFC1918 + link-local, `fingerprint`, `no-cli`) in **`deploy/coturn.conf.example`**. The client
+  side (the functional toggle, `requestTurnCredentials`, feeding `iceServers`, Max-privacy never
+  requests) is **done** — see **Privacy mode + ICE** §; **relax-retry** (a live Max-privacy ICE failure
+  escalating to relay, both sides consenting) is also **done** — see **relax-retry (strict model)** there.
+  (`tests/integration/turn-credentials.test.ts`.)
+
+## Deployment / configuration (step 6f — artifacts ready; live deploy is ops)
+One place that ties together every knob needed to run a live instance. The **artifacts** are built
+and committed — `deploy/nginx.conf.example`, `server/.env.example`, `deploy/coturn.conf.example`,
+and the step-by-step `deploy/DEPLOY.md`; the only code change for 6f is an **additive startup
+`[config]` summary log** (no secrets) in `signaling-server.js`. The live deploy itself (nginx/coturn/
+DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in three layers:
+- **Client build-time (`VITE_*`, baked by Vite — no runtime client config):** `VITE_SIGNALING_URL`
+  (the `wss://hushsend.frelikh.dev/ws` the client opens — nginx proxies `/ws` → Node) and
+  **`VITE_STUN_URLS`** (coturn STUN endpoint(s)). **`VITE_STUN_URLS` is REQUIRED for a real deploy** —
+  Max-privacy (the default) is STUN-only, so with it empty two cross-network peers have no ICE server
+  and never connect (loopback tabs hide this in dev). Changing either means a **rebuild**, not an
+  nginx edit; `VITE_SIGNALING_URL`'s host must match the CSP `connect-src` in the nginx template.
+- **Server env (`server/.env.example`):** `HOST`/`PORT` (loopback `127.0.0.1:8080` behind nginx),
+  **`TRUST_PROXY=1` (mandatory behind nginx)**, TURN (`TURN_SECRET` / `TURN_URLS` / `TURN_CRED_TTL_S`),
+  and the tunable caps/TTLs/rate-limits (`MAX_CONNS_*`, `FILETRANSFER_MAX_PEERS`, `ROOM_TTL_MS` /
+  `WORD_ROOM_TTL_MS` / `TOKEN_ROOM_TTL_MS`, `IP_RL_MAX` / `IP_RL_WINDOW_MS`, message-rate knobs). **`TRUST_PROXY=1` +
+  nginx `proxy_set_header X-Real-IP $remote_addr;` are a pair and the #1 footgun:** without both,
+  `clientIp()` sees only loopback → per-IP caps collapse onto one bucket and the 4011 rate-limit
+  (loopback-exempt) silently disables. **Shared-NAT note:** clients behind one public IP divide
+  `IP_RL_MAX` per window → raise it for office/CGNAT deploys (defense-in-depth only — SAS stops a
+  MITM). The startup `[config]` log echoes the effective values (TRUST_PROXY, TURN configured/count,
+  caps, TTLs, IP_RL_MAX) **without secrets** — eyeball it after each restart.
+- **coturn (`deploy/coturn.conf.example`, separate host):** `static-auth-secret` **MUST EQUAL** the
+  server's `TURN_SECRET` (the one shared secret; coturn recomputes the HMAC offline). Empty
+  `TURN_SECRET` ⇒ relay disabled ⇒ clients stay direct-only (a valid config). Open the firewall for
+  3478 udp/tcp, 5349 tls, and the relay-port range.
+- **Cross-dependencies:** `TURN_SECRET` == coturn `static-auth-secret`; `VITE_STUN_URLS` + `TURN_URLS`
+  both name the **coturn host** (DNS: `hushsend.frelikh.dev` → web host, `turn.hushsend.frelikh.dev`
+  → coturn). **CSP must be verified against the built app — especially the QR-scan path** (zxing WASM
+  needs `'wasm-unsafe-eval'` to COMPILE on iOS/Firefox; the WASM itself is **self-hosted** since step
+  6e — vendored into `dist/assets`, served from `'self'` — so `connect-src` is `'self' wss://<host>`
+  only, **no CDN**; camera needs `Permissions-Policy: camera=(self)`); see the CSP comment block in
+  `deploy/nginx.conf.example` and the smoke-test gotcha in `deploy/DEPLOY.md`. **See `deploy/` for the
+  templates + runbook.**
 
 ## Build order (completed / in progress / planned)
 1. ✅ **Transport** — `SignalingClient`, `PeerConnection`, core DataChannel backbone.
@@ -338,7 +682,7 @@ X-Forwarded-For; binds to `127.0.0.1` (only the local nginx reaches it). Run wit
 4. **room + SAS, then Identity + TOFU**:
    - ✅ **4a — room + SAS** — 4-digit code, commit-before-reveal, SAS = 3 words, fingerprint
      binding, mutual confirmation over DataChannel, pre-SAS + comparison timeouts, zod length
-     checks. (Server cap/TTL for 4-digit rooms is **step 6**, below.)
+     checks. (Server cap/TTL/rate-limit for 4-digit rooms is **done — step 6a**, below.)
    - ✅ **4b — Identity + TOFU** — two parts:
      - **4b-i** — Ed25519 identity key + IndexedDB keystore + TOFU **enrollment** (pin peer key
        on first successful connect, channel-bound).
@@ -350,24 +694,102 @@ X-Forwarded-For; binds to `127.0.0.1` (only the local nginx reaches it). Run wit
    tabs / reload.
    - ✅ **5a (this step)** — real screens for the existing methods: home (method select + recent
      devices), room create/join, words create/join (5-slot autocomplete picker), **SAS as an
-     ASYMMETRIC "pick from 3 phrases"** (creator reads its phrase; joiner is the blind picker),
-     reconnect (pinned-key → no SAS; visible key-changed hard stop),
+     ASYMMETRIC "pick from 3 phrases"** (per-pairing by id: the smaller-id side reads its phrase, the
+     other is the blind picker), reconnect (pinned-key → no SAS; visible key-changed hard stop),
      transfer (progress / backpressure / FSA-Blob / cancel), failed/error screens, light-dark +
      EN/RU. Dev harness removed; a DEV-only diagnostics strip (tree-shaken from prod) carries the
      test-observable projections. **Recent devices are read from the keystore** (`recentDevices.ts`
-     → `listPins()`) — the single source of pins/keys; localStorage (`persistence.ts`) holds ONLY
-     non-key metadata (transfer history) and prefs (`prefs.tsx`, lang/theme) — no peer keys, no
-     pairingIds, no secrets; "forget" clears the keystore pins AND the history. The SAS pick-from-3
-     display logic is isolated + unit-tested in `sasOptions.ts` (`sasOptions.test.ts`). Privacy/
-     Reliable toggle rendered disabled ("soon") — no transport behaviour behind it.
+     → `listPins()`) — the single source of pins/keys; localStorage holds ONLY prefs (`prefs.tsx`,
+     lang/theme/**privacy mode**) — no peer keys, no pairingIds, no secrets, **no transfer history**
+     (history is SESSION-ONLY: in-memory Redux `historySlice`, gone on reload — see § Build order 6 /
+     transfer-history privacy); "forget" clears the keystore pins AND the in-memory history. The SAS
+     pick-from-3 display logic is isolated + unit-tested in `sasOptions.ts` (`sasOptions.test.ts`).
+     (The Privacy/Reliable toggle was rendered disabled here in 5a; it is now FUNCTIONAL — step 6d
+     client side, see **Privacy mode + ICE** §.)
    - ✅ **5b** — link + QR methods. High-entropy one-time secret S in the URL fragment
-     (scrub-after-read), 4-digit-room rendezvous, channel-bound key-confirmation over S
+     (scrub-after-read), token rendezvous (`codeType=token` — initially a 4-digit room; replaced
+     with a high-entropy token rendezvous pre-deploy, see § link/qr method), channel-bound key-confirmation over S
      (`LINK_CONFIRM_DOMAIN`) — no PAKE, no SAS. qr = the same link via `qrcode` (generate) +
      `barcode-detector` ponyfill + `getUserMedia` (scan, with a paste fallback). `src/core/link/` +
      link/qr screens + `src/ui/qr.ts` + e2e (link happy / link wrong-secret / qr post-scan).
-6. 📋 **Hardening** — server cap/TTL/rate-limit for 4-digit rooms, TURN relay + Reliable/Max-privacy
-   mode, cross-browser pass, nginx deployment. Plus smaller follow-ups (SAS fail-closed on unset
-   role; high-entropy rendezvous for link/qr) and nice-to-haves. **Details + scope: see BACKLOG.md.**
+6. **Hardening**:
+   - ✅ **6a — server cap/TTL/rate-limit for `filetransfer` rooms** — `managed: true` (TTL +
+     per-IP rate-limit). TTL-until-connected freeing the code (4010 close / 4009 on a later join),
+     per-IP create/join rate-limit (4011, loopback-exempt). Server-only change;
+     `tests/integration/room-server.test.ts`. **Correction (later pass):** the seat cap is
+     codeType-dependent, NOT the `managed` flag — the 4-digit **room** rendezvous is a **mesh LOBBY**
+     (`FILETRANSFER_MAX_PEERS`, default 8); the **words** AND (pre-deploy) the link/qr **token**
+     rendezvous are strictly 1:1 (`ONE_TO_ONE_MAX_PEERS = 2`). The 4-digit lobby TTL is an **idle
+     timeout** (re-armed on each join); the 1:1 words/token TTLs stay armed from CREATE. Also: **SAS UI
+     role is now per-pairing by readable-id order**
+     (`src/core/sasRole.ts`, projected as `connection.sasRole`, fail-closed restart on a missing id)
+     so the lobby's joiner↔joiner pairs still get one reader + one picker. See **Signaling server**
+     § *Managed-room hardening* and room/SAS § *Server cap / TTL / rate-limit* + *SAS role*.
+   - ✅ **6b — per-pairing transport/crypto role** — `this.role` (initiator/responder) is now fixed
+     **PER-PAIRING from the readable ids** (`src/core/pairingRole.ts` `pairingRoleFor`, same id order
+     as the SAS reader/picker; unit-tested in `pairingRole.test.ts`), NOT create/join. This breaks the
+     joiner↔joiner deadlock (both `responder` → no WebRTC offer + SAS commit-reveal stall) for the
+     mesh lobby: the WebRTC offer, CPace init, SAS nonce/commit order, and key-confirmation/enrollment
+     `lv(role)` all follow it; reconnect's protocol role stays create/join (the exception). 1:1 outcome
+     unchanged. Foundation for the lobby-UI (next). See **Per-pairing role** §.
+   - ✅ **6c — Room lobby UI (mesh roster + pick→connect)** — the room method no longer auto-pairs:
+     creator AND joiners land in `awaitingPeer` (`joining → awaitingPeer`, no new state) and see a
+     `LobbyScreen` — the 4-digit code + a roster (`connection.roster` = `{id, device, joinedAt}` from
+     welcome/peer-joined) + a Connect button per peer. Pick → `pair-request`; the smaller id offers
+     (per-pairing role 6b), glare/dedup handled, **busy-reject** returns the picker to the lobby with a
+     clear notice (no hang). Works for ANY pair incl. **joiner↔joiner**. Signaling protocol grew:
+     `welcome.peers` + `peer-joined` now carry `{id, device, joinedAt}` (coarse device label sent by
+     the client, server-capped ≤32 + server-stamped joinedAt). words/link/qr are NOT lobbies (auto-pair
+     with one peer); reconnect keeps the simple code screen + auto-pairs. `LobbyScreen` +
+     `pickPeer`/`onPairRequest`/`onBusy`; `tests/e2e/lobby.spec.ts` (joiner↔joiner + busy),
+     `connectionSlice.test.ts` (roster), `room-server.test.ts` (roster protocol). See **Room lobby** §.
+     **Deferred:** reconnect-in-lobby (lobby picks always do a fresh SAS; reconnect stays a separate
+     by-code path — when it gains lobby support its reconnect role must move to id-order too),
+     return-to-lobby after a finished/aborted session, and link/qr lobby-race resistance — see BACKLOG.
+   - ✅ **6d — TURN relay + Reliable / Max-privacy mode + relax-retry** *(DONE)* —
+     **server side**: the signaling server mints short-lived HMAC coturn credentials on a
+     `turn-request` frame (`use-auth-secret` scheme, `TURN_SECRET` shared with coturn + never sent to
+     clients, empty-urls when unconfigured → direct-only); env `TURN_SECRET` / `TURN_URLS` /
+     `TURN_CRED_TTL_S`; coturn deploy template `deploy/coturn.conf.example`;
+     `tests/integration/turn-credentials.test.ts`. **Client side:** the home
+     **PrivacyToggle is functional** (persisted pref, default Max-privacy) and drives `iceServers` —
+     **Max-privacy = STUN-only, never requests creds; Reliable = STUN + TURN**, creds fetched via
+     `requestTurnCredentials` (`turn-request`) after `welcome` + before the PC, empty-urls → direct-only.
+     `src/core/iceServers.ts` (builder, `VITE_STUN_URLS` STUN config) + `iceServers.test.ts`;
+     `prefs.tsx` pref + `<PrivacyModeSync>` (App) → `setPrivacyMode`; `tests/e2e/privacy.spec.ts`.
+     **relax-retry (strict model, this pass):** Max-privacy NEVER relays without consent — the
+     PeerConnection drops the peer's `typ relay` candidates (`src/core/relax.ts` filter), and a live ICE
+     failure OFFERS a relay escalation (`connection.relax`, status stays `pairing`) instead of
+     hard-failing. The relay forms only once BOTH sides relax (self-enforcing bilateral): on accept we
+     fetch creds + `setConfiguration(STUN+TURN)` + stop filtering + signal the peer; the per-pairing
+     initiator then `restartIce()` on the EXISTING PC (no teardown, no new cert → DTLS fingerprint + SAS
+     binding preserved; SAS confirmed once, over the relay). Decline → `failed`. `src/core/relax.ts`
+     (+ `relax.test.ts`), `connectionSlice` relax projection, `ConnectingScreen` relax offer/waiting,
+     `?forceIceFail=1` DEV knob, `tests/e2e/relax.spec.ts`. See **Privacy mode + ICE / relax-retry** §.
+   - 🚧 **6e — cross-browser pass** — the **no-device parts are DONE** (this pass): (1) the QR-scan
+     WASM is **self-hosted** (vendored, served from `'self'`, no CDN — `src/ui/zxingWasm.ts`
+     `createQrDetector` + `setZXingModuleOverrides` over a Vite `?url` asset; `zxingWasm.test.ts`;
+     CSP CDN dropped), and (2) a **feature-detection / graceful-degradation review** confirmed every
+     browser-API path degrades cleanly with a fallback/message: QR-scan (no `BarcodeDetector` →
+     self-hosted zxing; camera denied/absent → paste fallback — added an explicit
+     `navigator.mediaDevices?.getUserMedia` guard), file save (no FSA `showSaveFilePicker` → Blob
+     fallback + size cap, rejected pre-accept), `navigator.locks` (cross-tab keystore lock → degrade
+     to direct call), `navigator.share`/`crypto.subtle`/`indexedDB` (all guarded with fallbacks).
+     **Remaining (after deploy, real devices):** transport + FSA→Blob + QR scan + camera permissions
+     verified on actual iOS Safari / Firefox.
+   - 🚧 **6f — nginx deployment (deploy-prep artifacts DONE; live deploy is ops)** — the config
+     templates + runbook are built and committed: `deploy/nginx.conf.example` (TLS, 80→443, SPA
+     `try_files $uri /index.html`, the `/ws` proxy with `proxy_set_header X-Real-IP $remote_addr;` +
+     WS-upgrade + raised `proxy_read_timeout`, and security headers — HSTS / a build-tuned **CSP**
+     [`'wasm-unsafe-eval'` for the QR-scan WASM, now **self-hosted** so `connect-src` lists no CDN —
+     step 6e] / `Permissions-Policy camera=(self)`),
+     `server/.env.example` (all server env in one place), `deploy/coturn.conf.example` (from 6d), and
+     `deploy/DEPLOY.md` (step-by-step + inline gotchas). The only code change was an **additive startup
+     `[config]` summary log** (no secrets) in `signaling-server.js`. Consolidated env reference:
+     **§ Deployment / configuration** above. **Remaining (ops, not code):** run nginx/coturn/DNS/TLS on
+     real hosts; verify the CSP against the deployed build (esp. QR scan on iOS/Firefox — overlaps 6e).
+     Plus nice-to-haves. (The high-entropy rendezvous for link/qr is now **done** — codeType=token,
+     pre-deploy.) **Details + scope: see BACKLOG.md.**
 
 ## Current state
 - ✅ `src/core/crypto/` — `cpace` (CFRG draft-21 vectors passing), `keyConfirmation` (channel
@@ -382,39 +804,80 @@ X-Forwarded-For; binds to `127.0.0.1` (only the local nginx reaches it). Run wit
 - ✅ `src/core/words/` — `generateWords` (CSPRNG, rejection-sampled), rate-limit counter (≤10
   attempts), TTL handling (does not kill live P2P).
 - ✅ `src/core/link/` — `link.ts` (pure): `generateLinkSecret` (16 CSPRNG bytes, base64url),
-  `buildLinkUrl` (`<origin>/#<roomCode>.<S>`), `parseLink` (strict: 4-digit code + 16-byte S, no
-  throw). Used by the link/qr methods; the secret never reaches the server. (`link.test.ts`.)
+  `buildLinkUrl` (`<origin>/#<token>.<S>`), `parseLink` (strict: 22-char base64url rendezvous TOKEN +
+  16-byte S, no throw; rejects an old 4-digit code). The rendezvous is a high-entropy token
+  (`RENDEZVOUS_TOKEN_BYTES = 16`), so link/qr can't be enumerated/squatted. Used by the link/qr
+  methods; the secret never reaches the server. (`link.test.ts`.)
 - ✅ `src/core/` — transport (SignalingClient, PeerConnection), file transfer, SessionController
   orchestration (incl. SAS + post-connect enrollment wiring + the link/qr key-confirmation-over-S
-  path, step 5b). FSM in store (status, transitions, invariants enforced).
+  path, step 5b). FSM in store (status, transitions, invariants enforced). The per-pairing
+  transport/crypto role is fixed from the readable ids in `SessionController.beginPairing` via
+  `src/core/pairingRole.ts` `pairingRoleFor` (smaller id = initiator; same id order as
+  `sasRole.ts`; `pairingRole.test.ts`) — drives the WebRTC offer, CPace init, SAS nonce/commit
+  order, and key-confirmation/enrollment `lv(role)`; reconnect's protocol role stays create/join.
+- ✅ `src/core/relax.ts` — relax-retry STRICT model (step 6d, pure + `relax.test.ts`): the
+  relay-candidate filter (`isRelayCandidate`/`shouldDropCandidate` — Max-privacy drops the peer's `typ
+  relay` candidates until relaxed) + the relax state machine (`relaxOnIceFail`/`relaxOnLocal`/
+  `relaxOnPeer`/`shouldRestartForRelay` — restart only when BOTH relaxed AND we are the initiator). The
+  live wiring (filter in `PeerConnection.addIce`, `onIceFailed`/`relaxConnection`/`declineRelax`/
+  `onRelaxSignal`/`maybeRestartForRelay`, `restartIce` on the existing PC preserving the DTLS
+  fingerprint) is in PeerConnection + SessionController; `connection.relax` projects it.
 - ✅ `src/ui/` — **real, status-driven screens (steps 5a + 5b)**, built on kit tokens (monochrome,
   inversion-as-emphasis, light/dark via `[data-theme]`, EN/RU). `ScreenRouter` picks a screen by
   FSM status (+ method/phase); `HomeScreen` (landing → method picker [link / qr / words / room] →
-  words-receive + QR-scan-receive, recent devices, join-by-code, reconnect-by-code, disabled "Max
-  privacy" toggle), `RoomCreateScreen`, `WordsCreateScreen`, `LinkCreateScreen` (one-time link +
+  words-receive + QR-scan-receive, recent devices, join-by-code, reconnect-by-code, **functional "Max
+  privacy" / Reliable toggle** — step 6d, drives `iceServers`), `RoomCreateScreen` (reconnect create
+  path — code + waiting), `LobbyScreen` (step
+  6c — the room mesh lobby: code + roster [`connection.roster` id/device/joinedAt] + a Connect button
+  per peer → `pickPeer`), `WordsCreateScreen`, `LinkCreateScreen` (one-time link +
   copy/share), `QrCreateScreen` (the link as an SVG QR), `ScanScreen` (qr receive: camera +
-  paste-link fallback), `ConnectingScreen` (creating/joining/pairing-lobby/confirming), `SasScreen`
-  (**asymmetric pick-from-3**: creator = reader shows its phrase; joiner = blind picker among the
-  real + 2 local decoys — role from `sessionRole.tsx`), `TransferScreen`, `FailedScreen`
+  paste-link fallback), `ConnectingScreen` (creating/joining/pairing-lobby/confirming, plus the
+**relax-retry** relay offer/waiting when `connection.relax.available` — step 6d), `SasScreen`
+  (**asymmetric pick-from-3**: reader shows its phrase; picker is blind among the real + 2 local
+  decoys — **role per-pairing by readable-id order**, `src/core/sasRole.ts` → `connection.sasRole`,
+  fail-closed "restart verification" on a missing id), `TransferScreen`, `FailedScreen`
   (+ key-changed hard stop). The link fragment auto-join + scrub lives in `App.tsx`
   (`LinkFragmentJoin`). Shared `ui.tsx` (TopBar, StatusBeacon, PrivacyToggle, CopyButton,
   ShareButton, Eyebrow, …), `components/` (`WordPicker`, DEV-only `Diagnostics`), `qr.ts`
-  (link→SVG QR via `qrcode`; `qr.test.ts`), `prefs.tsx` + `i18n.ts` (lang/theme), `sasOptions.ts`
+  (link→SVG QR via `qrcode`; `qr.test.ts`), `prefs.tsx` + `i18n.ts` (lang/theme/**privacy mode**, the
+  last pushed into the core via `<PrivacyModeSync>` → `setPrivacyMode`), `sasOptions.ts`
   (+ `sasOptions.test.ts`: SAS pick-from-3 decoys + scoring) over `random.ts` (CSPRNG),
-  `recentDevices.ts` (recent devices read from the keystore), `persistence.ts` (localStorage
-  transfer history — non-key metadata only). The `dev` store slice stays as the auxiliary projection
-  feed (identity pubkey / pinned peer / public DTLS fingerprints / log) the SessionController
-  publishes; all fields are serializable + non-sensitive (RTK `serializableCheck` stays ON), and the
-  DEV-only `Diagnostics` is what surfaces them (display gated behind `import.meta.env.DEV`).
-- ✅ Server — signaling, corrected `clientIp()`, word-room allocation, 2-peer cap, TTL, creator
-  destroy. Ready for deployment behind nginx.
-- 📋 Pending: step 6 hardening + follow-ups + nice-to-haves — tracked in **BACKLOG.md**.
+  `recentDevices.ts` (recent devices read from the keystore). **Transfer history is SESSION-ONLY** —
+  an in-memory Redux slice (`src/store/historySlice.ts`), NOT persisted (file names are a privacy
+  trail; gone on reload). localStorage now holds **only prefs** (lang/theme/privacy mode); there is no
+  longer a `persistence.ts`. The `dev` store slice stays as the auxiliary projection
+  feed (identity pubkey / pinned peer / public DTLS fingerprints / **ICE config: privacy mode + relay
+  + TURN creds** / log) the SessionController publishes; all fields are serializable + non-sensitive
+  (RTK `serializableCheck` stays ON), and the DEV-only `Diagnostics` is what surfaces them (display
+  gated behind `import.meta.env.DEV`).
+- ✅ Server — signaling, corrected `clientIp()`, word + token rendezvous allocation (`codeSpec`).
+  **Managed-room hardening (done — 6a)** for ALL `filetransfer` rooms (`managed: true` → TTL + per-IP
+  rate-limit). **Seat cap is codeType-dependent (NOT `managed`):** the 4-digit **room** rendezvous is a
+  **mesh LOBBY** (`maxPeers` = `FILETRANSFER_MAX_PEERS`, default 8); the **words** AND link/qr **token**
+  rendezvous are strictly 1:1 (`ONE_TO_ONE_MAX_PEERS = 2`); a joiner past the cap → 4002. The **token**
+  codeType (`tokenCode`) allocates a 128-bit base64url token (`TOKEN_ROOM_BYTES=16`, `TOKEN_RE`
+  validator) so link/qr rendezvous is unguessable. **TTL until connected** frees the code
+  (4010 close / 4009 later): the 4-digit lobby TTL is an **idle timeout** (`ROOM_TTL_MS`, re-armed on
+  each join via `makeTtlTimer`); the 1:1 words AND token TTLs stay from CREATE (`WORD_ROOM_TTL_MS` /
+  `TOKEN_ROOM_TTL_MS`, no re-arm). Per-IP
+  create/join rate-limit unchanged (`IP_RL_MAX` / `IP_RL_WINDOW_MS`, 4011, loopback-exempt), creator
+  destroy. `clipboard` mesh opts out. **TURN creds (6d, server side — done):** `turn-request` →
+  `turn-credentials` mints short-lived HMAC coturn creds (`use-auth-secret`; `TURN_SECRET` shared with
+  coturn + never sent to clients; empty-urls when unconfigured → direct-only); env `TURN_SECRET` /
+  `TURN_URLS` / `TURN_CRED_TTL_S`. Ready for deployment behind nginx + a separately-deployed coturn
+  (`deploy/coturn.conf.example`).
+  (`tests/integration/{room,word-room,turn-credentials}-server` — see `room-server.test.ts`,
+  `word-room-server.test.ts`, `turn-credentials.test.ts`.)
+- ✅ `src/ui/zxingWasm.ts` — self-hosted QR-scan WASM (step 6e): `createQrDetector` lazily imports
+  the `barcode-detector` ponyfill and `setZXingModuleOverrides({ locateFile })` it to a Vite `?url`
+  asset (`zxing-wasm/reader/zxing_reader.wasm?url`, fingerprinted into `dist/assets`, same-origin)
+  so the fallback decoder never fetches from a CDN. `zxingWasm.test.ts` proves the wired `locateFile`
+  resolves to `'self'`, never jsdelivr/fastly. ScanScreen consumes it.
+- 📋 Pending: step 6 — **6d DONE**; **6e no-device parts DONE** (self-hosted QR WASM +
+  feature-detection review); remaining: 6e real-device test (post-deploy), 6f nginx deploy +
+  follow-ups + nice-to-haves — tracked in **BACKLOG.md**.
 
 ## Known residuals / deferred
-- **Pre-SAS pairing deadline is untested in the firing direction** (room method). The timer
-  mechanism is exercised by the comparison-timeout e2e and happy-path proves it does not fire
-  prematurely, but "withheld nonce → fires at deadline" has no e2e (would need a stalled-peer
-  harness knob). Low severity (liveness, not crypto).
 - **`pairingId` is a metadata leak to the relay** (reconnect). It is an identifier, not a secret,
   and reconnect announces it over signaling-routed setup, so the untrusted relay can observe "these
   two have paired before" (linkability across reconnects). It carries no key material and does not
@@ -425,7 +888,8 @@ X-Forwarded-For; binds to `127.0.0.1` (only the local nginx reaches it). Run wit
   back to SAS + a FRESH enrollment → a NEW pairingId. The other side keeps the stale pin AND gains
   the new one (two pins for the same human). Benign (the fresh enrollment is itself human-verified),
   but the keystore accumulates a dead pin. Not fixed (no GC / pin-merge yet).
-  (Server cap/TTL for 4-digit rooms is now tracked as **step 6 hardening**, not a residual.)
+  (Server cap/TTL/rate-limit for 4-digit rooms is **done — step 6a**; see Signaling server §
+  *Managed-room hardening*.)
 
 ## Cross-cutting invariants
 - No file bytes before the connection is authenticated (`connected` / `established`).

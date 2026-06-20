@@ -3,12 +3,11 @@ import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { createSessionController } from '../core/SessionController';
 import { parseLink } from '../core/link/link';
 import { SessionProvider, useSession } from './SessionProvider';
-import { PrefsProvider } from './prefs';
-import { SessionRoleProvider } from './sessionRole';
+import { PrefsProvider, usePrefs } from './prefs';
 import { ScreenRouter } from './screens';
 import { TopBar, StatusBeacon } from './ui';
 import { Diagnostics } from './components/Diagnostics';
-import { rememberTransfer } from './persistence';
+import { historyActions } from '../store/historySlice';
 
 /**
  * The real, status-driven app. The single SessionController instance lives outside render and is
@@ -22,29 +21,29 @@ export function App(): ReactElement {
   return (
     <PrefsProvider>
       <SessionProvider controller={controller}>
-        <SessionRoleProvider>
-          <div className="hs-app">
-            <TopBar />
-            <main className="hs-main">
-              <ScreenRouter />
-            </main>
-            <Diagnostics />
-            <StatusBeacon />
-            <PersistenceSync />
-            <LinkFragmentJoin />
-          </div>
-        </SessionRoleProvider>
+        <div className="hs-app">
+          <TopBar />
+          <main className="hs-main">
+            <ScreenRouter />
+          </main>
+          <Diagnostics />
+          <StatusBeacon />
+          <HistorySync />
+          <PrivacyModeSync />
+          <LinkFragmentJoin />
+        </div>
       </SessionProvider>
     </PrefsProvider>
   );
 }
 
 /**
- * Records completed transfers into the localStorage history (NON-KEY metadata only). Recent paired
- * devices are NOT mirrored here — they are read from the keystore (recentDevices.ts), the single
- * source of pins/keys. Renders nothing.
+ * Records completed transfers into the SESSION-ONLY history (in-memory Redux, NOT persisted — file
+ * names are a privacy trail, so the history is gone on reload). Recent paired devices are NOT here —
+ * they are read from the keystore (recentDevices.ts), the single source of pins/keys. Renders nothing.
  */
-function PersistenceSync(): null {
+function HistorySync(): null {
+  const dispatch = useAppDispatch();
   const phase = useAppSelector((s) => s.transfer.phase);
   const direction = useAppSelector((s) => s.transfer.direction);
   const fileName = useAppSelector((s) => s.transfer.fileName);
@@ -52,20 +51,44 @@ function PersistenceSync(): null {
 
   useEffect(() => {
     if (phase === 'done' && fileName) {
-      rememberTransfer({ fileName, totalBytes, direction: direction ?? 'send' });
+      const at = Date.now();
+      dispatch(
+        historyActions.remembered({
+          id: `${at}-${fileName}`,
+          fileName,
+          totalBytes,
+          direction: direction ?? 'send',
+          at,
+        }),
+      );
     }
-  }, [phase, fileName, totalBytes, direction]);
+  }, [dispatch, phase, fileName, totalBytes, direction]);
 
   return null;
 }
 
 /**
- * link method (step 5b) entry: when the page loads with a `#<roomCode>.<S>` fragment, the joiner
+ * Pushes the persisted privacy-mode pref (prefs.tsx) into the SessionController so it can read it at
+ * pairing start to assemble iceServers. Keeps the persisted pref as the single source of truth (the
+ * core just mirrors the current value). A mid-session toggle updates the core immediately but only
+ * affects the NEXT connection (iceServers are read at pairing start). Renders nothing.
+ */
+function PrivacyModeSync(): null {
+  const session = useSession();
+  const { privacyMode } = usePrefs();
+  useEffect(() => {
+    session.setPrivacyMode(privacyMode);
+  }, [session, privacyMode]);
+  return null;
+}
+
+/**
+ * link method (step 5b) entry: when the page loads with a `#<token>.<S>` fragment, the joiner
  * reads it, SCRUBS it from the address bar/history immediately (history.replaceState — the secret
- * never lingers in the URL, history, or a reload), and joins. Only the roomCode reaches the server;
- * S stays local. Runs exactly once (a ref guard survives StrictMode's double-invoke), and the scrub
- * before any async work means a re-run sees an empty hash. A malformed/absent fragment is a no-op
- * (stay on the home screen); a valid-but-dead room surfaces later as the "room not found" failure.
+ * never lingers in the URL, history, or a reload), and joins. Only the rendezvous token reaches the
+ * server; S stays local. Runs exactly once (a ref guard survives StrictMode's double-invoke), and the
+ * scrub before any async work means a re-run sees an empty hash. A malformed/absent fragment is a
+ * no-op (stay on the home screen); a valid-but-dead room surfaces later as the "room not found" failure.
  */
 function LinkFragmentJoin(): null {
   const session = useSession();
@@ -78,7 +101,7 @@ function LinkFragmentJoin(): null {
     if (!parsed) return;
     // Scrub the secret out of the URL/history BEFORE any await — keep only path + query.
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
-    void session.joinLinkSession(parsed.roomCode, parsed.secret, 'link');
+    void session.joinLinkSession(parsed.rendezvous, parsed.secret, 'link');
   }, [session]);
 
   return null;

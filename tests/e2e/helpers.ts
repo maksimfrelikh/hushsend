@@ -45,18 +45,21 @@ export async function pickWords(page: Page, words: string[]): Promise<void> {
 
 /**
  * A creates a link (or qr) session; returns the full one-time link read from A's UI
- * (`<origin>/#<roomCode>.<S>`). Both create screens expose the link via the `link-url` mirror.
+ * (`<origin>/#<token>.<S>` — the rendezvous is now a high-entropy 128-bit token, NOT a 4-digit code).
+ * Both create screens expose the link via the `link-url` mirror.
  */
 export async function createLink(page: Page, kind: 'link' | 'qr' = 'link'): Promise<string> {
   await page.getByTestId('invite-btn').click();
   await page.getByTestId(kind === 'qr' ? 'create-qr-btn' : 'create-link-btn').click();
   await expect(page.getByTestId('status')).toHaveText('awaitingPeer', { timeout: 30_000 });
   const link = norm(await page.getByTestId('link-url').textContent());
-  expect(link).toMatch(/#\d{4}\.[A-Za-z0-9_-]+$/);
+  // #<token>.<S>: both halves are 16-byte base64url (22 chars). The token is unguessable, so a
+  // stray lobby peer can't race the intended 1:1 — interloper-resistance is structural.
+  expect(link).toMatch(/#[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{22}$/);
   return link;
 }
 
-/** The `#<roomCode>.<S>` fragment of a link (what the joiner's page load consumes). */
+/** The `#<token>.<S>` fragment of a link (what the joiner's page load consumes). */
 export function fragmentOf(link: string): string {
   return link.slice(link.indexOf('#'));
 }
@@ -81,10 +84,44 @@ export async function createSasRoom(page: Page): Promise<string> {
   return code;
 }
 
-/** B joins a SAS room by code (the join-by-code input on the landing). */
+/** B joins a SAS room by code (the join-by-code input on the landing). B lands in the LOBBY
+ *  (awaitingPeer), exactly like the creator — pairing begins only when someone picks. */
 export async function joinSasRoom(page: Page, code: string): Promise<void> {
   await page.getByTestId('room-sas-input').fill(code);
   await page.getByTestId('join-room-sas-btn').click();
+}
+
+/** Read a tab's own readable signaling id (from the DEV diagnostics `self-id`). Used to target a
+ *  specific peer's "Connect" button in another tab's lobby roster. */
+export async function readSelfId(page: Page): Promise<string> {
+  await expect(page.getByTestId('self-id')).toHaveText(/\S+-\S+/, { timeout: 30_000 });
+  return norm(await page.getByTestId('self-id').textContent());
+}
+
+/** In a SAS-room LOBBY, have `picker` connect to the peer whose readable id is `targetId` (click that
+ *  roster row's "Connect"). Triggers the 1:1 pairing handshake (pair-request → offer by id-role). */
+export async function lobbyConnect(picker: Page, targetId: string): Promise<void> {
+  await picker.getByTestId(`lobby-connect-${targetId}`).click();
+}
+
+/**
+ * Start the 1:1 pairing in a SAS-room LOBBY and decide which tab is the SAS READER vs PICKER.
+ *
+ * The room method is now a mesh LOBBY: both peers sit in `awaitingPeer` seeing a roster, and pairing
+ * begins only on a human PICK. So this first makes `a` connect to `b` (by b's readable id), then
+ * resolves the asymmetric roles. The role is fixed PER PAIR from the readable ids (smaller id reads —
+ * see core/sasRole.ts), NOT "creator = reader", so either tab may be the reader; we detect it by which
+ * one renders its phrase (`sas-words`). Works for ANY pair, including joiner↔joiner (pass the two
+ * joiner tabs).
+ */
+export async function resolveSasParties(a: Page, b: Page): Promise<{ reader: Page; picker: Page }> {
+  // Both peers are in the lobby; `a` picks `b`. (Pre-lobby this pairing was automatic.)
+  await expect(b.getByTestId('status')).toHaveText('awaitingPeer', { timeout: 60_000 });
+  await lobbyConnect(a, await readSelfId(b));
+  await expect(a.getByTestId('status')).toHaveText('awaitingSas', { timeout: 60_000 });
+  await expect(b.getByTestId('status')).toHaveText('awaitingSas', { timeout: 60_000 });
+  const aIsReader = (await a.getByTestId('sas-words').count()) > 0;
+  return aIsReader ? { reader: a, picker: b } : { reader: b, picker: a };
 }
 
 /**

@@ -7,7 +7,7 @@ import { linkToQrSvg } from '../qr';
 
 /**
  * Host view for the qr method (step 5b) while `awaitingPeer`. Identical to the link method — same
- * one-time secret in the same `<origin>/#<roomCode>.<S>` link — but the link is rendered as a QR
+ * one-time secret in the same `<origin>/#<token>.<S>` link — but the link is rendered as a QR
  * code for the other device to scan. `credential[0]` is the link; we render it to an SVG QR
  * locally (nothing leaves the device) and also expose the plain URL (copy + e2e/`link-url` mirror).
  */

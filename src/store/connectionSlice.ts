@@ -1,4 +1,6 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
+import type { SasUiRole } from '../core/sasRole';
+import type { PeerInfo } from '../types/protocol';
 
 /**
  * The connection lifecycle as ONE explicit status field with guarded transitions.
@@ -30,9 +32,30 @@ export interface ConnectionState {
   credential: string[] | null;
   /** SAS digits/emoji for the room method, when status === 'awaitingSas' */
   sas: string | null;
+  /** Per-pairing SAS UI role (room method): `reader` (shows + reads its phrase) or `picker` (blind,
+   *  identifies the phrase by listening). Derived from the two readable ids in the core
+   *  (`sasRoleFor`), so it works for ANY pair (incl. joiner↔joiner). `null` = not resolved yet OR an
+   *  id was missing → the SAS screen FAILS CLOSED (restart, never a functional picker). */
+  sasRole: SasUiRole | null;
+  /** Mesh-lobby roster (room method): everyone currently in the 4-digit room EXCEPT us. The human
+   *  picks whom to raise a 1:1 channel with. Maintained from welcome (set) / peer-joined (add) /
+   *  peer-left (remove). Empty/unused for words/link/qr (they auto-pair with a single peer). */
+  roster: PeerInfo[];
+  /** Transient lobby notice — currently only a clear "that peer is busy" rejection after a pick was
+   *  bounced (the peer is already pairing with someone else). Cleared on the next pick or when the
+   *  busy peer leaves. NOT a hang: the picker is back in the lobby and may pick another peer. */
+  notice: { kind: 'busy'; peerId: string } | null;
+  /** Relay-escalation (relax-retry, step 6d) projection for the Max-privacy STRICT model. NOT an FSM
+   *  state — status stays `pairing`. `available`: the relay escalation is being offered to the human
+   *  (our ICE failed, or the peer relaxed). `localRelaxed`/`peerRelaxed`: which side has accepted relay
+   *  (the relay path forms only once BOTH have). Reset at each pairing start. */
+  relax: { available: boolean; localRelaxed: boolean; peerRelaxed: boolean };
   /** failure reason when status === 'failed' */
   error: string | null;
 }
+
+/** A fresh, inert relax projection (no offer surfaced, neither side relaxed). */
+const noRelax = (): ConnectionState['relax'] => ({ available: false, localRelaxed: false, peerRelaxed: false });
 
 const initialState: ConnectionState = {
   status: 'idle',
@@ -41,6 +64,10 @@ const initialState: ConnectionState = {
   room: null,
   credential: null,
   sas: null,
+  sasRole: null,
+  roster: [],
+  notice: null,
+  relax: { available: false, localRelaxed: false, peerRelaxed: false },
   error: null,
 };
 
@@ -52,7 +79,10 @@ const ALLOWED: Record<ConnectionStatus, ConnectionStatus[]> = {
   idle: ['creating', 'joining'],
   creating: ['awaitingPeer', 'failed'],
   awaitingPeer: ['pairing', 'failed'],
-  joining: ['pairing', 'failed'],
+  // room method is a mesh LOBBY: a joiner lands in the lobby (awaitingPeer) to see the roster + pick,
+  // exactly like the creator — so `joining → awaitingPeer` is allowed (no new state). words/link/qr
+  // still go straight `joining → pairing` (they auto-pair with a single peer).
+  joining: ['pairing', 'awaitingPeer', 'failed'],
   // words method: a failed pairing attempt below the cap returns A to awaitingPeer (same words,
   // wait for the next joiner) — hence pairing/confirming → awaitingPeer. No new states added.
   pairing: ['awaitingSas', 'confirming', 'awaitingPeer', 'failed'],
@@ -106,11 +136,55 @@ const slice = createSlice({
       if (!canGo(state.status, 'pairing')) return warnIllegal(state.status, 'pairing');
       state.status = 'pairing';
       state.peerId = action.payload.peerId;
+      state.relax = noRelax(); // a fresh pairing starts with no relay escalation offered
+    },
+    /** Project the relax-retry state (step 6d, Max-privacy escalation). NOT an FSM transition — status
+     *  stays `pairing`; this only tells the UI whether to offer relay and whether each side relaxed. */
+    relaxChanged(state, action: PayloadAction<{ available: boolean; localRelaxed: boolean; peerRelaxed: boolean }>) {
+      state.relax = action.payload;
     },
     sasReady(state, action: PayloadAction<{ sas: string }>) {
       if (!canGo(state.status, 'awaitingSas')) return warnIllegal(state.status, 'awaitingSas');
       state.status = 'awaitingSas';
       state.sas = action.payload.sas;
+    },
+    /** Project the per-pairing SAS UI role (reader/picker) computed in the core from the two readable
+     *  ids. NOT an FSM transition — just a serializable projection the SAS screen reads (so it survives
+     *  re-renders and is the single source of the asymmetric role). Set at pairing start, well before
+     *  `awaitingSas`. */
+    sasRoleResolved(state, action: PayloadAction<{ role: SasUiRole }>) {
+      state.sasRole = action.payload.role;
+    },
+
+    // --- mesh-lobby roster (room method) — serializable projections, NOT FSM transitions ---
+    /** Replace the roster (from `welcome` — the peers already in the room when we arrived). */
+    rosterSet(state, action: PayloadAction<PeerInfo[]>) {
+      state.roster = action.payload;
+    },
+    /** A newcomer joined (`peer-joined`). Idempotent on id (a re-announce won't duplicate). */
+    rosterAdd(state, action: PayloadAction<PeerInfo>) {
+      if (!state.roster.some((p) => p.id === action.payload.id)) state.roster.push(action.payload);
+    },
+    /** A peer left (`peer-left`). Also clears a stale "busy" notice that named that peer. */
+    rosterRemove(state, action: PayloadAction<{ peerId: string }>) {
+      state.roster = state.roster.filter((p) => p.id !== action.payload.peerId);
+      if (state.notice?.peerId === action.payload.peerId) state.notice = null;
+    },
+    /** Set/clear the transient lobby notice (the "X is busy" rejection). */
+    lobbyNotice(state, action: PayloadAction<{ kind: 'busy'; peerId: string } | null>) {
+      state.notice = action.payload;
+    },
+    /** Return to the lobby after a bounced pick (busy) WITHOUT leaving the room: `pairing →
+     *  awaitingPeer`, clearing the half-started pairing's per-pair projections but KEEPING the room
+     *  code + roster so the human can pick another peer. (General return-to-lobby after a finished
+     *  session is a separate, deferred feature.) */
+    returnToLobby(state) {
+      if (!canGo(state.status, 'awaitingPeer')) return warnIllegal(state.status, 'awaitingPeer');
+      state.status = 'awaitingPeer';
+      state.sas = null;
+      state.sasRole = null;
+      state.peerId = null;
+      state.relax = noRelax();
     },
     confirmStarted(state) {
       if (!canGo(state.status, 'confirming')) return warnIllegal(state.status, 'confirming');

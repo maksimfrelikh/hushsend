@@ -34,7 +34,23 @@ export default defineConfig({
       url: 'http://127.0.0.1:8080/health',
       reuseExistingServer: !process.env.CI,
       timeout: 30_000,
-      env: { NODE_ENV: 'development', HOST: '127.0.0.1', PORT: '8080' },
+      // All Playwright tabs share the loopback IP (no TRUST_PROXY here), so raise the per-IP-per-room
+      // anti-squat cap above its prod default (2) — otherwise a 3-peer LOBBY test (creator + 2
+      // joiners) would bounce the 3rd with 4007. Server CODE/defaults are unchanged; this is purely
+      // the test environment, mirroring how the integration suite passes its own caps via env.
+      //
+      // TURN_SECRET + TURN_URLS configure the coturn-credential minting so the Reliable-mode e2e
+      // (privacy.spec) can fetch real creds via `turn-request` and assert the client built the TURN
+      // iceServer correctly. The URL is a placeholder host — we never run an actual relay (Max-privacy
+      // and even Reliable connect over loopback host candidates); we only verify cred assembly.
+      env: {
+        NODE_ENV: 'development',
+        HOST: '127.0.0.1',
+        PORT: '8080',
+        MAX_PER_IP_PER_ROOM: '8',
+        TURN_SECRET: 'e2e-turn-shared-secret',
+        TURN_URLS: 'turn:turn.example.org:3478?transport=udp',
+      },
     },
     {
       command: 'npx vite --port 5173 --strictPort',

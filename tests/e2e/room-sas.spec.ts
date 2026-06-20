@@ -2,7 +2,15 @@ import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createSasRoom as openSasRoom, joinSasRoom as fillSasJoin, expectSas, confirmSas } from './helpers';
+import {
+  createSasRoom as openSasRoom,
+  joinSasRoom as fillSasJoin,
+  expectSas,
+  confirmSas,
+  resolveSasParties,
+  lobbyConnect,
+  readSelfId,
+} from './helpers';
 
 /**
  * Step-4a "room" method, end to end through two Chromium tabs:
@@ -52,6 +60,12 @@ async function readMatchingSas(reader: Page, picker: Page): Promise<string> {
   return expectSas(reader, picker);
 }
 
+/**
+ * The SAS reader/picker role is no longer "creator = reader" — it is fixed per pair by the readable
+ * ids (see core/sasRole.ts), so either tab can be the reader. Resolve the real reader/picker at
+ * runtime from which tab renders its phrase, instead of assuming the sender is the reader.
+ */
+
 test.beforeAll(() => {
   rmSync(TMP, { recursive: true, force: true });
   mkdirSync(TMP, { recursive: true });
@@ -63,10 +77,16 @@ test('happy path: matching SAS on both sides → authenticated connected → sma
   const { sender, code } = await createSasRoom(context);
   const receiver = await joinSasRoom(context, code);
 
-  // Asymmetric SAS: the creator (sender) READS its phrase; the joiner (receiver) is the BLIND
-  // picker that identifies it among 3 look-alikes. confirmSas asserts the choreography, has the
-  // picker select the heard phrase, and both confirm → AUTHENTICATED connected.
-  await confirmSas(sender, receiver);
+  // The room is a mesh LOBBY now: the joiner appears in the creator's roster, and the creator PICKS
+  // it to raise the 1:1 channel (no more auto-pairing). Assert the roster entry, then pick + verify.
+  const receiverId = await readSelfId(receiver);
+  await expect(sender.getByTestId(`lobby-peer-${receiverId}`)).toBeVisible({ timeout: 30_000 });
+
+  // Asymmetric SAS: one side READS its phrase, the other is the BLIND picker. The role is fixed by
+  // the readable ids (not by who created the room). resolveSasParties does the lobby pick (sender →
+  // receiver) and resolves the roles; confirmSas has the picker select the heard phrase → connected.
+  const { reader, picker } = await resolveSasParties(sender, receiver);
+  await confirmSas(reader, picker);
 
   await expect(sender.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
   await expect(receiver.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
@@ -99,17 +119,71 @@ test('mismatch: one side rejects the SAS → both fail, no channel, no transfer'
   const { sender, code } = await createSasRoom(context);
   const receiver = await joinSasRoom(context, code);
 
-  await readMatchingSas(sender, receiver);
+  // Resolve the real reader/picker (role is by id, not by create/join). The "none match" button
+  // lives on the PICKER (the reader has no options), so we must reject from whichever tab that is.
+  const { reader, picker } = await resolveSasParties(sender, receiver);
+  await readMatchingSas(reader, picker);
 
-  // The receiver reports the words do NOT match (the hard-stop path). Even though the SAS is
+  // The picker reports the words do NOT match (the hard-stop path). Even though the SAS is
   // really identical here, a "doesn't match" click must abort both sides unconditionally.
-  await receiver.getByTestId('sas-nomatch-btn').click();
+  await picker.getByTestId('sas-nomatch-btn').click();
 
   // The rejecting side fails immediately; the other side fails on the relayed reject / teardown.
-  await expect(receiver.getByTestId('status')).toHaveText('failed', { timeout: 60_000 });
-  await expect(sender.getByTestId('status')).toHaveText('failed', { timeout: 60_000 });
+  await expect(picker.getByTestId('status')).toHaveText('failed', { timeout: 60_000 });
+  await expect(reader.getByTestId('status')).toHaveText('failed', { timeout: 60_000 });
 
   // Neither side ever rendered the file UI (only shown when connected) → no byte crossed.
+  await expect(sender.getByTestId('file-input')).toHaveCount(0);
+  await expect(receiver.getByTestId('file-input')).toHaveCount(0);
+});
+
+test('pre-SAS deadline FIRES: a peer withholds its sas-nonce → the other side fails at the deadline (no hang)', async ({
+  context,
+}) => {
+  // Closes the "pre-SAS pairing deadline untested in the FIRING direction" residual. The pre-SAS
+  // deadline (armed at pairing start) is the backstop for a peer that joins, commits, then NEVER
+  // reveals its nonce — without it the other side would hang in `pairing` forever. Two DEV-only knobs
+  // drive it (prod keeps the fixed 120 s deadline and never stalls — both are tree-shaken out):
+  //   - ?stallSasNonce / window.__HUSHSEND_STALL_SAS_NONCE__ — this side reaches the SAS but withholds
+  //     its sas-nonce reveal;
+  //   - ?preSasTimeoutMs=N / window.__HUSHSEND_PRE_SAS_TIMEOUT_MS__ — shrink the pre-SAS deadline so its
+  //     firing is observable in seconds, NOT a real 120 s wait (SEPARATE from the comparison knob).
+  const { sender, code } = await createSasRoom(context);
+  const receiver = await joinSasRoom(context, code);
+
+  const senderId = await readSelfId(sender);
+  const receiverId = await readSelfId(receiver);
+
+  // The SAS RESPONDER is the larger readable id (smaller id = initiator — see core/pairingRole.ts).
+  // Make the RESPONDER stall: it commits, then on the initiator's reveal computes the SAS and reaches
+  // awaitingSas, but never reveals its own nonce. Give the INITIATOR a tiny pre-SAS deadline so it
+  // fails fast; leave the responder on the default so it comfortably reaches awaitingSas first (then it
+  // re-arms to the long comparison window and just sits there until the initiator's teardown reaches it).
+  const initiatorIsSender = senderId < receiverId;
+  const stallPage = initiatorIsSender ? receiver : sender; // larger id = responder = stalls its nonce
+  const failPage = initiatorIsSender ? sender : receiver; // smaller id = initiator = fails at the deadline
+  await stallPage.evaluate(() => {
+    (window as unknown as { __HUSHSEND_STALL_SAS_NONCE__?: boolean }).__HUSHSEND_STALL_SAS_NONCE__ = true;
+  });
+  await failPage.evaluate(() => {
+    (window as unknown as { __HUSHSEND_PRE_SAS_TIMEOUT_MS__?: number }).__HUSHSEND_PRE_SAS_TIMEOUT_MS__ = 6000;
+  });
+
+  // Lobby: the joiner is in the creator's roster; the creator PICKS it to start the 1:1 pairing, which
+  // arms the pre-SAS deadline on BOTH sides (and the responder sends its commit).
+  await expect(sender.getByTestId(`lobby-peer-${receiverId}`)).toBeVisible({ timeout: 30_000 });
+  await lobbyConnect(sender, receiverId);
+
+  // The stalling RESPONDER does reach the SAS (it computed the phrase) — it just withholds the reveal.
+  // Asserted FIRST, while it is still in awaitingSas (before the initiator's teardown propagates).
+  await expect(stallPage.getByTestId('status')).toHaveText('awaitingSas', { timeout: 30_000 });
+
+  // The INITIATOR never receives the responder's nonce → it cannot compute the SAS, stays in `pairing`,
+  // and FAILS at the pre-SAS deadline rather than hanging. This is the firing direction under test.
+  await expect(failPage.getByTestId('status')).toHaveText('failed', { timeout: 30_000 });
+  await expect(failPage.getByTestId('error')).toContainText('timed out');
+
+  // No byte ever crossed — the file UI only renders when connected.
   await expect(sender.getByTestId('file-input')).toHaveCount(0);
   await expect(receiver.getByTestId('file-input')).toHaveCount(0);
 });
@@ -126,9 +200,11 @@ test('timeout: SAS shown but nobody confirms → fails on the timeout path, no c
   const { sender, code } = await createSasRoom(context, 'sasTimeoutMs=3000');
   const receiver = await joinSasRoom(context, code, 'sasTimeoutMs=10000');
 
-  // The SAS IS shown to the human (awaitingSas + 3 EFF short #2 words) — we just never confirm.
-  await expect(sender.getByTestId('status')).toHaveText('awaitingSas', { timeout: 60_000 });
-  const sas = (await sender.getByTestId('sas-words').textContent())?.trim() ?? '';
+  // The SAS IS shown to the human (awaitingSas + 3 EFF short #2 words) — we just never confirm. The
+  // phrase is rendered on the READER (resolved by id, may be either tab); read it from there. The
+  // sender keeps the shorter (3 s) budget so ITS timer fires first regardless of which role it plays.
+  const { reader } = await resolveSasParties(sender, receiver);
+  const sas = (await reader.getByTestId('sas-words').textContent())?.trim() ?? '';
   expect(sas.split(/\s+/).filter(Boolean)).toHaveLength(3);
 
   // Neither human clicks "match"/"don't match". After the (shrunk) comparison window elapses, the

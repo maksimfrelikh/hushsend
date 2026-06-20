@@ -1,0 +1,221 @@
+# ============================================================================
+# hushsend — nginx site template (TLS termination + SPA + WS reverse proxy)
+# ============================================================================
+# Serves the static SPA (Vite `dist/`) AND reverse-proxies the WebSocket
+# signaling server (server/signaling-server.js, bound to 127.0.0.1:8080).
+# The signaling server is UNTRUSTED by design — all confidentiality/authenticity
+# is established client-side (SAS / PAKE / DTLS). nginx here is plumbing +
+# transport security (TLS) + abuse-hygiene plumbing (X-Real-IP), NOT auth.
+#
+# Copy to /etc/nginx/sites-available/hushsend.conf, fill in <PLACEHOLDERS>,
+# symlink into sites-enabled/, `nginx -t`, then reload. Every directive is
+# commented; the CRITICAL ones are flagged.
+# ----------------------------------------------------------------------------
+
+# --- 80 → 443 redirect -------------------------------------------------------
+# All traffic is HTTPS-only (privacy tool + HSTS below). Plain HTTP exists only
+# to bounce to TLS. Keep the ACME path servable so certbot can renew in place.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name hushsend.frelikh.dev;
+
+    # Let certbot answer the HTTP-01 challenge without a redirect loop.
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    # Everything else → HTTPS.
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# --- 443: the app -----------------------------------------------------------
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name hushsend.frelikh.dev;
+
+    # --- TLS material (certbot / Let's Encrypt) ------------------------------
+    # Issue with: certbot certonly --webroot -w /var/www/certbot -d hushsend.frelikh.dev
+    ssl_certificate     /etc/letsencrypt/live/hushsend.frelikh.dev/fullchain.pem;   # <PLACEHOLDER>
+    ssl_certificate_key /etc/letsencrypt/live/hushsend.frelikh.dev/privkey.pem;     # <PLACEHOLDER>
+    ssl_protocols       TLSv1.2 TLSv1.3;          # no TLS 1.0/1.1
+    ssl_prefer_server_ciphers off;                # let modern clients pick (TLS 1.3)
+    # ssl_trusted_certificate /etc/letsencrypt/live/hushsend.frelikh.dev/chain.pem; # for OCSP stapling
+    # ssl_stapling on; ssl_stapling_verify on;
+
+    # --- Security response headers (set ONCE at server level; `always` so they
+    #     also ride on error responses). The static `location /` and the proxy
+    #     locations below add NO add_header of their own, so these are inherited
+    #     by all of them (nginx drops inherited add_header only when a block sets
+    #     its own). -----------------------------------------------------------
+
+    # HSTS: pin HTTPS for 2 years incl. subdomains. Drop `preload` (and submit to
+    # hstspreload.org) ONLY once you're sure every *.frelikh.dev host is HTTPS —
+    # preload is hard to undo. includeSubDomains here also covers turn.* / hushclip.*.
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+
+    # Content-Security-Policy — TUNED TO THE REAL VITE BUILD (verify after each
+    # `npm run build`; `dist/index.html` must stay a single external module
+    # <script src> + external <link> stylesheet, NO inline <script>):
+    #   default-src 'self'              — lock everything to same-origin by default.
+    #   script-src 'self'               — only the hashed Vite bundle; NO 'unsafe-inline'
+    #                                      for scripts (the build emits none — keep it strict).
+    #     'wasm-unsafe-eval'            — REQUIRED for the QR scanner: on browsers WITHOUT a
+    #                                      native BarcodeDetector (iOS Safari / Firefox) the
+    #                                      `barcode-detector` ponyfill compiles zxing WASM, which
+    #                                      needs wasm compile/instantiate permission. (Chromium
+    #                                      uses native BarcodeDetector → no WASM, but the policy
+    #                                      must cover the fallback.) The WASM itself is now
+    #                                      SELF-HOSTED (vendored into dist/assets via a Vite asset
+    #                                      import — see src/ui/zxingWasm.ts), so it loads from 'self'
+    #                                      and connect-src needs NO CDN (see below).
+    #   style-src 'self' 'unsafe-inline'— Vite emits an external hashed stylesheet ('self'); the
+    #                                      'unsafe-inline' covers runtime inline STYLE ATTRIBUTES
+    #                                      (the transfer progress-bar `style="width:N%"` and
+    #                                      stark-ui-kit's scroll-lock body style). Inline styles
+    #                                      can't execute JS — this is a deliberate, low-risk
+    #                                      relaxation; script-src stays strict.
+    #   img-src 'self' data:            — bundled assets + any inline data: images (the QR is
+    #                                      rendered as INLINE SVG in the DOM, not an <img>, so it
+    #                                      needs no extra allowance).
+    #   font-src 'self'                 — kit fonts are bundled.
+    #   connect-src 'self' wss://…      — fetch/XHR/WebSocket. Just the signaling WS origin plus
+    #                                      'self' (the self-hosted zxing WASM is fetched from 'self').
+    #                                      NO third-party CDN. NOTE: stun:/turn: ICE transport is
+    #                                      handled by the WebRTC stack and is NOT subject to
+    #                                      connect-src — VITE_STUN_URLS / TURN do not need listing.
+    #   worker-src 'self' blob:         — defensive: some emscripten WASM builds spawn a blob:
+    #                                      worker. zxing's reader build is single-threaded today;
+    #                                      VERIFY the QR path on iOS/Firefox and tighten to 'self'
+    #                                      if no worker is created.
+    #   frame-ancestors 'none'          — no embedding (clickjacking); object-src 'none' — no
+    #                                      plugins; base-uri/form-action 'self'.
+    #
+    # SELF-HOSTED WASM (step 6e — done): the QR-scan WASM is vendored into the build and served from
+    # 'self' (src/ui/zxingWasm.ts overrides zxing's `locateFile` to a Vite-fingerprinted same-origin
+    # asset), so NO third-party CDN appears here — connect-src is 'self' + the signaling WS only. (A
+    # QR scan therefore never reaches out to jsdelivr / leaks the client IP, and no executable WASM
+    # is loaded from a host we don't control.) `'wasm-unsafe-eval'` stays — it permits compiling the
+    # self-hosted WASM, not fetching it.
+    #
+    # VERIFY AGAINST THE BUILD: after `npm run build`, load the app + walk every screen with the
+    # devtools console open (ESPECIALLY the QR-scan screen on a non-Chromium browser); any CSP
+    # violation prints a `Refused to …` error. Adjust here, never by loosening to 'unsafe-eval'.
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' wss://hushsend.frelikh.dev; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'" always;
+
+    # Permissions-Policy: grant ONLY what the app uses, deny the rest.
+    #   camera=(self)        — REQUIRED: the QR scanner calls getUserMedia (camera is gated by
+    #                          this policy, NOT CSP). iOS/Firefox enforce it strictly.
+    #   microphone/geolocation/display-capture/usb/payment=()  — hard-denied (unused).
+    #   interest-cohort=()   — opt out of FLoC/Topics tracking (privacy tool).
+    add_header Permissions-Policy "camera=(self), microphone=(), geolocation=(), display-capture=(), usb=(), payment=(), interest-cohort=()" always;
+
+    # No MIME sniffing (defeats content-type confusion attacks on the static assets).
+    add_header X-Content-Type-Options "nosniff" always;
+    # Strongest referrer policy for a privacy tool: never emit a Referer. (The link secret rides
+    # in the URL fragment and is never sent in Referer anyway; this also hides the origin.)
+    add_header Referrer-Policy "no-referrer" always;
+    # Legacy clickjacking guard (CSP frame-ancestors supersedes it on modern browsers).
+    add_header X-Frame-Options "DENY" always;
+
+    # --- Static SPA ----------------------------------------------------------
+    # Serve the built Vite bundle. `try_files … /index.html` is the SPA fallback:
+    # the app is a single page with NO router — deep links / the link-join URL
+    # (`/#<roomCode>.<S>`) all resolve to index.html and the client reads the
+    # fragment. (The fragment never reaches nginx — browsers don't send `#…`.)
+    root /var/www/hushsend/dist;                    # <PLACEHOLDER> = where you deploy `dist/`
+    index index.html;
+
+    location / {
+        try_files $uri /index.html;
+    }
+
+    # Long-cache the content-hashed assets (Vite fingerprints filenames, so this
+    # is safe — a new build = new names). index.html itself stays uncached.
+    location /assets/ {
+        try_files $uri =404;
+        expires 1y;
+        add_header Cache-Control "public, immutable" always;
+    }
+
+    # --- WebAssembly MIME (defensive — matters for QR scan on iOS/Firefox) ---
+    # The QR-scan fallback (browsers WITHOUT a native BarcodeDetector) compiles
+    # the SELF-HOSTED zxing reader `.wasm` via WebAssembly.instantiateStreaming(),
+    # which REQUIRES the response Content-Type to be EXACTLY `application/wasm`.
+    # Modern nginx ships this mapping in mime.types, but an OLD or trimmed
+    # mime.types serves `.wasm` as `application/octet-stream` →
+    # instantiateStreaming() rejects the stream (the ponyfill then falls back to
+    # a slower ArrayBuffer compile, or errors outright on some setups). Pin it
+    # explicitly so the streaming path always works regardless of the host's
+    # mime.types vintage. This is a regex location, so it intercepts the
+    # fingerprinted `.wasm` served from /assets/ above and long-caches it the
+    # same way (Vite fingerprints the filename → safe to treat as immutable).
+    # `types { }` clears the inherited map for this location so `default_type`
+    # alone decides the type (it only ever matches `.wasm`).
+    location ~* \.wasm$ {
+        types { }
+        default_type application/wasm;
+        try_files $uri =404;
+        expires 1y;
+        add_header Cache-Control "public, immutable" always;
+    }
+
+    # --- WebSocket signaling proxy (CRITICAL) --------------------------------
+    # The client connects to wss://hushsend.frelikh.dev/ws?app=filetransfer&…
+    # (VITE_SIGNALING_URL at build time). Proxy it to the loopback-bound Node server.
+    location /ws {
+        proxy_pass http://127.0.0.1:8080;
+
+        # WebSocket upgrade handshake (HTTP/1.1 + Upgrade/Connection headers).
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host       $host;
+
+        # CRITICAL — per-IP caps + the 4011 attempt rate-limit read X-Real-IP
+        # (server runs with TRUST_PROXY=1; clientIp() trusts ONLY this, never the
+        # client-controllable X-Forwarded-For). WITHOUT this line the Node server
+        # is bound to loopback, so $remote_addr it sees is always 127.0.0.1 →
+        # EVERY client collapses into one per-IP bucket (MAX_CONNS_PER_IP becomes
+        # a global cap) AND the rate-limit silently disables (loopback is exempt
+        # by design). This is the #1 deploy footgun — do not omit it.
+        proxy_set_header X-Real-IP $remote_addr;
+
+        # Long-lived sockets: the server's WS heartbeat is 30s (PING_MS). Set the
+        # read timeout WELL above it (1h) so nginx never severs an idle-but-alive
+        # signaling socket mid-rendezvous or during a slow pre-pairing wait.
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+
+        # Don't buffer a streaming/long-poll-like upgraded connection.
+        proxy_buffering off;
+    }
+
+    # --- Health check (optional) ---------------------------------------------
+    # Surfaces the signaling server's /health ("ok") through nginx for an uptime
+    # probe / the deploy smoke test. The static `location /` above otherwise owns
+    # `/`, so this exact-match proxy is needed to reach the Node health endpoint.
+    location = /health {
+        proxy_pass http://127.0.0.1:8080/health;
+        proxy_set_header Host       $host;
+        proxy_set_header X-Real-IP  $remote_addr;
+        access_log off;
+    }
+}
+
+# ----------------------------------------------------------------------------
+# SECOND APP (when its frontend exists): hushclip.frelikh.dev
+# ----------------------------------------------------------------------------
+# The SAME signaling server serves both apps — it distinguishes them by the
+# `?app=` query param (filetransfer vs clipboard), NOT by host — so the second
+# site is an IDENTICAL block: its own server_name + cert + `root` (the hushclip
+# `dist/`), the same `try_files $uri /index.html` SPA fallback, and the same
+# `location /ws { proxy_pass http://127.0.0.1:8080; … }` (incl. X-Real-IP and the
+# raised read timeout). Only adjust the CSP connect-src host to
+# `wss://hushclip.frelikh.dev`. coturn/TURN is filetransfer-only (clipboard has
+# no server fallback), so hushclip needs no relay wiring. Lives in a separate
+# repo; deploy it as its own nginx site reusing this template.

@@ -87,26 +87,41 @@ export function ShareButton({ value }: { value: string }): ReactElement | null {
 }
 
 /**
- * The "Max privacy" toggle from the mockups, rendered DISABLED / coming-soon. The reliable-vs-
- * max-privacy mode (and any TURN relay it would gate) is step 6 — there is intentionally NO
- * transport/ICE behaviour wired behind it here. It is shown so the home composition matches the
- * design, with a clear "soon" affordance and aria-disabled state.
+ * The "Max privacy" toggle from the mockups (step 6d, now FUNCTIONAL). ON = Max privacy: connections
+ * stay direct (peer-to-peer), never relayed — the peer sees your IP, nothing transits a server. OFF =
+ * Reliable: if a direct path fails the connection may fall back through a TURN relay — your IP stays
+ * hidden from the peer, and the relay only carries end-to-end-encrypted traffic (it can't read it).
+ *
+ * The state is a persisted pref (prefs.tsx, default Max); it is read at pairing start to assemble the
+ * iceServers, so flipping it mid-session affects the NEXT connection, not the live one. A live
+ * Max-privacy ICE failure can still escalate to a relay via relax-retry (the strict-model offer on the
+ * connecting screen, both sides consent). The description switches to spell out the active mode's
+ * trade-off.
  */
 export function PrivacyToggle(): ReactElement {
   const t = useT();
+  const { privacyMode, setPrivacyMode } = usePrefs();
+  const max = privacyMode === 'max';
   return (
     <div className="hs-card">
       <div className="hs-toggle">
         <div className="hs-toggle__body">
-          <span className="hs-toggle__title">
-            {t('privacyTitle')}
-            <span className="hs-soon">{t('soon')}</span>
+          <span className="hs-toggle__title">{t('privacyTitle')}</span>
+          <span className="hs-toggle__desc" data-testid="privacy-desc">
+            {max ? t('privacyDesc') : t('privacyDescReliable')}
           </span>
-          <span className="hs-toggle__desc">{t('privacyDesc')}</span>
         </div>
-        <span className="hs-switch" role="switch" aria-checked="false" aria-disabled="true" aria-label={t('privacyTitle')}>
+        <button
+          type="button"
+          className="hs-switch"
+          role="switch"
+          aria-checked={max}
+          aria-label={t('privacyTitle')}
+          data-testid="privacy-toggle"
+          onClick={() => setPrivacyMode(max ? 'reliable' : 'max')}
+        >
           <span className="hs-switch__knob" />
-        </span>
+        </button>
       </div>
     </div>
   );

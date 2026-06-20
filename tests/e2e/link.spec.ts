@@ -6,11 +6,13 @@ import { createLink, fragmentOf, joinQrByPaste } from './helpers';
 
 /**
  * Step-5b "link" / "qr" methods, end to end through two Chromium tabs:
- *   - A clicks Invite → Link (or QR) → the server allocates a PUBLIC 4-digit room and A's UI shows a
- *     one-time link `<origin>/#<roomCode>.<S>` (S = high-entropy CSPRNG secret in the fragment).
+ *   - A clicks Invite → Link (or QR) → the server allocates a PUBLIC high-entropy 128-bit TOKEN
+ *     rendezvous (codeType=token — unguessable, NOT the 4-digit room) and A's UI shows a one-time
+ *     link `<origin>/#<token>.<S>` (S = high-entropy CSPRNG secret in the fragment).
  *   - B OPENS the link → the page-load handler reads the fragment, SCRUBS it from the URL, and joins
- *     with only the room code; S stays local. WebRTC brings up the DataChannel, then a
- *     channel-bound key-confirmation over S (no PAKE, no SAS) authenticates → connected.
+ *     with only the token; S stays local. WebRTC brings up the DataChannel, then a channel-bound
+ *     key-confirmation over S (no PAKE, no SAS) authenticates → connected. Because the token is
+ *     unguessable, a stray peer can't reach the room — interloper-resistance is STRUCTURAL.
  *   - The qr method is identical; the joiner reaches the same join path by submitting the decoded
  *     link in the scan screen's paste fallback (a headless camera can't decode a QR).
  *
@@ -84,11 +86,11 @@ test('link negative: a wrong secret (correct room) → key-confirmation fails �
   await sender.goto('/?forceBlob=1');
   const link = await createLink(sender, 'link');
 
-  // Keep the room code (so B still routes into A's room) but swap in a DIFFERENT well-formed
+  // Keep the rendezvous TOKEN (so B still routes into A's room) but swap in a DIFFERENT well-formed
   // 16-byte secret: CPace-free key-confirmation over divergent S ⇒ the MAC tags cannot match.
-  const code = fragmentOf(link).slice(1, fragmentOf(link).indexOf('.'));
+  const token = fragmentOf(link).slice(1, fragmentOf(link).indexOf('.'));
   const wrongSecret = randomBytes(16).toString('base64url');
-  const receiver = await openJoiner(context, `#${code}.${wrongSecret}`);
+  const receiver = await openJoiner(context, `#${token}.${wrongSecret}`);
 
   // Both sides fail: the rejecting side on the tag mismatch, the other on the relayed teardown.
   await expect(receiver.getByTestId('status')).toHaveText('failed', { timeout: 60_000 });

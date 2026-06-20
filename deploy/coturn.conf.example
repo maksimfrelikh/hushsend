@@ -1,0 +1,92 @@
+# ============================================================================
+# hushsend — coturn (TURN relay) configuration template
+# ============================================================================
+# Reliable mode falls back to a TURN relay when a direct P2P path can't be
+# established (symmetric NAT, restrictive firewalls). coturn is deployed
+# SEPARATELY from the signaling server; this file is the relay's config.
+#
+# The signaling server (server/signaling-server.js) hands clients SHORT-LIVED
+# HMAC credentials derived from `static-auth-secret` (the `use-auth-secret`
+# scheme below). The secret is SHARED between this file and the signaling
+# server's TURN_SECRET env var; it NEVER reaches the browser — clients only
+# receive a per-session username+credential that coturn recomputes and
+# validates offline (no signaling↔coturn round-trip).
+#
+# Copy to /etc/turnserver.conf (or pass with `turnserver -c`), fill in the
+# <PLACEHOLDERS>, then run coturn as a service. Hardening notes are inline.
+# ----------------------------------------------------------------------------
+
+# --- Time-limited credential auth (REST API / use-auth-secret scheme) --------
+# Enable ephemeral, HMAC-derived credentials instead of a static user table.
+# A credential is valid only until the unix-timestamp embedded in its username.
+use-auth-secret
+# The shared secret. MUST EQUAL the signaling server's TURN_SECRET env var.
+# Treat as a secret: long random string, file mode 600, never commit the real
+# value. coturn derives expected_password = base64(HMAC-SHA1(secret, username)).
+static-auth-secret=<SAME-VALUE-AS-SIGNALING-SERVER-TURN_SECRET>
+# Authentication realm. Use your TURN hostname. Required for long-term/REST auth.
+realm=turn.hushsend.frelikh.dev
+
+# --- Listening addresses / ports ---------------------------------------------
+# The public address clients reach. On a cloud VM behind 1:1 NAT, set BOTH the
+# private bind address (listening-ip) and the public address (external-ip).
+listening-ip=0.0.0.0
+# external-ip=<PUBLIC.IP.OF.SERVER>          # uncomment + set behind NAT (or PRIVATE/PUBLIC)
+# Standard TURN/STUN listening port (UDP + TCP both served on this port).
+listening-port=3478
+# TLS/DTLS port for turns: (relay over TLS — survives networks that only allow 443/5349).
+tls-listening-port=5349
+# TLS material for turns:. Use the same cert as your HTTPS host or a dedicated one.
+# cert=/etc/letsencrypt/live/turn.hushsend.frelikh.dev/fullchain.pem
+# pkey=/etc/letsencrypt/live/turn.hushsend.frelikh.dev/privkey.pem
+
+# --- Relay (media) port range ------------------------------------------------
+# coturn allocates one UDP port per relayed session from THIS range. It must be
+# OPEN in the firewall / security group (UDP), or relay allocation fails even
+# though signaling succeeds. Size it for expected concurrent relayed transfers.
+# FIREWALL: open 3478/udp, 3478/tcp, 5349/tcp, AND 49160-49200/udp (this range).
+min-port=49160
+max-port=49200
+
+# --- Quotas / bandwidth caps (anti-abuse) ------------------------------------
+# A leaked or farmed credential is time-boxed (TTL) AND capped here, so it can't
+# drain bandwidth. Tune for your link + expected load.
+# Max simultaneous allocations per username (one credential ≈ one transfer).
+user-quota=12
+# Max simultaneous allocations server-wide.
+total-quota=1200
+# Per-session bandwidth ceiling in BYTES/sec (0 = unlimited). e.g. 5 MB/s.
+max-bps=5000000
+# Optional aggregate ceiling across all sessions, bytes/sec (0 = unlimited).
+# bps-capacity=0
+
+# --- Anti-SSRF hardening (CRITICAL) ------------------------------------------
+# A TURN relay forwards packets to whatever peer address a client names. Without
+# these, a client could make coturn relay INTO your private network / cloud
+# metadata endpoint (SSRF / open-proxy). Deny multicast, loopback, and all
+# RFC1918 / link-local / metadata ranges so the relay only reaches public peers.
+no-multicast-peers
+no-loopback-peers
+# RFC1918 private ranges:
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+# Link-local (incl. 169.254.169.254 cloud metadata) + IPv6 loopback/link-local:
+denied-peer-ip=169.254.0.0-169.254.255.255
+denied-peer-ip=::1
+denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+# (If the relay legitimately needs ONE internal target, add a narrow
+#  allowed-peer-ip= AFTER these denies — otherwise leave it fully denied.)
+
+# --- Integrity / misc --------------------------------------------------------
+# Append a STUN FINGERPRINT to messages (interop + integrity).
+fingerprint
+# Disable the admin telnet CLI entirely (no remote-management surface). If you
+# must keep it, set a strong cli-password instead of leaving it default.
+no-cli
+# cli-password=<STRONG-RANDOM-IF-CLI-ENABLED>
+# Quieter logs in production (drop per-session spam); raise when debugging.
+no-stdout-log
+# Run unprivileged after binding low ports (set to a non-root service user).
+# proc-user=turnserver
+# proc-group=turnserver

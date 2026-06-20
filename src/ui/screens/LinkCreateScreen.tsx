@@ -6,11 +6,12 @@ import { Screen, Eyebrow, BackLink, Waiting, CopyButton, ShareButton } from '../
 
 /**
  * Host view for the link method (step 5b) while `awaitingPeer`. Shows the one-time invite link to
- * copy/share. The link is `<origin>/#<roomCode>.<S>`: the part after `#` carries the high-entropy
+ * copy/share. The link is `<origin>/#<token>.<S>`: the rendezvous is a high-entropy 128-bit token
+ * (unguessable, so strangers can't reach the room), and the part after `#` carries the high-entropy
  * secret S, which never reaches the server (browsers don't send the fragment) and which the joiner
  * scrubs from its address bar after reading. The link is single-use — one connection per link.
  *
- * `credential[0]` is the full link (the core builds it from the allocated room + S, the same way
+ * `credential[0]` is the full link (the core builds it from the allocated token + S, the same way
  * the words method surfaces its secret words to the creator). A `link-url` mirror exposes the plain
  * URL for copy and for the e2e to read.
  */

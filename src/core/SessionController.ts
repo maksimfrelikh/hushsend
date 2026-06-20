@@ -18,6 +18,25 @@ import {
   type ConfirmationDomain,
 } from './crypto/keyConfirmation';
 import { generateLinkSecret, buildLinkUrl } from './link/link';
+import { sasRoleFor } from './sasRole';
+import { pairingRoleFor } from './pairingRole';
+import {
+  buildIceServers,
+  configuredStunUrls,
+  DEFAULT_PRIVACY_MODE,
+  NO_TURN,
+  type PrivacyMode,
+  type TurnCredentials,
+} from './iceServers';
+import {
+  newRelaxState,
+  relaxOnIceFail,
+  relaxOnLocal,
+  relaxOnPeer,
+  shouldRestartForRelay,
+  type RelaxState,
+} from './relax';
+import type { PeerInfo } from '../types/protocol';
 import { generateNonce, sasCommit, verifySasCommit, computeSasWords, NONCE_BYTES } from './crypto/sas';
 import {
   getOrCreateIdentity,
@@ -57,7 +76,6 @@ import {
 } from './transfer/fileTransfer';
 
 const DEFAULT_SIGNALING_URL = 'ws://localhost:8080';
-const DEFAULT_ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
 
 /**
  * Resolve the signaling URL. A DEV-only `?signalingUrl=` query override lets an e2e tab target
@@ -141,18 +159,48 @@ type SasSignal = z.infer<typeof sasSignalSchema>;
 const sasConfirmSchema = z.object({ kind: z.literal('sas-confirm'), ok: z.boolean() });
 
 /**
+ * Mesh-lobby pairing control frames over the (untrusted) SIGNALING relay — room method only. These
+ * coordinate WHICH two peers raise a 1:1 channel; they carry NO secret and authenticate nothing (the
+ * SAS does). Unlike the SDP/cpace/sas frames, these may arrive from a peer we are NOT yet paired with
+ * (that is the whole point of picking), so they are handled BEFORE the 1:1 `from !== peerId` gate.
+ *   - `pair-request`: "I picked you" — readies/triggers the counterpart (the responder's request
+ *     prompts the initiator to offer; the initiator's request readies the responder before its offer).
+ *   - `busy`: "I'm already pairing with someone else" — a clear rejection so the picker never hangs.
+ */
+const lobbySignalSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('pair-request') }),
+  z.object({ kind: z.literal('busy') }),
+]);
+type LobbySignal = z.infer<typeof lobbySignalSchema>;
+
+/**
+ * Relay-escalation (relax-retry, step 6d) signal over the (untrusted) SIGNALING relay. It travels
+ * over signaling — NOT the DataChannel — because a relax happens when ICE FAILED, i.e. before the
+ * DataChannel ever opens. It is exchanged between the ALREADY-paired peers (`from === peerId`), so it
+ * is routed AFTER the 1:1 gate, alongside the cpace/sas frames (unlike the lobby frames, which can
+ * come from a not-yet-paired peer). It carries NO secret and authenticates nothing.
+ */
+const relaxSignalSchema = z.object({ kind: z.literal('relax') });
+
+/**
  * How long the SAS window may stay open before we give up. Two phases share this budget, both
  * ending on the SAME failSas → `failed` + close path as every other SAS failure:
  *   - the pre-SAS PAIRING window (peer-joined → SAS shown): a peer that joins but never completes
  *     the commit-reveal (e.g. commits, then withholds its nonce reveal) must not leave us hanging
- *     in `pairing` forever. The 4-digit room has NO server-side TTL yet (deferred), unlike the
- *     words room — so this client-side deadline is the only backstop. Uses the fixed default.
+ *     in `pairing` forever. The server's 4-digit idle-TTL only bounds the rendezvous, not a peer
+ *     that joined then stalls the in-channel commit-reveal — so this client-side deadline is the
+ *     real backstop. Read through preSasTimeoutMs().
  *   - the human COMPARISON window (awaitingSas → confirming): a stalled comparison (peer walked
  *     away, one side never confirms) must not hang either. Generous (humans read 3 words aloud).
+ *     Read through sasConfirmTimeoutMs().
  *
- * The comparison phase reads the value through sasConfirmTimeoutMs() so DEV/tests can shrink it
- * (exercising the timeout branch in ~hundreds of ms instead of a real 120 s wait); the pairing
- * backstop keeps the fixed default so that shrink can't pre-empt the awaitingSas state under test.
+ * Both phases reuse the SAME single timer (armSasTimeout clears any prior handle), and both read
+ * their duration through a DEV-only override so e2e can drive each timeout branch in ~hundreds of
+ * ms instead of a real 120 s wait — but through SEPARATE knobs (preSasTimeoutMs vs
+ * sasConfirmTimeoutMs) so shrinking one never pre-empts the other's state under test (the
+ * comparison-timeout test relies on the pre-SAS window keeping its default while it shrinks the
+ * comparison one). Production always uses the fixed default for both (the overrides are
+ * dead-code-eliminated from prod builds).
  */
 const DEFAULT_SAS_CONFIRM_TIMEOUT_MS = 120_000;
 
@@ -182,6 +230,55 @@ function sasConfirmTimeoutMs(): number {
 }
 
 /**
+ * Resolve the pre-SAS PAIRING deadline (peer-joined → SAS shown). Production ALWAYS uses the fixed
+ * DEFAULT_SAS_CONFIRM_TIMEOUT_MS — a peer that joins then withholds its commit-reveal must not hang
+ * us in `pairing` forever, and that backstop is non-overridable in prod. A DEV-only
+ * `?preSasTimeoutMs=N` query override (or a `window.__HUSHSEND_PRE_SAS_TIMEOUT_MS__` global) lets an
+ * e2e tab drive the FIRING direction of this deadline — a stalled peer (one that withholds its
+ * sas-nonce, see stallSasNonceEnabled) → the OTHER side fails here at the deadline rather than hangs
+ * — with a tiny value instead of a real 120 s wait. Kept DELIBERATELY SEPARATE from
+ * sasConfirmTimeoutMs() (the comparison window): the comparison-timeout test shrinks only THAT knob,
+ * so the pre-SAS backstop must not be shrunk by the same one (it could pre-empt awaitingSas before
+ * the comparison window even arms). DEV-gated like the other knobs → dead-code-eliminated in prod.
+ */
+function preSasTimeoutMs(): number {
+  if (import.meta.env.DEV) {
+    try {
+      const w = window as unknown as { __HUSHSEND_PRE_SAS_TIMEOUT_MS__?: unknown };
+      if (typeof w.__HUSHSEND_PRE_SAS_TIMEOUT_MS__ === 'number' && w.__HUSHSEND_PRE_SAS_TIMEOUT_MS__ > 0) {
+        return w.__HUSHSEND_PRE_SAS_TIMEOUT_MS__;
+      }
+      const q = new URLSearchParams(window.location.search).get('preSasTimeoutMs');
+      const n = q ? Number(q) : NaN;
+      if (Number.isFinite(n) && n > 0) return n;
+    } catch {
+      /* no window (non-browser) — fall through to the default */
+    }
+  }
+  return DEFAULT_SAS_CONFIRM_TIMEOUT_MS;
+}
+
+/**
+ * DEV/TEST knob (pre-SAS deadline test): force THIS side to reach the SAS commit-reveal but NEVER
+ * reveal its own sas-nonce — i.e. simulate a peer that joins, commits, computes + shows the SAS
+ * (reaches awaitingSas), then withholds its nonce reveal. Drives the FIRING direction of the pre-SAS
+ * pairing deadline e2e: the OTHER side never gets this side's nonce, stays in `pairing`, and must
+ * fail at the (shrunk) pre-SAS deadline rather than hang. Mirrors the other DEV-only knobs
+ * (`?stallSasNonce=1` / `window.__HUSHSEND_STALL_SAS_NONCE__`): gated behind `import.meta.env.DEV` so
+ * it is dead-code-eliminated from production builds.
+ */
+function stallSasNonceEnabled(): boolean {
+  if (!import.meta.env.DEV) return false;
+  try {
+    const w = window as unknown as { __HUSHSEND_STALL_SAS_NONCE__?: unknown };
+    if (w.__HUSHSEND_STALL_SAS_NONCE__ === true) return true;
+    return new URLSearchParams(window.location.search).get('stallSasNonce') === '1';
+  } catch {
+    return false; // no window (non-browser) — never stall
+  }
+}
+
+/**
  * DEV/TEST knob (step 4b-ii): force the reconnect path to PRESENT a freshly-generated identity key
  * under the real, stored pairingId — i.e. simulate "the peer under this pairingId is now using a
  * different key". Drives the key-changed hard-stop e2e without a second real device. Mirrors the
@@ -200,6 +297,24 @@ function forgeReconnectKeyEnabled(): boolean {
 }
 
 /**
+ * DEV/TEST knob (step 6d, relax-retry): force the WebRTC PeerConnection to treat ICE as FAILED (and
+ * suppress its own candidates so no real path forms), so the relax flow can be driven in e2e without a
+ * real network failure. Mirrors `forgeReconnectKeyEnabled` (`?forceIceFail=1` /
+ * `window.__HUSHSEND_FORCE_ICE_FAIL__`): gated behind `import.meta.env.DEV` so it is dead-code-
+ * eliminated from production builds.
+ */
+function forceIceFailEnabled(): boolean {
+  if (!import.meta.env.DEV) return false;
+  try {
+    const w = window as unknown as { __HUSHSEND_FORCE_ICE_FAIL__?: unknown };
+    if (w.__HUSHSEND_FORCE_ICE_FAIL__ === true) return true;
+    return new URLSearchParams(window.location.search).get('forceIceFail') === '1';
+  } catch {
+    return false; // no window (non-browser) — never force
+  }
+}
+
+/**
  * Per-session reconnect state for the TOFU re-auth path (step 4b-ii). Its presence
  * (`this.reconnect != null`) marks a session ATTEMPTING reconnect; it rides ON TOP of the room
  * rendezvous + SAS state (`this.sas`), which stays primed as the fallback used when a pin is
@@ -207,7 +322,11 @@ function forgeReconnectKeyEnabled(): boolean {
  * SAS words back from the human (see trySasReady) so a successful reconnect never flashes SAS UI.
  */
 interface ReconnectState {
-  /** initiator (A, creator) or responder (B, joiner) — fixes the challenge order in the transcript. */
+  /** initiator (A, creator) or responder (B, joiner) — fixes the challenge order in the transcript
+   *  AND who announces the pairingId / who proves first. INTENTIONALLY create/join, NOT the
+   *  per-pairing id role (`this.role`): the verifier-first side must be fixed so a key change is
+   *  caught before the forger can settle (`onReconnectProof`). Reconnect is 1:1 creator↔joiner
+   *  (mesh reconnect is a later step), so this is well-defined. Do NOT switch it to id order. */
   role: ConfirmationRole;
   /** The pairingId we reconnect under: initiator picks it from its pins; responder learns it from
    *  the initiator's `reconnect-init` frame. Key-INDEPENDENT (so a swapped key is detectable). */
@@ -235,7 +354,9 @@ interface ReconnectState {
  * in the core.
  */
 interface SasState {
-  /** initiator (A, creator) or responder (B, joiner) — fixes the nonce order in the transcript. */
+  /** initiator or responder — fixes the nonce order + commit-reveal order in the transcript. Set
+   *  PER-PAIRING from the two readable ids in beginPairing (smaller id = initiator), NOT from
+   *  create/join; provisional until then (see newSasState). Mirrors `this.role` for this pair. */
   role: ConfirmationRole;
   /** our own nonce (revealed at the right moment per the commit-reveal ordering). */
   myNonce: Uint8Array;
@@ -279,10 +400,12 @@ function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** Fresh SAS state for the room method, with our own nonce drawn from the CSPRNG. */
-function newSasState(role: ConfirmationRole): SasState {
+/** Fresh SAS state for the room method, with our own nonce drawn from the CSPRNG. The role is
+ *  PROVISIONAL ('initiator' placeholder) — beginPairing overwrites it with the per-pairing,
+ *  id-derived role once both ids are known, well before any SAS signal is processed. */
+function newSasState(): SasState {
   return {
-    role,
+    role: 'initiator',
     myNonce: generateNonce(),
     peerCommit: null,
     peerNonce: null,
@@ -373,8 +496,15 @@ export class SessionController {
    *  key-changed hard-stop — see forgeReconnectKeyEnabled. Lazily generated, once per session. */
   private forgedIdentityPromise: Promise<IdentityKey> | null = null;
 
-  // --- words method (step 3b) — CPace + key-confirmation. Lives ONLY in the core. ---
-  /** initiator (A, the creator) or responder (B). Same role drives CPace and confirmation. */
+  // --- per-pairing transport/crypto role. Lives ONLY in the core. ---
+  /** initiator or responder, fixed PER-PAIRING from the two readable ids (smaller id = initiator,
+   *  via `pairingRoleFor`) — NOT from create/join, so a joiner↔joiner lobby pair still gets exactly
+   *  one of each (the old create/join rule left both `responder` → no offer, SAS commit-reveal
+   *  deadlock). Assigned once at pairing start (beginPairing). Drives the WebRTC offer/answer
+   *  direction, CPace init/respond (words), and the key-confirmation transcript (words/link/qr). The
+   *  room method mirrors it into `this.sas.role` (SAS nonce order + commit-reveal); the reconnect
+   *  protocol role is SEPARATE and stays create/join (see ReconnectState.role). For a 1:1 pair the
+   *  OUTCOME is identical to the old rule — only which side offers/reveals first is now id-ordered. */
   private role: ConfirmationRole | null = null;
   /** A-side only: the 4 secret words generated at create, held until `welcome` brings the
    *  rendezvous word so we can show the full 5-word credential. */
@@ -403,6 +533,23 @@ export class SessionController {
   private established = false;
   private readonly signalingUrl: string;
 
+  // --- privacy toggle + TURN relay (step 6d, client side) — picks the iceServers the PeerConnection
+  //     is built with. Lives ONLY in the core. ---
+  /** `max` (direct only, default) vs `reliable` (STUN + TURN relay). Pushed in from the persisted UI
+   *  pref (prefs.tsx) via setPrivacyMode; READ at pairing start (so a mid-session toggle affects the
+   *  NEXT connection, not the live one). */
+  private privacyMode: PrivacyMode = DEFAULT_PRIVACY_MODE;
+  /** This session's fetched coturn credentials (Reliable mode only, or after a relax). Null until
+   *  fetched; reset per session in openSignaling (creds are tied to the live signaling socket).
+   *  NO_TURN (empty urls) ⇒ relay unavailable → we stay direct-only. */
+  private turnCreds: TurnCredentials | null = null;
+  /** Memoizes the one-shot TURN fetch per session so concurrent startPeer calls never double-request. */
+  private turnFetch: Promise<void> | null = null;
+  /** Live relay-escalation (relax-retry) state for the Max-privacy STRICT model. Core-only; its
+   *  serializable projection ({available, localRelaxed, peerRelaxed}) drives the relax UI. Reset per
+   *  pairing (beginPairing) and per session (dispose). See core/relax.ts. */
+  private relax: RelaxState = newRelaxState();
+
   // --- file transfer (step 2) — one transfer at a time over the live DataChannel ---
   /** Active outbound transfer, awaiting accept or streaming bytes. */
   private sender: ActiveSend | null = null;
@@ -418,6 +565,17 @@ export class SessionController {
     // it's ready by the time a connection reaches `connected`. Non-fatal if the keystore is
     // unavailable (e.g. no IndexedDB) — enrollment just won't run.
     void this.publishIdentity();
+  }
+
+  /**
+   * Set the privacy mode (step 6d). Pushed in from the persisted UI pref (prefs.tsx) — `max` (direct
+   * only, default) or `reliable` (allow a TURN relay fallback). It is READ at pairing start (iceServers
+   * are assembled then), so toggling mid-session affects the NEXT connection, not the live one. A LIVE
+   * Max-privacy ICE failure escalates to a relay via the relax-retry path (relaxConnection — strict
+   * model, both sides consent). Cheap setter — no transport work happens here.
+   */
+  setPrivacyMode(mode: PrivacyMode): void {
+    this.privacyMode = mode;
   }
 
   // ===========================================================================
@@ -466,9 +624,13 @@ export class SessionController {
   // ---- signaling wiring ----
 
   private openSignaling(): void {
+    // A fresh signaling socket → any prior TURN creds are stale (they were minted for the old socket).
+    // Drop them so Reliable mode re-fetches against THIS session's socket at pairing start.
+    this.turnCreds = null;
+    this.turnFetch = null;
     this.signaling = new SignalingClient(this.signalingUrl, {
       onWelcome: (selfId, room, peers) => this.onWelcome(selfId, room, peers),
-      onPeerJoined: (peerId) => this.onPeerJoined(peerId),
+      onPeerJoined: (peer) => this.onPeerJoined(peer),
       onPeerLeft: (peerId) => this.onPeerLeft(peerId),
       onSignal: (from, data) => this.onSignal(from, data),
       onRoomClosed: (reason) => this.onRoomClosed(reason),
@@ -476,70 +638,217 @@ export class SessionController {
     });
   }
 
-  private onWelcome(selfId: string, room: string, peers: string[]): void {
+  private onWelcome(selfId: string, room: string, peers: PeerInfo[]): void {
     this.selfId = selfId;
     this.dispatch(devActions.setSelfId(selfId));
+    // Seed the roster from the existing-room peers (mesh lobby — room method). Harmless for
+    // words/link/qr (they auto-pair below and never render the roster).
+    this.dispatch(connectionActions.rosterSet(peers));
     if (this.isCreator) {
       // A: rendezvous allocated. For words it IS the rendezvous word; show the full 5-word
       // credential (rendezvous + 4 secret) so A can read it aloud. For room, credential=null.
+      // Then we sit in the room: the LOBBY (room) shows the roster; words/link/qr just wait.
       this.rendezvous = room;
       this.dispatch(connectionActions.roomReady({ room, credential: this.fullCredential() }));
-      // We engage when a peer joins (words: begin CPace; room: begin WebRTC) — see onPeerJoined.
+    } else if (this.isLobby()) {
+      // room method (mesh lobby): DON'T auto-pair. Land in the lobby (joining → awaitingPeer) so the
+      // joiner sees the roster + picks whom to pair with, exactly like the creator. Pairing starts
+      // ONLY on a human pick (pickPeer) or an inbound pair-request — see onPairRequest.
+      this.rendezvous = room;
+      this.dispatch(connectionActions.roomReady({ room, credential: null }));
     } else if (peers.length > 0) {
-      // B: someone is already here -> we are the newcomer -> RESPONDER (await the offer).
-      const other = peers[0];
-      this.peerId = other;
-      if (this.method === 'words') {
-        this.role = 'responder';
-        this.attemptResolved = false; // B's single shot
-      } else if (this.method === 'link' || this.method === 'qr') {
-        // link/qr: B is the responder. No PAKE, no SAS — the DataChannel comes up and the
-        // key-confirmation runs over the URL-fragment secret S at channel-open.
-        this.role = 'responder';
-      } else if (this.sas) {
-        // room + SAS: B is the responder. COMMIT to nonceB now — before A reveals nonceA — so B
-        // is locked to its nonce and cannot grind it against A's. The reveal of nonceB waits
-        // until A's nonce arrives (onSasSignal). Runs in parallel with the WebRTC bring-up below.
-        this.sendSas({ kind: 'sas-commit', c: bytesToHex(sasCommit(this.sas.myNonce)) });
-        // Bound the pre-SAS pairing window (symmetric with A — see onPeerJoined / armSasTimeout):
-        // a 4-digit room has no server TTL yet, so without this a peer that joins then stalls the
-        // commit-reveal would leave us hanging in `pairing` indefinitely.
-        this.armSasTimeout('SAS pairing timed out', DEFAULT_SAS_CONFIRM_TIMEOUT_MS);
-      }
-      // Bring up the responder PeerConnection now; for words, CPace runs in parallel over
-      // signaling and the ISK is ready before A's offer arrives.
-      this.startPeer(other, /* initiator */ false);
-      this.dispatch(connectionActions.pairingStarted({ peerId: other }));
+      // words / link / qr (and reconnect): 1:1 auto-pair with the first peer. Both ids are known now,
+      // so beginPairing fixes the per-pairing role.
+      this.beginPairing(peers[0].id);
     }
-    // else (joined an existing-but-empty room): stay put; we'll initiate on peer-joined.
+    // else (joined an existing-but-empty room): stay put; we'll begin pairing / fill the roster on
+    // peer-joined.
   }
 
-  private onPeerJoined(peerId: string): void {
-    if (this.peer || this.role === 'initiator') return; // 1:1 — already engaged with a peer
-    // We were already in the room -> we are the INITIATOR toward the newcomer.
-    this.peerId = peerId;
-    this.dispatch(connectionActions.pairingStarted({ peerId }));
-    if (this.method === 'words') {
-      // Run CPace FIRST; only start WebRTC once we hold the ISK, so the DataChannel cannot
-      // open before key-confirmation has a key to MAC the DTLS fingerprints under.
-      this.role = 'initiator';
-      this.attemptResolved = false; // a new guess attempt begins
-      this.beginCpaceAsInitiator();
-    } else if (this.method === 'link' || this.method === 'qr') {
-      // link/qr: A is the initiator. No PAKE — bring up WebRTC straight away; the secret S is
-      // already in hand, and key-confirmation over it runs once the DataChannel opens.
-      this.role = 'initiator';
-      this.startPeer(peerId, /* initiator */ true);
-    } else {
-      // room method: we initiate WebRTC. On the SAS path, also arm the pre-SAS pairing deadline
-      // now — the 4-digit room has no server TTL yet, so without this a peer that joins but stalls
-      // the commit-reveal would hang us in `pairing` forever (armSasTimeout no-ops off the SAS path).
-      this.armSasTimeout('SAS pairing timed out', DEFAULT_SAS_CONFIRM_TIMEOUT_MS);
-      this.startPeer(peerId, /* initiator */ true);
+  private onPeerJoined(peer: PeerInfo): void {
+    // Always reflect the newcomer in the roster (every method seeds it; only the lobby renders it).
+    this.dispatch(connectionActions.rosterAdd(peer));
+    if (this.isLobby()) return; // lobby: pairing starts on a human pick, not on a join — just roster
+    if (this.peer || this.role) return; // 1:1 auto-pair: already engaged with a peer
+    // A newcomer arrived while we were in the room. Both ids are known now → beginPairing.
+    this.beginPairing(peer.id);
+  }
+
+  /**
+   * True for the mesh-LOBBY rendezvous (room method, plain SAS): an authenticated 4-digit room where
+   * several peers see each other and the human PICKS whom to raise a 1:1 channel with. Distinguished
+   * by `this.sas` set AND `this.reconnect` null:
+   *   - plain SAS room (createRoomSession/joinRoomSession): sas set, reconnect null → lobby.
+   *   - reconnect (create/joinReconnectSession): sas set, reconnect set → NOT a lobby (1:1 auto-pair,
+   *     no human pick — reconnect-in-lobby is deferred).
+   *   - words / link / qr: sas null → NOT a lobby (1:1 auto-pair with a single peer).
+   *   - step-1 transport room: sas null → NOT a lobby (legacy auto-pair, unchanged).
+   */
+  private isLobby(): boolean {
+    return this.sas != null && this.reconnect == null;
+  }
+
+  /**
+   * LOBBY pick → start a 1:1 pairing with `peerId` (room method only). Announces the pick to the peer
+   * (`pair-request`) so it engages too, then sets up our own side via beginPairing — where the
+   * per-pairing role (smaller id = initiator) decides who offers: the initiator offers immediately,
+   * the responder stands ready (and sends its SAS commit). Glare (both pick each other) resolves
+   * naturally — only the smaller id offers; the larger's pick just readies it. De-duped: a pick while
+   * already engaged is ignored.
+   */
+  pickPeer(peerId: string): void {
+    if (!this.isLobby()) return; // SAS-room lobby only
+    if (this.peerId) return; // already engaged (UI is off the lobby; ignore a stray/duplicate pick)
+    const role = pairingRoleFor(this.selfId, peerId);
+    if (!role) {
+      this.fail(new Error('cannot resolve pairing role — missing peer id'));
+      return;
     }
+    this.dispatch(connectionActions.lobbyNotice(null)); // a fresh pick clears any prior "busy" notice
+    // Announce first (before beginPairing's async offer) so the peer readies itself: a responder's
+    // pair-request prompts the initiator to offer; an initiator's pair-request readies the responder.
+    this.sendLobby(peerId, { kind: 'pair-request' });
+    this.beginPairing(peerId);
+  }
+
+  /** Relay a lobby control frame (pair-request / busy) to a specific peer over the signaling relay. */
+  private sendLobby(to: string, frame: LobbySignal): void {
+    this.signaling?.send(to, frame);
+  }
+
+  /** Route an inbound lobby control frame (validated). Lobby (room) only — a no-op otherwise. */
+  private onLobbySignal(from: string, frame: LobbySignal): void {
+    if (!this.isLobby()) return;
+    if (frame.kind === 'pair-request') this.onPairRequest(from);
+    else this.onBusy(from);
+  }
+
+  /**
+   * A peer announced it picked us. If we are free → engage (beginPairing fixes the role by id: if we
+   * are the initiator we offer, if the responder we ready + commit). If we are already pairing/
+   * connected with a DIFFERENT peer → bounce it with `busy` (a clear rejection, no hang). If it is the
+   * peer we are ALREADY engaged with (glare / duplicate) → ignore.
+   */
+  private onPairRequest(from: string): void {
+    if (this.peerId === from) return; // already engaged with this peer (glare/duplicate) — ignore
+    if (this.peerId || this.peer) {
+      this.sendLobby(from, { kind: 'busy' }); // busy with someone else → clear reject
+      return;
+    }
+    const role = pairingRoleFor(this.selfId, from);
+    if (!role) {
+      this.fail(new Error('cannot resolve pairing role — missing peer id'));
+      return;
+    }
+    // Engage. We do NOT echo a pair-request — the sender already engaged on its side; the role-by-id
+    // decides who offers (initiator) and who waits (responder).
+    this.beginPairing(from);
+  }
+
+  /**
+   * A peer we picked is already pairing with someone else. Tear down our half-started attempt and
+   * return to the LOBBY with a clear "X is busy" notice — no hang, and we can pick another peer.
+   * (Only the busy case returns to the lobby; the general post-session return-to-lobby is deferred.)
+   */
+  private onBusy(from: string): void {
+    if (this.peerId !== from || this.established) return; // not the peer we picked, or already done
+    this.resetPairingToLobby();
+    this.dispatch(connectionActions.lobbyNotice({ kind: 'busy', peerId: from }));
+  }
+
+  /** Tear down a half-started lobby pairing and re-prime a fresh SAS state, returning to the lobby
+   *  (awaitingPeer) with the room + roster intact so the human can pick another peer. */
+  private resetPairingToLobby(): void {
+    if (this.sas?.timer != null) clearTimeout(this.sas.timer);
+    this.peer?.close();
+    this.peer = null;
+    this.peerId = null;
+    this.role = null;
+    this.confirmFps = null;
+    this.peerConfirmTag = null;
+    this.confirmSettled = false;
+    this.sas = newSasState(); // fresh nonce for the next pick (still a SAS-room lobby session)
+    this.dispatch(connectionActions.returnToLobby());
+  }
+
+  /**
+   * Begin the 1:1 pairing with `peerId`. The transport/crypto role is PER-PAIRING, fixed from the two
+   * readable ids (`pairingRoleFor`: lexicographically smaller id = initiator), NOT from create/join —
+   * so a joiner↔joiner lobby pair still gets exactly one initiator + one responder (the old rule left
+   * both `responder` → no WebRTC offer, SAS commit-reveal deadlock). Both peers compute it identically
+   * (ids are unique in a room) → opposite roles. For a 1:1 creator↔joiner pair the OUTCOME is
+   * unchanged — same connection, same authentication; only WHICH side offers / reveals first is now
+   * id-ordered. Entry points (all with both ids known): the words/link/qr 1:1 auto-pair (onWelcome /
+   * onPeerJoined), and — for the room mesh LOBBY — a human pick (pickPeer) or an inbound pair-request
+   * (onPairRequest). De-dup against re-entry is the caller's job (the lobby handlers + onPeerJoined
+   * guard on `this.peer`/`this.peerId`/`this.role` before calling here).
+   */
+  private beginPairing(peerId: string): void {
+    this.peerId = peerId;
+    const role = pairingRoleFor(this.selfId, peerId);
+    if (!role) {
+      // Fail closed: an unresolved role (a missing/equal id — impossible in a real room, ids are
+      // unique) must NEVER silently default a side, or both could land on the same role and deadlock.
+      this.fail(new Error('cannot resolve pairing role — missing peer id'));
+      return;
+    }
+    this.role = role;
+    const initiator = role === 'initiator';
+    this.relax = newRelaxState(); // fresh relay-escalation state for this pairing (pairingStarted resets its projection)
+    this.dispatch(connectionActions.pairingStarted({ peerId }));
+
+    // Reliable mode: kick off the coturn-cred fetch now (the WS is up — `welcome` has arrived) so it
+    // runs in PARALLEL with CPace/SAS; startPeer awaits the SAME memoized fetch before building the PC,
+    // guaranteeing TURN is in iceServers from the start. Max-privacy: a no-op (never requests creds).
+    void this.ensureTurnReady();
+
+    if (this.method === 'words') {
+      this.attemptResolved = false; // a fresh guess attempt begins (either role)
+      if (initiator) {
+        // Run CPace FIRST; bring up WebRTC only once we hold the ISK (onCpaceMessage), so the
+        // DataChannel can't open before key-confirmation has a key to MAC the DTLS fingerprints under.
+        this.beginCpaceAsInitiator();
+      } else {
+        // Responder: reply to CPace over signaling and stand ready as the WebRTC answerer. The
+        // initiator's offer arrives only AFTER it finishes CPace, so the PeerConnection is up in time.
+        void this.startPeer(peerId, /* initiator */ false);
+      }
+      return;
+    }
+
+    if (this.method === 'link' || this.method === 'qr') {
+      // link/qr: no PAKE — bring up WebRTC straight away (the secret S is already in hand); the
+      // key-confirmation over S runs once the DataChannel opens. Initiator offers, responder answers.
+      void this.startPeer(peerId, initiator);
+      return;
+    }
+
+    // room method. On the SAS path, both ids are known now → mirror the role into the SAS state (the
+    // nonce-order + commit-reveal crypto role) and fix the asymmetric SAS UI reader/picker role
+    // (`resolveSasRole`, same id ordering). The SAS RESPONDER commits FIRST (anti-grinding) — send our
+    // commit now if that's us, before the initiator reveals. Arm the pre-SAS pairing deadline (the
+    // 4-digit room TTL only bounds the rendezvous; without this a peer that joins then stalls the
+    // commit-reveal would hang us in `pairing` forever). All of this no-ops on the step-1 UNauthenticated
+    // room (`this.sas == null`), which just brings up the channel.
+    if (this.sas) {
+      this.sas.role = role; // per-pairing nonce ordering + commit-reveal (was create/join)
+      this.resolveSasRole();
+      if (!initiator) {
+        // We are the SAS responder → COMMIT to our nonce now, before the initiator reveals theirs, so
+        // we are locked to it and cannot grind it against the initiator's. The reveal waits for the
+        // initiator's nonce (onSasSignal). Runs in parallel with the WebRTC bring-up below.
+        this.sendSas({ kind: 'sas-commit', c: bytesToHex(sasCommit(this.sas.myNonce)) });
+      }
+      this.armSasTimeout('SAS pairing timed out', preSasTimeoutMs());
+    }
+    // Initiator offers, responder answers (for words the responder's PeerConnection was started above).
+    void this.startPeer(peerId, initiator);
   }
 
   private onPeerLeft(peerId: string): void {
+    // Always drop the leaver from the roster (and clear a stale "busy" notice naming it). A peer we
+    // are NOT paired with leaving the lobby must update the roster but otherwise not disturb us.
+    this.dispatch(connectionActions.rosterRemove({ peerId }));
     if (peerId !== this.peerId) return;
     if (import.meta.env.DEV) console.debug('[session] peer left', peerId);
     // words: a peer that drops BEFORE we're connected aborts this pairing attempt (counts on A;
@@ -564,21 +873,248 @@ export class SessionController {
     }
   }
 
-  private startPeer(peerId: string, initiator: boolean): void {
+  /**
+   * Bring up the PeerConnection for this pairing. Reliable mode fetches coturn creds FIRST (so the
+   * TURN relay is in `iceServers` from the very start of ICE gathering — never added mid-negotiation);
+   * Max-privacy resolves instantly and never contacts the relay. The privacy mode is read here, at
+   * pairing start, which is why a mid-session toggle only affects the NEXT connection. async + voided
+   * at the call sites; each call site is the last statement of its branch, so the one-microtask defer
+   * (and the Reliable round-trip) reorders nothing.
+   */
+  private async startPeer(peerId: string, initiator: boolean): Promise<void> {
+    await this.ensureTurnReady();
+    const iceServers = this.iceServers();
+    this.publishIceConfig();
     this.peer = new PeerConnection(
       {
         onSignal: (data) => this.signaling?.send(peerId, data),
         onOpen: () => void this.onChannelOpen(),
         onClose: () => this.onChannelClose(),
         onMessage: (data) => this.onPeerMessage(data),
+        onIceFailed: () => this.onIceFailed(),
       },
-      { iceServers: DEFAULT_ICE_SERVERS },
+      {
+        iceServers,
+        // STRICT model: in Max-privacy (not yet relaxed) drop the peer's relay candidates so we are
+        // never relayed without consent; an ICE failure then offers relax instead of hard-closing.
+        filterRelay: this.privacyMode === 'max' && !this.relax.localRelaxed,
+        forceIceFail: forceIceFailEnabled(),
+      },
     );
     this.peer.start(initiator);
   }
 
+  /** The iceServers for THIS pairing, from the privacy mode + configured STUN + (Reliable) fetched
+   *  TURN creds. Max-privacy ⇒ STUN-only (or none); Reliable ⇒ STUN + TURN when a relay is configured. */
+  private iceServers(): RTCIceServer[] {
+    return buildIceServers({ mode: this.privacyMode, stunUrls: configuredStunUrls(), turn: this.turnCreds });
+  }
+
+  /**
+   * Reliable mode only: fetch this session's short-lived coturn credentials BEFORE the PeerConnection
+   * is created (so TURN is present from the first ICE candidate, not bolted on later). Memoized per
+   * session (one request even if several startPeer calls race), and never throws — a failed/absent
+   * relay resolves to NO_TURN (empty urls), which iceServers() treats as direct-only. Max-privacy is a
+   * no-op: it NEVER requests creds, so the relay is never even contacted.
+   */
+  private ensureTurnReady(force = false): Promise<void> {
+    // Max-privacy normally never requests creds (stay direct-only); a relax forces the fetch (`force`)
+    // because the human just consented to a relay.
+    if (!force && this.privacyMode !== 'reliable') return Promise.resolve();
+    if (this.turnCreds) return Promise.resolve(); // already have this session's creds
+    if (!this.turnFetch) {
+      this.turnFetch = (async () => {
+        const creds = (await this.signaling?.requestTurnCredentials()) ?? NO_TURN;
+        this.turnCreds = creds;
+        this.dispatch(
+          devActions.appendLog(
+            creds.urls.length > 0
+              ? `turn: relay available (${creds.urls.length} url${creds.urls.length > 1 ? 's' : ''})`
+              : 'turn: relay unavailable — staying direct-only',
+          ),
+        );
+      })();
+    }
+    return this.turnFetch;
+  }
+
+  /** Publish (DEV diagnostics) the ICE config the PeerConnection was just built with: the privacy
+   *  mode, whether a relay was added, and the TURN creds it carried — the e2e reads this to confirm
+   *  Reliable assembled a correct TURN entry and Max-privacy added none. Mirrors iceServers()'s logic. */
+  private publishIceConfig(): void {
+    // A relay is in the config either in Reliable mode or after a relax (Max-privacy escalation), and
+    // only when the server actually returned relay urls.
+    const wantsRelay = this.privacyMode === 'reliable' || this.relax.localRelaxed;
+    const relay = wantsRelay && !!this.turnCreds && this.turnCreds.urls.length > 0;
+    this.dispatch(
+      devActions.setIceConfig({
+        mode: this.privacyMode,
+        relay,
+        urls: relay ? this.turnCreds!.urls : [],
+        username: relay ? this.turnCreds!.username : '',
+        credential: relay ? this.turnCreds!.credential : '',
+      }),
+    );
+  }
+
+  // ===========================================================================
+  // STEP 6d — relax-retry (Max-privacy STRICT model). Max-privacy NEVER relays without consent: the
+  // PeerConnection drops the peer's relay candidates (filterRelay) and, on an ICE failure, we OFFER
+  // the human a relay ESCALATION instead of hard-failing (status stays `pairing` — projection, no new
+  // FSM state). The relay path forms only once BOTH sides relax — self-enforcing bilateral: until a
+  // side relaxes it is still filtering, so a one-sided relax can never open a relay. The ICE restart
+  // is on the EXISTING PeerConnection (no teardown, no new certificate) → the DTLS fingerprint, and
+  // thus the SAS / key-confirmation channel binding, is preserved across the restart. The SAS is
+  // confirmed exactly ONCE, already over the relay (ICE fails before the DataChannel / sas-confirm, so
+  // the SAS is never re-negotiated). See core/relax.ts for the pure state machine + the filter.
+  // ===========================================================================
+
+  /** Publish the relax projection ({available, localRelaxed, peerRelaxed}) the relax UI reads. */
+  private publishRelax(): void {
+    this.dispatch(
+      connectionActions.relaxChanged({
+        available: this.relax.available,
+        localRelaxed: this.relax.localRelaxed,
+        peerRelaxed: this.relax.peerRelaxed,
+      }),
+    );
+  }
+
+  /**
+   * PeerConnection reported ICE could NOT connect — only reachable in Max-privacy while still filtering
+   * (see PeerConnection.onIceFailure), so the peer's relay candidates are being dropped and nothing
+   * relayed silently. OFFER the human the relay escalation; status stays `pairing`. No-op once
+   * established or once we have relaxed.
+   */
+  private onIceFailed(): void {
+    if (this.established) return;
+    const before = this.relax;
+    this.relax = relaxOnIceFail(this.relax);
+    if (this.relax !== before) {
+      this.publishRelax();
+      this.dispatch(devActions.appendLog('ice: direct connection failed — offering relay (relax)'));
+      // RE-ARM the pre-SAS deadline (room/SAS path only). Surfacing the relay offer opens a
+      // human-in-the-loop bilateral escalation — each side must SEE the offer, accept, then
+      // ICE-restart + connect over the relay — that legitimately runs LONGER than the original
+      // pre-SAS window (a single ICE-failure detection alone can eat ~15–30 s). Granting a fresh
+      // window avoids a spurious timeout while both humans consent. This is SAFE to extend: it is a
+      // liveness bound, not a security one (the SAS has not happened yet — ICE fails before the
+      // DataChannel opens, so `this.sas.surfaced` is still false here), the escalation is ACTIVE
+      // (not a stall), and the deadline still fires if the relax is never accepted/completed (a hung
+      // relax fails, just later). Guarded to the PRE-SAS window so it can't clobber the comparison
+      // timer; a no-op off the SAS path (words/link/qr have no `this.sas`, and armSasTimeout no-ops
+      // without it) — so the non-relax / non-SAS paths are completely untouched.
+      if (this.sas && !this.sas.surfaced) {
+        this.armSasTimeout('SAS pairing timed out', preSasTimeoutMs());
+      }
+    }
+  }
+
+  /**
+   * The human accepted the relay escalation. Fetch coturn creds (the Reliable fetch path, FORCED even
+   * though the persisted mode is Max-privacy), add TURN to the LIVE PeerConnection via setConfiguration
+   * (no teardown → stable DTLS fingerprint, SAS binding preserved), STOP dropping the peer's relay
+   * candidates, then signal the peer. The actual ICE restart waits until BOTH sides relaxed
+   * (maybeRestartForRelay), so a one-sided relax never opens a relay — the other side is still filtering.
+   */
+  async relaxConnection(): Promise<void> {
+    if (this.established || this.relax.localRelaxed) return;
+    this.relax = relaxOnLocal(this.relax);
+    this.publishRelax();
+    this.dispatch(devActions.appendLog('relax: accepting relay — fetching credentials'));
+    await this.ensureTurnReady(/* force */ true); // Max-privacy normally never fetches creds
+    this.peer?.setConfiguration(this.iceServersForRelax());
+    this.peer?.setRelayFilter(false); // stop dropping the peer's relay candidates
+    this.publishIceConfig();
+    this.sendRelax();
+    this.maybeRestartForRelay();
+  }
+
+  /** The human DECLINED the relay — Max-privacy means we would rather NOT connect than relay without
+   *  consent. Terminal: tear down and fail (status pairing → failed), no further auto-retry. */
+  declineRelax(): void {
+    if (this.established || this.relax.localRelaxed) return;
+    this.failRelax('could not connect privately — relay declined');
+  }
+
+  /** The paired peer signalled it relaxed. Record it (and surface the offer to us too if we have NOT
+   *  relaxed — we never relay silently), then restart over the relay if we are the initiator and both
+   *  sides have now relaxed. */
+  private onRelaxSignal(): void {
+    if (this.established) return;
+    const before = this.relax;
+    this.relax = relaxOnPeer(this.relax);
+    if (this.relax !== before) {
+      this.publishRelax();
+      this.dispatch(devActions.appendLog('relax: peer accepted relay'));
+    }
+    this.maybeRestartForRelay();
+  }
+
+  /** Relay the relax signal to the paired peer over the (untrusted) signaling relay. */
+  private sendRelax(): void {
+    if (this.peerId) this.signaling?.send(this.peerId, { kind: 'relax' });
+  }
+
+  /**
+   * Restart ICE over the relay ONLY when BOTH sides relaxed AND we are the per-pairing INITIATOR (the
+   * side that owns the offer). One-shot. The restart re-gathers on the EXISTING PeerConnection — TURN
+   * now in the config, relay filtering off — bringing up the relay path while leaving the DTLS
+   * certificate (hence the fingerprint + SAS binding) untouched. The responder just answers the
+   * restart offer through the normal handleSignal path.
+   */
+  private maybeRestartForRelay(): void {
+    if (this.established) return;
+    if (!shouldRestartForRelay(this.relax, this.role)) return;
+    this.relax.restarted = true;
+    this.dispatch(devActions.appendLog('relax: both sides relaxed — restarting ICE over relay'));
+    void this.peer
+      ?.restartIce()
+      .catch((err) => this.dispatch(devActions.appendLog(`relax: ICE restart failed (${errText(err)})`)));
+  }
+
+  /** ICE servers for a relax: STUN + TURN regardless of the persisted mode (the human just consented
+   *  to relay), but only when a relay is actually configured; STUN-only otherwise (relay undeployed). */
+  private iceServersForRelax(): RTCIceServer[] {
+    return buildIceServers({ mode: 'reliable', stunUrls: configuredStunUrls(), turn: this.turnCreds });
+  }
+
+  /**
+   * Terminal relax failure (the human declined relay): mark every per-method one-shot settled so their
+   * own teardown paths can't also fire, then close + fail (pairing → failed). Method-agnostic — a relay
+   * decline is a deliberate terminal choice, NOT a guess attempt, so it bypasses the words retry logic.
+   */
+  private failRelax(reason: string): void {
+    this.attemptResolved = true; // words: don't let a later signal count this as a guess attempt
+    this.linkSettled = true; // link/qr: close the teardown guard
+    if (this.sas) {
+      this.sas.settled = true;
+      if (this.sas.timer != null) clearTimeout(this.sas.timer);
+      this.sas.timer = null;
+    }
+    if (this.reconnect) this.reconnect.settled = true;
+    this.peer?.close();
+    this.peer = null;
+    this.signaling?.close();
+    this.fail(new Error(reason));
+  }
+
   private onSignal(from: string, data: unknown): void {
-    if (from !== this.peerId) return; // 1:1 — ignore anyone we're not pairing with
+    // Mesh-lobby pairing control (room method) is handled BEFORE the 1:1 gate, because a pick can
+    // come from a peer we are not yet paired with (pair-request), or report that a peer we picked is
+    // busy. Validated (the relay is UNTRUSTED) before use.
+    const lobby = lobbySignalSchema.safeParse(data);
+    if (lobby.success) {
+      this.onLobbySignal(from, lobby.data);
+      return;
+    }
+    if (from !== this.peerId) return; // 1:1 — ignore SDP/cpace/sas from anyone we're not pairing with
+    // Relay-escalation (relax-retry, step 6d): the paired peer accepted relay. Over signaling (the
+    // DataChannel may never have opened — ICE failed). Validated; carries no secret.
+    if (relaxSignalSchema.safeParse(data).success) {
+      this.onRelaxSignal();
+      return;
+    }
     // The words method multiplexes CPace onto the signaling channel (kind:'cpace'); everything
     // else is WebRTC SDP/ICE for the PeerConnection. Validate (the relay is UNTRUSTED) and route.
     const cpace = cpaceFrameSchema.safeParse(data);
@@ -641,7 +1177,7 @@ export class SessionController {
         if (!this.cpaceState) return; // not initialised yet
         this.sessionKey = cpaceFinish(this.cpaceState, peerMsg);
         // ISK in hand → now bring up WebRTC as the initiator (offer/answer/ICE → DTLS).
-        this.startPeer(this.peerId!, /* initiator */ true);
+        void this.startPeer(this.peerId!, /* initiator */ true);
       }
     } catch (err) {
       // A malformed / low-order peer point (active tampering) or a broken cpace frame aborts the
@@ -1230,28 +1766,28 @@ export class SessionController {
     this.linkSecretEncoded = secret.encoded;
     try {
       this.openSignaling();
-      await this.signaling!.connect({ create: true }); // 4-digit allocate — unchanged server path
-      // `welcome` carries the allocated room; onWelcome then shows the full link via fullCredential().
+      await this.signaling!.connect({ create: true, codeType: 'token' }); // high-entropy token rendezvous (unguessable)
+      // `welcome` carries the allocated token; onWelcome then shows the full link via fullCredential().
     } catch (err) {
       this.fail(err);
     }
   }
 
   /**
-   * B-side: join a link or qr session. The roomCode + secret S come from the link fragment
+   * B-side: join a link or qr session. The rendezvous token + secret S come from the link fragment
    * (link: read from `location.hash` on page load; qr: decoded from a scanned/pasted link) — the
-   * caller has ALREADY scrubbed the fragment from the address bar/history. Only the roomCode goes
-   * to the server (`join`); S stays local. On `welcome` (A already present) we become the
-   * responder and run key-confirmation over S when the DataChannel opens.
+   * caller has ALREADY scrubbed the fragment from the address bar/history. Only the token goes to
+   * the server (`join`, codeType=token); S stays local. On `welcome` (A already present) we become
+   * the responder and run key-confirmation over S when the DataChannel opens.
    */
-  async joinLinkSession(roomCode: string, secret: Uint8Array, method: 'link' | 'qr'): Promise<void> {
-    this.dispatch(connectionActions.joinStarted({ method, room: roomCode }));
+  async joinLinkSession(rendezvous: string, secret: Uint8Array, method: 'link' | 'qr'): Promise<void> {
+    this.dispatch(connectionActions.joinStarted({ method, room: rendezvous }));
     this.isCreator = false;
     this.method = method;
     this.linkSecret = secret;
     try {
       this.openSignaling();
-      await this.signaling!.connect({ join: roomCode }); // 4-digit join — S never sent
+      await this.signaling!.connect({ join: rendezvous, codeType: 'token' }); // token join — S never sent
       // `welcome` (peers non-empty) → we're the responder; key-confirmation over S follows.
     } catch (err) {
       this.fail(err);
@@ -1275,11 +1811,11 @@ export class SessionController {
     this.dispatch(connectionActions.createStarted({ method: 'room' }));
     this.isCreator = true;
     this.method = 'room';
-    this.sas = newSasState('initiator');
+    this.sas = newSasState(); // role fixed per-pairing by id in beginPairing (not create/join)
     try {
       this.openSignaling();
       await this.signaling!.connect({ create: true }); // 4-digit allocate — unchanged server path
-      // `welcome` -> roomReady (shows the code); `peer-joined` -> WebRTC + we await B's commit.
+      // `welcome` -> roomReady (shows the code); `peer-joined` -> beginPairing (WebRTC + SAS).
     } catch (err) {
       this.fail(err);
     }
@@ -1294,7 +1830,7 @@ export class SessionController {
     this.dispatch(connectionActions.joinStarted({ method: 'room', room: code }));
     this.isCreator = false;
     this.method = 'room';
-    this.sas = newSasState('responder');
+    this.sas = newSasState(); // role fixed per-pairing by id in beginPairing (not create/join)
     try {
       this.openSignaling();
       await this.signaling!.connect({ join: code });
@@ -1326,7 +1862,11 @@ export class SessionController {
     this.dispatch(connectionActions.createStarted({ method: 'room' }));
     this.isCreator = true;
     this.method = 'room';
-    this.sas = newSasState('initiator'); // primed as the fallback (no human cost unless surfaced)
+    // SAS primed as the fallback (no human cost unless surfaced); its role is fixed per-pairing by id
+    // in beginPairing. The RECONNECT protocol role below stays create/join (creator = reconnect
+    // initiator) — independent of the per-pairing transport role — so the verifier-first side is fixed
+    // and a key change is caught before the forger can settle.
+    this.sas = newSasState();
     try {
       const pins = await this.keystore.listPins();
       if (pins.length > 0) {
@@ -1354,7 +1894,8 @@ export class SessionController {
     this.dispatch(connectionActions.joinStarted({ method: 'room', room: code }));
     this.isCreator = false;
     this.method = 'room';
-    this.sas = newSasState('responder');
+    this.sas = newSasState(); // SAS fallback role fixed per-pairing by id in beginPairing
+    // RECONNECT protocol role stays create/join (joiner = reconnect responder) — see createReconnectSession.
     this.reconnect = newReconnectState('responder', null);
     this.dispatch(devActions.setReconnect({ active: true, outcome: null }));
     try {
@@ -1365,8 +1906,32 @@ export class SessionController {
     }
   }
 
+  /**
+   * Compute + project the per-pairing SAS UI role (reader/picker) for THIS 1:1 channel from the two
+   * readable ids: the lexicographically smaller id reads its phrase, the other is the blind picker
+   * (`sasRoleFor`). Both peers compute it identically (ids are unique in the room) → opposite roles,
+   * for ANY pair — including joiner↔joiner, where the old create/join rule made BOTH pickers. Called
+   * at pairing start (both ids known) on the room+SAS path ONLY (`this.sas` set, incl. the reconnect
+   * fallback); a no-op elsewhere (words/link/qr have no SAS). The role is a UI-only signal — it does
+   * NOT touch `this.sas.role`, which stays initiator/responder for the nonce-ordering crypto. If an
+   * id is missing nothing is dispatched, so the projection stays null and the SAS screen fails closed.
+   */
+  private resolveSasRole(): void {
+    if (!this.sas) return; // SAS-authenticated room path only
+    const role = sasRoleFor(this.selfId, this.peerId);
+    if (role) this.dispatch(connectionActions.sasRoleResolved({ role }));
+  }
+
   /** Relay a SAS commit/nonce frame to the peer through the (untrusted) signaling server. */
   private sendSas(frame: SasSignal): void {
+    // DEV/TEST stall knob: a peer that reaches the SAS but NEVER reveals its own sas-nonce, to drive
+    // the pre-SAS pairing-deadline FIRING e2e — the other side then never completes the commit-reveal
+    // and must fail at the deadline, not hang. Only the nonce REVEAL is withheld (the commit still
+    // goes out, so this side still computes + shows its SAS). Dead-code-eliminated in prod (DEV-gated).
+    if (frame.kind === 'sas-nonce' && stallSasNonceEnabled()) {
+      this.dispatch(devActions.appendLog('sas: stalling — withholding sas-nonce reveal (DEV knob)'));
+      return;
+    }
     if (this.peerId) this.signaling?.send(this.peerId, frame);
   }
 
@@ -1972,6 +2537,7 @@ export class SessionController {
     this.reconnect = null; // reconnect (4b-ii) overlay state
     this.forgedIdentityPromise = null; // DEV/TEST forged key (if any) is per-session
     this.role = null;
+    this.relax = newRelaxState(); // relax-retry (6d) state is per-pairing
     this.pendingSecretWords = null;
     this.prs = null;
     // link/qr (5b) state
