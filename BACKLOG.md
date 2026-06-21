@@ -1,20 +1,23 @@
 # hushsend — backlog (remaining & deferred work)
 
-Forward-looking work only. Current built state + implementation caveats live in CLAUDE.md
-(§ Current state, § Known residuals). Update this file in the same pass as CLAUDE.md when items land.
+Remaining and deferred work, plus a done-log of the completed hardening. Current built state +
+implementation caveats live in CLAUDE.md (§ Current state, § Known residuals). Update this file in
+the same pass as CLAUDE.md when items land.
 
-## Step 6 — Hardening (main remaining chunk)
+## Step 6 — Hardening (6a–6d + 6f DONE; 6e real-device pass remaining)
 - ✅ **Server cap/TTL/rate-limit for `filetransfer` rooms — DONE (6a)**. The `filetransfer` app is a
-  `managed` app, which gives BOTH its 4-digit (room/link/QR) and word rooms a TTL-until-connected that
+  `managed` app, which gives all its rooms (the 4-digit **room**, **word**, and link/QR **token**) a TTL-until-connected that
   frees the code (expiry → 4010 close + later join → 4009 `'room not found'`; the live P2P channel
   survives a post-`connected` signaling close) and a per-IP create/join rate-limit (`IP_RL_MAX = 60` /
   `IP_RL_WINDOW_MS = 60000`; over → 4011 `'too many attempts'`, loopback-exempt). SAS / key-confirmation
   defeat a MITM regardless — this is abuse hygiene. `tests/integration/room-server.test.ts`.
   - **Correction (later pass):** the **seat cap is codeType-dependent, not the `managed` flag**. The
-    4-digit room/link/QR rendezvous is a **mesh LOBBY** (`FILETRANSFER_MAX_PEERS`, default 8) where
-    several peers see each other and each picks whom to pair 1:1 with (incl. joiner↔joiner); only the
-    **words** rendezvous stays strictly 1:1 (`WORD_ROOM_MAX_PEERS = 2`, serializing secret-word
-    guessing). The 4-digit TTL is now an **idle timeout** (re-armed on each join); the words TTL stays
+    4-digit **room** rendezvous is a **mesh LOBBY** (`FILETRANSFER_MAX_PEERS`, default 8) where
+    several peers see each other and each picks whom to pair 1:1 with (incl. joiner↔joiner); the
+    **words** AND link/QR **token** rendezvous stay strictly 1:1 (`ONE_TO_ONE_MAX_PEERS = 2` — words
+    to serialize secret-word guessing, token because a one-time link/QR has a single receiver).
+    (link/QR moved off the 4-digit room to their own high-entropy token pre-deploy — see below.)
+    The 4-digit TTL is now an **idle timeout** (re-armed on each join); the 1:1 words/token TTLs stay
     armed from CREATE. SAS role moved to per-pairing-by-id (see below). (See CLAUDE.md § Signaling
     server / room+SAS.)
 - ✅ **Per-pairing transport/crypto role — DONE (6b)**. `this.role` (initiator/responder) is fixed
@@ -263,7 +266,9 @@ The two failure modes (both now fail-closed / less likely, not yet fully fixed):
   (`reconnectTimeoutMs()` ← `?reconnectTimeoutMs=N` / `window.__HUSHSEND_RECONNECT_TIMEOUT_MS__`,
   tree-shaken in prod) for cheap e2e. Armed at pairing start (`SessionController.beginPairing`,
   reconnect path only); cleared on settle (`settleReconnect`) / fallback (`reconnectFallback`) / fail
-  (`failReconnect`) / dispose (and a Max-privacy ICE failure clears it via `failDirect`); expiry
+  (`failReconnect`) / dispose (and a Max-privacy ICE failure clears it via `failDirect`; `failSas`
+  also cross-closes it, so a parallel reconnect timer can't fire a second teardown when reconnect
+  falls back to SAS); expiry
   → `failReconnect` (→ `failed` + close), the SAME terminal path as a key-change / MITM. **Fail-closed,
   liveness only — the two-check verify, the reconnect role (create/join), the wire frames, and the
   crypto are UNTOUCHED.** DEV knob `?stallReconnect=1` (withholds the reconnect-proof) drives the
@@ -319,3 +324,33 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   per-send reset touches ONLY the transfer slice — it does NOT clear history records. Session-only
   history semantics unchanged (in-memory, gone on reload). `src/store/transferSlice.test.ts` +
   `src/store/historySlice.test.ts`.
+
+## Security audit — scrutinize before public launch
+
+Surface area for an independent security audit before the public launch — pointers to the
+security-sensitive decisions already made, gathered in one place (not a restatement; each links to
+where the design + rationale live).
+
+- [ ] **(a) Reconnect role create/join → id-order (deferred).** The reconnect PROTOCOL role stays
+  create/join, which fixes the **verifier-first ordering** the two-check **key-changed-vs-MITM** verify
+  depends on (a key change is caught before a forger can settle). Before any move to id-order,
+  re-verify the **key-changed-before-settle** property still holds under id-roles.
+  (→ § Reconnect UX / "Deferred (post-audit)" above + CLAUDE.md § Per-pairing role + § Crypto / Reconnect.)
+- [ ] **(b) Guess-narrowing of `peerLeftAbortsPairing` (WS-close).** Confirm the narrowing — a
+  `peer-left` aborts a 1:1 pairing ONLY pre-transport (`!established && !channelOpen`); a
+  post-channel-open `peer-left` is ignored — does NOT weaken the words anti-bruteforce bound. The
+  argument: the authoritative guess counter is confirmation-mismatch (`onConfirmFailure`) /
+  channel-close (both untouched); `peer-left` was the sole counter only before the channel ever opened.
+  (→ § Signaling WS lifecycle.)
+- [ ] **(c) Strict relay filter.** Confirm `isRelayCandidate` / `shouldDropCandidate` (Max-privacy
+  ALWAYS drops the peer's `typ relay` candidates AND never requests TURN) genuinely prevents a relay
+  path from completing on our side. (→ CLAUDE.md § Privacy mode + ICE / Max-privacy strict model.)
+- [ ] **(d) Crypto / protocol core.** CPace (draft-irtf-cfrg-cpace-21, ristretto255), SAS
+  commit-before-reveal + DTLS-fingerprint binding, key-confirmation channel binding (HMAC over the
+  lexicographically sorted DTLS fingerprints), TOFU enrollment, reconnect two-check verify, and the
+  `lv`-canonicalization + per-method domain separation. (→ CLAUDE.md § Crypto.)
+- [ ] **(e) Known residuals.** `pairingId` relay-linkability across reconnects; dual-pin accumulation
+  after a keystore wipe. (→ CLAUDE.md § Known residuals / deferred + § Caveats above.)
+- [ ] **(f) Deploy footgun.** `X-Real-IP` / `TRUST_PROXY` pairing (`clientIp()` → per-IP caps + the
+  4011 anti-enumeration limiter); shared-NAT `IP_RL_MAX` tuning. (→ CLAUDE.md § Deployment /
+  configuration + Step 6 / 6f above.)

@@ -440,7 +440,9 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
   `reconnectTimeoutMs()` (`?reconnectTimeoutMs=N` / `window.__HUSHSEND_RECONNECT_TIMEOUT_MS__`,
   `import.meta.env.DEV`-gated → tree-shaken in prod, kept SEPARATE from the SAS knobs). Armed at
   pairing start (`beginPairing`, reconnect path only); cleared on settle/fallback/fail/dispose (a
-  Max-privacy ICE failure also clears it via `failDirect`); expiry → `failReconnect` (→ `failed` +
+  Max-privacy ICE failure also clears it via `failDirect`; `failSas` cross-closes it too, so a
+  parallel reconnect timer can't fire a second teardown on a reconnect→SAS fallback); expiry →
+  `failReconnect` (→ `failed` +
   close), the SAME
   terminal path as a key-change / MITM. This is a **LIVENESS bound, not a security one** — the two-check
   verify, the reconnect **role (stays create/join)**, the wire frames, and the crypto are UNCHANGED;
