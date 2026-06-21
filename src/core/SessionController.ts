@@ -957,9 +957,17 @@ export class SessionController {
     if (this.reconnect && !this.reconnect.fellBack && !this.established) {
       this.failReconnect('reconnect aborted — peer left during re-auth');
     }
-    // room + SAS: a peer dropping before connected aborts the pairing (e.g. the other side
-    // rejected the SAS and tore down). After connected the live channel survives — left alone.
-    if (this.sas && !this.established) {
+    // room + SAS: SAME gate as words and link/qr. A peer dropping before the DataChannel transport
+    // is up aborts the pairing (e.g. the other side rejected the SAS and tore down before the channel
+    // opened). Once the channel is open the DataChannel/ICE are the sole liveness authority — a
+    // `peer-left` then is the benign post-connect socket close (room/SAS now ALSO closes its own
+    // socket per-pair on `connected`, see closeSignalingAfterConnect), and the two sides can
+    // connect-then-close a hair apart (cross-channel race: a signaling `peer-left` racing the
+    // DataChannel sas-confirm). A REAL abort after channel-open tears the channel down and is caught
+    // by onChannelClose instead. SAS has no online-guessing budget (unlike words/CPace), so gating on
+    // peerLeftAbortsPairing — not a bare `!established` — weakens nothing; it only stops the race from
+    // tearing down a pair where both humans already confirmed the SAS.
+    if (this.sas && peerLeftAbortsPairing(this.established, this.channelOpen)) {
       this.failSas('peer left during SAS pairing');
     }
   }
@@ -1338,21 +1346,33 @@ export class SessionController {
   }
 
   /**
-   * On an AUTHENTICATED `connected`, the 1:1 methods (words / link / qr) close their own signaling
-   * socket. By that point signaling has no further job: ICE/SDP are exchanged, key-confirmation rode
-   * the DataChannel, and TOFU enrollment rides the DataChannel too — so closing the socket costs the
+   * On an AUTHENTICATED `connected`, the 1:1 methods (words / link / qr) AND a connected room/SAS PAIR
+   * close their own signaling socket. By that point signaling has no further job: ICE/SDP are
+   * exchanged, key-confirmation (words/link/qr) or the SAS commit-reveal + sas-confirm (room) rode the
+   * DataChannel, and TOFU enrollment rides the DataChannel too — so closing the socket costs the
    * session nothing while denying the UNTRUSTED server any knowledge of how long the P2P session
    * runs (it sees only the short pairing window, then we vanish). The live DataChannel + ICE remain
    * the sole liveness authority (see onPeerLeft / livenessGate), so neither this close nor the peer's
    * own equivalent close disturbs the transfer. Our own SignalingClient.close() sets its `closed`
    * flag, so it never calls back onSignalingClose — only the PEER observes a `peer-left`.
    *
-   * 1:1 ONLY. The room method is a mesh LOBBY whose socket also carries the roster + other peers'
-   * picks; tearing it down needs a "seal room" step (deferred — see BACKLOG). Reconnect runs over its
-   * own fresh socket (method 'room', sas set), so it is excluded here and unaffected.
+   * PER-PAIR for the room LOBBY (no "seal room" step needed): a room is N independent 1:1 pairs over a
+   * shared lobby socket, and re-pairing on the fly is not a thing — once two peers raise their 1:1
+   * channel, that socket has no further job for them. Closing it is a plain WS close ONLY — there is
+   * NO room-destroy / leave frame (SignalingClient.close() just closes the socket). The server then
+   * runs peers.delete(self) + broadcasts a benign `peer-left` to the REMAINING lobby members
+   * (signaling-server.js) — the room survives (it is deleted only when empty), and unrelated pairs are
+   * untouched: their liveness is their own DataChannel/ICE, and a post-channel-open `peer-left` no
+   * longer aborts them (the channelOpen gate in onPeerLeft, Part A — words/link/qr AND now SAS). The
+   * other peer in OUR pair likewise observes our `peer-left`, also gated away by channelOpen.
+   *
+   * Reconnect is EXCLUDED — it rides on its own fresh socket (method 'room' with sas + reconnect set)
+   * and reconnect-in-lobby is deferred (see BACKLOG); keep it untouched. words/link/qr never set
+   * `this.reconnect`, so that exclusion is a no-op for them.
    */
   private closeSignalingAfterConnect(): void {
-    if (this.method !== 'words' && this.method !== 'link' && this.method !== 'qr') return;
+    if (this.method !== 'words' && this.method !== 'link' && this.method !== 'qr' && this.method !== 'room') return;
+    if (this.reconnect != null) return; // reconnect: its own fresh 1:1 socket — excluded (deferred)
     this.dispatch(devActions.appendLog('signaling: P2P connected — closing signaling socket (server learns no session duration)'));
     this.signaling?.close();
   }
@@ -2178,6 +2198,7 @@ export class SessionController {
     this.established = true; // gates file bytes — set only on a mutual match
     this.dispatch(connectionActions.connectionEstablished());
     this.startEnrollment(); // TOFU enrollment over the now-authenticated channel (does NOT gate)
+    this.closeSignalingAfterConnect(); // per-pair: close our own signaling socket (server learns no duration)
   }
 
   /** Abort the SAS pairing: disarm the timeout, tear down the channel + signaling and fail. No
