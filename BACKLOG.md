@@ -51,7 +51,7 @@ Forward-looking work only. Current built state + implementation caveats live in 
     = 2`). A stray peer can't reach the room (token is unguessable) and a forwarded link still reaches a
     SINGLE receiver (a 2nd joiner is bounced 4002) — interloper-resistance is now STRUCTURAL, not a
     `peers[0]` heuristic. See CLAUDE.md § link/qr method + § Signaling server.
-- ✅ **TURN relay + Reliable / Max-privacy mode + relax-retry (6d)** — *DONE*.
+- ✅ **TURN relay + Reliable / Max-privacy (STRICT) mode (6d)** — *DONE*.
   - ✅ **Server side — DONE (this pass).** The signaling server answers a **`turn-request`** frame with
     short-lived HMAC coturn credentials (`use-auth-secret` / REST scheme): `username` = a future
     unix-expiry, `credential = base64(HMAC-SHA1(TURN_SECRET, username))`; reply
@@ -75,21 +75,21 @@ Forward-looking work only. Current built state + implementation caveats live in 
     Unit: `iceServers.test.ts`; e2e: `tests/e2e/privacy.spec.ts` (toggle renders/flips/default-max,
     Max-privacy connects directly with no TURN, Reliable assembles the TURN iceServer from fetched
     creds — relay itself not run). See CLAUDE.md § Privacy mode + ICE.
-  - ✅ **relax-retry — STRICT model, DONE (this pass).** Max-privacy NEVER relays without consent: the
-    PeerConnection DROPS the peer's `typ relay` ICE candidates until this side relaxes
-    (`src/core/relax.ts` `isRelayCandidate`/`shouldDropCandidate`, filtered in `PeerConnection.addIce`),
-    so we can't be relayed locally OR via the peer without consent. A LIVE Max-privacy ICE failure (or a
-    peer's relax) OFFERS a relay escalation (`connection.relax = {available, localRelaxed, peerRelaxed}`;
-    status stays `pairing`, NO new FSM state) on `ConnectingScreen` rather than hard-failing. Accept
-    (`relaxConnection`): fetch creds (the B1 fetch, forced) + `setConfiguration(STUN+TURN)` + stop
-    filtering + send the `relax` signaling frame; decline → `failed`. The relay forms ONLY once BOTH
-    relax — self-enforcing bilateral (the other side keeps filtering until it does) — and only the
-    per-pairing INITIATOR `restartIce()`s (`shouldRestartForRelay`). The restart is on the EXISTING PC
-    (`setConfiguration` + `createOffer({iceRestart:true})`) — no teardown, no new cert → DTLS fingerprint
-    + SAS binding preserved; SAS is confirmed once, over the relay (ICE fails before the DataChannel).
-    `?forceIceFail=1` DEV knob drives it in e2e. `relax.test.ts` + `connectionSlice.test.ts` +
-    `tests/e2e/relax.spec.ts`; a relay actually carrying bytes needs coturn → verified at deploy. See
-    CLAUDE.md § Privacy mode + ICE / relax-retry.
+  - ✅ **Max-privacy STRICT model — DONE (this pass; supersedes the earlier relax-retry).** Max-privacy
+    NEVER relays — there is NO consent escalation. The PeerConnection ALWAYS drops the peer's `typ relay`
+    ICE candidates in Max-privacy (`src/core/relax.ts` `isRelayCandidate`/`shouldDropCandidate`, filtered
+    in `PeerConnection.addIce`) and never requests TURN, so a direct connection that can't come up is
+    **terminal**: `onIceFailed` → `failDirect` → the existing `failed` state (no new FSM state) with a
+    switch-to-Reliable hint on `FailedScreen` (`directFailHint`, EN/RU; `direct-fail-hint` testid).
+    **resolved-by-removal:** the relax-offer, `connection.relax` projection + `relaxChanged`, the `relax`
+    signaling frame, the bilateral `relaxConnection`/`declineRelax`/`onRelaxSignal`/`maybeRestartForRelay`
+    logic, and `pc.setConfiguration`/`restartIce`-over-relay were all DELETED. This **closes the whole
+    class of asymmetric relax bugs** — including the suspected **Firefox mixed-privacy hang**, whose
+    failure mode (one side half-relaxed while the other filters) is gone by design: a Max-privacy side
+    that can't go direct now fails fast. `relax.ts` is reduced to the relay-candidate filter. Reliable is
+    unchanged (STUN + TURN, auto-relay on a direct failure). `?forceIceFail=1` DEV knob drives the e2e.
+    `relax.test.ts` (filter only) + `tests/e2e/relax.spec.ts` (Max-privacy ICE failure → `failed` + hint,
+    no offer, no hang). See CLAUDE.md § Privacy mode + ICE / Max-privacy strict model.
 - 🚧 **Cross-browser pass (6e)** — the **no-device parts are DONE** (this pass); the real-device
   test remains (post-deploy).
   - ✅ **Self-hosted QR-scan WASM — DONE.** `barcode-detector@3.2.0`'s default `locateFile` fetched
@@ -190,8 +190,7 @@ pairingId relay-linkability · dual-pin if a keystore is wiped.
 (✅ **Pre-SAS pairing deadline firing-direction — now tested** (pre-deploy cleanup): `?stallSasNonce=1`
 makes a peer reach the SAS but withhold its nonce reveal, `?preSasTimeoutMs=N` shrinks the pre-SAS
 deadline (both DEV-only / tree-shaken), and `tests/e2e/room-sas.spec.ts` asserts the other side fails
-at the deadline rather than hanging. The pre-SAS deadline is also re-armed when the relax relay offer
-surfaces. See CLAUDE.md § room/SAS Timeouts + § Privacy mode + ICE / relax-retry.)
+at the deadline rather than hanging. See CLAUDE.md § room/SAS Timeouts.)
 
 ## Reconnect UX — lobby-pick reconnect + entry-point ergonomics (PARTIALLY DONE; observed in the manual test pass)
 
@@ -234,8 +233,8 @@ The two failure modes (both now fail-closed / less likely, not yet fully fixed):
   Prod-fixed at the same **120 s** default as the pre-SAS deadline, read through a DEV-only override
   (`reconnectTimeoutMs()` ← `?reconnectTimeoutMs=N` / `window.__HUSHSEND_RECONNECT_TIMEOUT_MS__`,
   tree-shaken in prod) for cheap e2e. Armed at pairing start (`SessionController.beginPairing`,
-  reconnect path only) + re-armed when the relax relay offer surfaces (`onIceFailed`); cleared on
-  settle (`settleReconnect`) / fallback (`reconnectFallback`) / fail (`failReconnect`) / dispose; expiry
+  reconnect path only); cleared on settle (`settleReconnect`) / fallback (`reconnectFallback`) / fail
+  (`failReconnect`) / dispose (and a Max-privacy ICE failure clears it via `failDirect`); expiry
   → `failReconnect` (→ `failed` + close), the SAME terminal path as a key-change / MITM. **Fail-closed,
   liveness only — the two-check verify, the reconnect role (create/join), the wire frames, and the
   crypto are UNTOUCHED.** DEV knob `?stallReconnect=1` (withholds the reconnect-proof) drives the

@@ -28,14 +28,6 @@ import {
   type PrivacyMode,
   type TurnCredentials,
 } from './iceServers';
-import {
-  newRelaxState,
-  relaxOnIceFail,
-  relaxOnLocal,
-  relaxOnPeer,
-  shouldRestartForRelay,
-  type RelaxState,
-} from './relax';
 import type { PeerInfo } from '../types/protocol';
 import { generateNonce, sasCommit, verifySasCommit, computeSasWords, NONCE_BYTES } from './crypto/sas';
 import {
@@ -172,15 +164,6 @@ const lobbySignalSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('busy') }),
 ]);
 type LobbySignal = z.infer<typeof lobbySignalSchema>;
-
-/**
- * Relay-escalation (relax-retry, step 6d) signal over the (untrusted) SIGNALING relay. It travels
- * over signaling — NOT the DataChannel — because a relax happens when ICE FAILED, i.e. before the
- * DataChannel ever opens. It is exchanged between the ALREADY-paired peers (`from === peerId`), so it
- * is routed AFTER the 1:1 gate, alongside the cpace/sas frames (unlike the lobby frames, which can
- * come from a not-yet-paired peer). It carries NO secret and authenticates nothing.
- */
-const relaxSignalSchema = z.object({ kind: z.literal('relax') });
 
 /**
  * How long the SAS window may stay open before we give up. Two phases share this budget, both
@@ -358,11 +341,11 @@ function forgeReconnectKeyEnabled(): boolean {
 }
 
 /**
- * DEV/TEST knob (step 6d, relax-retry): force the WebRTC PeerConnection to treat ICE as FAILED (and
- * suppress its own candidates so no real path forms), so the relax flow can be driven in e2e without a
- * real network failure. Mirrors `forgeReconnectKeyEnabled` (`?forceIceFail=1` /
- * `window.__HUSHSEND_FORCE_ICE_FAIL__`): gated behind `import.meta.env.DEV` so it is dead-code-
- * eliminated from production builds.
+ * DEV/TEST knob (step 6d): force the WebRTC PeerConnection to treat ICE as FAILED (and suppress its own
+ * candidates so no real path forms), so the Max-privacy-direct-failure path (→ terminal `failed` + a
+ * switch-to-Reliable hint) can be driven in e2e without a real network failure. Mirrors
+ * `forgeReconnectKeyEnabled` (`?forceIceFail=1` / `window.__HUSHSEND_FORCE_ICE_FAIL__`): gated behind
+ * `import.meta.env.DEV` so it is dead-code-eliminated from production builds.
  */
 function forceIceFailEnabled(): boolean {
   if (!import.meta.env.DEV) return false;
@@ -464,6 +447,15 @@ function prsFromSecretWords(secret: string[]): Uint8Array {
 function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
+
+/**
+ * Failure reason for a Max-privacy direct-connection failure (the STRICT model: Max-privacy never
+ * relays, so a direct ICE failure is terminal). A STABLE, user-readable marker so the FailedScreen can
+ * classify it from the error text — like the MITM / room-not-found cases — and render the
+ * switch-to-Reliable hint. Keep the "directly" / "Max privacy" tokens in sync with FailedScreen's
+ * detection.
+ */
+const DIRECT_FAIL_REASON = "couldn't connect directly (Max privacy)";
 
 /** Fresh SAS state for the room method, with our own nonce drawn from the CSPRNG. The role is
  *  PROVISIONAL ('initiator' placeholder) — beginPairing overwrites it with the per-pairing,
@@ -605,16 +597,12 @@ export class SessionController {
    *  pref (prefs.tsx) via setPrivacyMode; READ at pairing start (so a mid-session toggle affects the
    *  NEXT connection, not the live one). */
   private privacyMode: PrivacyMode = DEFAULT_PRIVACY_MODE;
-  /** This session's fetched coturn credentials (Reliable mode only, or after a relax). Null until
+  /** This session's fetched coturn credentials (Reliable mode only). Null until
    *  fetched; reset per session in openSignaling (creds are tied to the live signaling socket).
    *  NO_TURN (empty urls) ⇒ relay unavailable → we stay direct-only. */
   private turnCreds: TurnCredentials | null = null;
   /** Memoizes the one-shot TURN fetch per session so concurrent startPeer calls never double-request. */
   private turnFetch: Promise<void> | null = null;
-  /** Live relay-escalation (relax-retry) state for the Max-privacy STRICT model. Core-only; its
-   *  serializable projection ({available, localRelaxed, peerRelaxed}) drives the relax UI. Reset per
-   *  pairing (beginPairing) and per session (dispose). See core/relax.ts. */
-  private relax: RelaxState = newRelaxState();
 
   // --- file transfer (step 2) — one transfer at a time over the live DataChannel ---
   /** Active outbound transfer, awaiting accept or streaming bytes. */
@@ -636,9 +624,10 @@ export class SessionController {
   /**
    * Set the privacy mode (step 6d). Pushed in from the persisted UI pref (prefs.tsx) — `max` (direct
    * only, default) or `reliable` (allow a TURN relay fallback). It is READ at pairing start (iceServers
-   * are assembled then), so toggling mid-session affects the NEXT connection, not the live one. A LIVE
-   * Max-privacy ICE failure escalates to a relay via the relax-retry path (relaxConnection — strict
-   * model, both sides consent). Cheap setter — no transport work happens here.
+   * are assembled then), so toggling mid-session affects the NEXT connection, not the live one.
+   * Max-privacy is STRICT: it NEVER relays — a direct connection failure is terminal (`failed`, with a
+   * hint to switch to Reliable), never silently relayed and never offered a relay. Cheap setter — no
+   * transport work happens here.
    */
   setPrivacyMode(mode: PrivacyMode): void {
     this.privacyMode = mode;
@@ -860,7 +849,6 @@ export class SessionController {
     }
     this.role = role;
     const initiator = role === 'initiator';
-    this.relax = newRelaxState(); // fresh relay-escalation state for this pairing (pairingStarted resets its projection)
     this.dispatch(connectionActions.pairingStarted({ peerId }));
 
     // Reliable mode: kick off the coturn-cred fetch now (the WS is up — `welcome` has arrived) so it
@@ -970,9 +958,9 @@ export class SessionController {
       },
       {
         iceServers,
-        // STRICT model: in Max-privacy (not yet relaxed) drop the peer's relay candidates so we are
-        // never relayed without consent; an ICE failure then offers relax instead of hard-closing.
-        filterRelay: this.privacyMode === 'max' && !this.relax.localRelaxed,
+        // STRICT model: in Max-privacy drop the peer's relay candidates so we are never relayed; an ICE
+        // failure then fails terminally (onIceFailed) with a hint to switch to Reliable.
+        filterRelay: this.privacyMode === 'max',
         forceIceFail: forceIceFailEnabled(),
       },
     );
@@ -992,10 +980,9 @@ export class SessionController {
    * relay resolves to NO_TURN (empty urls), which iceServers() treats as direct-only. Max-privacy is a
    * no-op: it NEVER requests creds, so the relay is never even contacted.
    */
-  private ensureTurnReady(force = false): Promise<void> {
-    // Max-privacy normally never requests creds (stay direct-only); a relax forces the fetch (`force`)
-    // because the human just consented to a relay.
-    if (!force && this.privacyMode !== 'reliable') return Promise.resolve();
+  private ensureTurnReady(): Promise<void> {
+    // Max-privacy never requests creds (strict — stay direct-only, never relay).
+    if (this.privacyMode !== 'reliable') return Promise.resolve();
     if (this.turnCreds) return Promise.resolve(); // already have this session's creds
     if (!this.turnFetch) {
       this.turnFetch = (async () => {
@@ -1017,10 +1004,9 @@ export class SessionController {
    *  mode, whether a relay was added, and the TURN creds it carried — the e2e reads this to confirm
    *  Reliable assembled a correct TURN entry and Max-privacy added none. Mirrors iceServers()'s logic. */
   private publishIceConfig(): void {
-    // A relay is in the config either in Reliable mode or after a relax (Max-privacy escalation), and
-    // only when the server actually returned relay urls.
-    const wantsRelay = this.privacyMode === 'reliable' || this.relax.localRelaxed;
-    const relay = wantsRelay && !!this.turnCreds && this.turnCreds.urls.length > 0;
+    // A relay is in the config only in Reliable mode, and only when the server actually returned relay
+    // urls. Max-privacy is STRICT — it never relays, so it never carries a TURN entry.
+    const relay = this.privacyMode === 'reliable' && !!this.turnCreds && this.turnCreds.urls.length > 0;
     this.dispatch(
       devActions.setIceConfig({
         mode: this.privacyMode,
@@ -1033,142 +1019,41 @@ export class SessionController {
   }
 
   // ===========================================================================
-  // STEP 6d — relax-retry (Max-privacy STRICT model). Max-privacy NEVER relays without consent: the
-  // PeerConnection drops the peer's relay candidates (filterRelay) and, on an ICE failure, we OFFER
-  // the human a relay ESCALATION instead of hard-failing (status stays `pairing` — projection, no new
-  // FSM state). The relay path forms only once BOTH sides relax — self-enforcing bilateral: until a
-  // side relaxes it is still filtering, so a one-sided relax can never open a relay. The ICE restart
-  // is on the EXISTING PeerConnection (no teardown, no new certificate) → the DTLS fingerprint, and
-  // thus the SAS / key-confirmation channel binding, is preserved across the restart. The SAS is
-  // confirmed exactly ONCE, already over the relay (ICE fails before the DataChannel / sas-confirm, so
-  // the SAS is never re-negotiated). See core/relax.ts for the pure state machine + the filter.
+  // STEP 6d — Max-privacy STRICT model. Max-privacy NEVER relays: the PeerConnection drops the peer's
+  // relay candidates (filterRelay, always on in Max-privacy) and never requests local TURN, so no
+  // relay path can ever form. A direct connection that cannot come up is therefore TERMINAL — we fail
+  // (→ existing `failed` state, no new FSM state) with a hint to switch to Reliable, rather than
+  // silently relaying or offering a consent-gated relay escalation. The relay path exists ONLY in
+  // Reliable mode (STUN + TURN, where the filter is off). See core/relax.ts for the candidate filter.
   // ===========================================================================
 
-  /** Publish the relax projection ({available, localRelaxed, peerRelaxed}) the relax UI reads. */
-  private publishRelax(): void {
-    this.dispatch(
-      connectionActions.relaxChanged({
-        available: this.relax.available,
-        localRelaxed: this.relax.localRelaxed,
-        peerRelaxed: this.relax.peerRelaxed,
-      }),
-    );
-  }
-
   /**
-   * PeerConnection reported ICE could NOT connect — only reachable in Max-privacy while still filtering
-   * (see PeerConnection.onIceFailure), so the peer's relay candidates are being dropped and nothing
-   * relayed silently. OFFER the human the relay escalation; status stays `pairing`. No-op once
-   * established or once we have relaxed.
+   * PeerConnection reported ICE could NOT connect — only reachable in Max-privacy (the filter is on,
+   * see PeerConnection.onIceFailure), so we never requested TURN and dropped the peer's relay
+   * candidates: no relay path could ever have formed. STRICT model — this is terminal: fail with a
+   * switch-to-Reliable hint (the FailedScreen renders the hint off this reason). No-op once established.
    */
   private onIceFailed(): void {
     if (this.established) return;
-    const before = this.relax;
-    this.relax = relaxOnIceFail(this.relax);
-    if (this.relax !== before) {
-      this.publishRelax();
-      this.dispatch(devActions.appendLog('ice: direct connection failed — offering relay (relax)'));
-      // RE-ARM the pre-SAS deadline (room/SAS path only). Surfacing the relay offer opens a
-      // human-in-the-loop bilateral escalation — each side must SEE the offer, accept, then
-      // ICE-restart + connect over the relay — that legitimately runs LONGER than the original
-      // pre-SAS window (a single ICE-failure detection alone can eat ~15–30 s). Granting a fresh
-      // window avoids a spurious timeout while both humans consent. This is SAFE to extend: it is a
-      // liveness bound, not a security one (the SAS has not happened yet — ICE fails before the
-      // DataChannel opens, so `this.sas.surfaced` is still false here), the escalation is ACTIVE
-      // (not a stall), and the deadline still fires if the relax is never accepted/completed (a hung
-      // relax fails, just later). Guarded to the PRE-SAS window so it can't clobber the comparison
-      // timer; a no-op off the SAS path (words/link/qr have no `this.sas`, and armSasTimeout no-ops
-      // without it) — so the non-relax / non-SAS paths are completely untouched.
-      if (this.sas && !this.sas.surfaced) {
-        this.armSasTimeout('SAS pairing timed out', preSasTimeoutMs());
-      }
-      // Likewise re-arm the reconnect deadline (reconnect path only): the relay escalation legitimately
-      // extends the re-auth window, and this is a liveness — not security — bound (no proof exchanged
-      // yet). A no-op off the reconnect path / once settled or fallen back.
-      if (this.reconnect && !this.reconnect.settled && !this.reconnect.fellBack) {
-        this.armReconnectTimeout(
-          'reconnect timed out — peer did not complete re-authentication',
-          reconnectTimeoutMs(),
-        );
-      }
-    }
+    this.dispatch(devActions.appendLog('ice: direct connection failed (Max privacy) — failing'));
+    this.failDirect(DIRECT_FAIL_REASON);
   }
 
   /**
-   * The human accepted the relay escalation. Fetch coturn creds (the Reliable fetch path, FORCED even
-   * though the persisted mode is Max-privacy), add TURN to the LIVE PeerConnection via setConfiguration
-   * (no teardown → stable DTLS fingerprint, SAS binding preserved), STOP dropping the peer's relay
-   * candidates, then signal the peer. The actual ICE restart waits until BOTH sides relaxed
-   * (maybeRestartForRelay), so a one-sided relax never opens a relay — the other side is still filtering.
+   * Terminal Max-privacy direct-connection failure: mark every per-method one-shot settled so their
+   * own teardown paths can't also fire, then close the PeerConnection + fail (pairing → failed).
+   * Method-agnostic. The reason carries the stable DIRECT_FAIL_REASON marker the FailedScreen keys its
+   * switch-to-Reliable hint off.
+   *
+   * We DELIBERATELY do NOT close the signaling socket here (we leave that to dispose()). In Max-privacy
+   * BOTH peers' ICE fails independently (each side's own connectivity check times out — they did not
+   * "leave"); closing signaling would emit a spurious `peer-left` that the OTHER side's words/SAS
+   * retry logic would misread as a guess attempt and bounce back to the lobby BEFORE its own ICE
+   * failure fires. Leaving signaling up lets each side reach `failed` on its own timeout — matching a
+   * real NAT failure, where the socket stays connected throughout. Closing only the (local, invisible
+   * to the peer) PeerConnection also suppresses our own onClose, so no local words/SAS retry fires.
    */
-  async relaxConnection(): Promise<void> {
-    if (this.established || this.relax.localRelaxed) return;
-    this.relax = relaxOnLocal(this.relax);
-    this.publishRelax();
-    this.dispatch(devActions.appendLog('relax: accepting relay — fetching credentials'));
-    await this.ensureTurnReady(/* force */ true); // Max-privacy normally never fetches creds
-    this.peer?.setConfiguration(this.iceServersForRelax());
-    this.peer?.setRelayFilter(false); // stop dropping the peer's relay candidates
-    this.publishIceConfig();
-    this.sendRelax();
-    this.maybeRestartForRelay();
-  }
-
-  /** The human DECLINED the relay — Max-privacy means we would rather NOT connect than relay without
-   *  consent. Terminal: tear down and fail (status pairing → failed), no further auto-retry. */
-  declineRelax(): void {
-    if (this.established || this.relax.localRelaxed) return;
-    this.failRelax('could not connect privately — relay declined');
-  }
-
-  /** The paired peer signalled it relaxed. Record it (and surface the offer to us too if we have NOT
-   *  relaxed — we never relay silently), then restart over the relay if we are the initiator and both
-   *  sides have now relaxed. */
-  private onRelaxSignal(): void {
-    if (this.established) return;
-    const before = this.relax;
-    this.relax = relaxOnPeer(this.relax);
-    if (this.relax !== before) {
-      this.publishRelax();
-      this.dispatch(devActions.appendLog('relax: peer accepted relay'));
-    }
-    this.maybeRestartForRelay();
-  }
-
-  /** Relay the relax signal to the paired peer over the (untrusted) signaling relay. */
-  private sendRelax(): void {
-    if (this.peerId) this.signaling?.send(this.peerId, { kind: 'relax' });
-  }
-
-  /**
-   * Restart ICE over the relay ONLY when BOTH sides relaxed AND we are the per-pairing INITIATOR (the
-   * side that owns the offer). One-shot. The restart re-gathers on the EXISTING PeerConnection — TURN
-   * now in the config, relay filtering off — bringing up the relay path while leaving the DTLS
-   * certificate (hence the fingerprint + SAS binding) untouched. The responder just answers the
-   * restart offer through the normal handleSignal path.
-   */
-  private maybeRestartForRelay(): void {
-    if (this.established) return;
-    if (!shouldRestartForRelay(this.relax, this.role)) return;
-    this.relax.restarted = true;
-    this.dispatch(devActions.appendLog('relax: both sides relaxed — restarting ICE over relay'));
-    void this.peer
-      ?.restartIce()
-      .catch((err) => this.dispatch(devActions.appendLog(`relax: ICE restart failed (${errText(err)})`)));
-  }
-
-  /** ICE servers for a relax: STUN + TURN regardless of the persisted mode (the human just consented
-   *  to relay), but only when a relay is actually configured; STUN-only otherwise (relay undeployed). */
-  private iceServersForRelax(): RTCIceServer[] {
-    return buildIceServers({ mode: 'reliable', stunUrls: configuredStunUrls(), turn: this.turnCreds });
-  }
-
-  /**
-   * Terminal relax failure (the human declined relay): mark every per-method one-shot settled so their
-   * own teardown paths can't also fire, then close + fail (pairing → failed). Method-agnostic — a relay
-   * decline is a deliberate terminal choice, NOT a guess attempt, so it bypasses the words retry logic.
-   */
-  private failRelax(reason: string): void {
+  private failDirect(reason: string): void {
     this.attemptResolved = true; // words: don't let a later signal count this as a guess attempt
     this.linkSettled = true; // link/qr: close the teardown guard
     if (this.sas) {
@@ -1176,10 +1061,13 @@ export class SessionController {
       if (this.sas.timer != null) clearTimeout(this.sas.timer);
       this.sas.timer = null;
     }
-    if (this.reconnect) this.reconnect.settled = true;
+    if (this.reconnect) {
+      this.reconnect.settled = true;
+      if (this.reconnect.timer != null) clearTimeout(this.reconnect.timer);
+      this.reconnect.timer = null;
+    }
     this.peer?.close();
     this.peer = null;
-    this.signaling?.close();
     this.fail(new Error(reason));
   }
 
@@ -1193,12 +1081,6 @@ export class SessionController {
       return;
     }
     if (from !== this.peerId) return; // 1:1 — ignore SDP/cpace/sas from anyone we're not pairing with
-    // Relay-escalation (relax-retry, step 6d): the paired peer accepted relay. Over signaling (the
-    // DataChannel may never have opened — ICE failed). Validated; carries no secret.
-    if (relaxSignalSchema.safeParse(data).success) {
-      this.onRelaxSignal();
-      return;
-    }
     // The words method multiplexes CPace onto the signaling channel (kind:'cpace'); everything
     // else is WebRTC SDP/ICE for the PeerConnection. Validate (the relay is UNTRUSTED) and route.
     const cpace = cpaceFrameSchema.safeParse(data);
@@ -2668,7 +2550,6 @@ export class SessionController {
     this.reconnect = null; // reconnect (4b-ii) overlay state
     this.forgedIdentityPromise = null; // DEV/TEST forged key (if any) is per-session
     this.role = null;
-    this.relax = newRelaxState(); // relax-retry (6d) state is per-pairing
     this.pendingSecretWords = null;
     this.prs = null;
     // link/qr (5b) state

@@ -171,23 +171,12 @@ export const STR = {
     ru: 'Вы подтвердили — ждём подтверждения собеседника…',
   },
 
-  // --- relax-retry (Max-privacy ICE failure → optional relay escalation, step 6d) ---
-  relaxEyebrow: { en: 'direct connection failed', ru: 'прямое соединение не удалось' },
-  relaxTitle: { en: "Couldn't connect directly", ru: 'Не удалось соединиться напрямую' },
-  relaxDesc: {
-    en: 'Route through a relay instead? The relay only carries end-to-end-encrypted bytes (it can’t read them) and your IP stays hidden from your peer — but it is visible to the relay. Both of you must agree before any relay is used.',
-    ru: 'Соединиться через relay? Relay передаёт только сквозь-зашифрованные байты (прочитать их он не может), ваш IP скрыт от собеседника — но виден relay. Relay включится только если согласятся обе стороны.',
-  },
-  relaxAccept: { en: 'Use a relay', ru: 'Через relay' },
-  relaxDecline: { en: "Don't relay — cancel", ru: 'Без relay — отмена' },
-  relaxPeerReady: {
-    en: 'Your peer already agreed to a relay — accept to connect.',
-    ru: 'Собеседник уже согласился на relay — примите, чтобы соединиться.',
-  },
-  relaxWaiting: { en: 'Connecting through a relay…', ru: 'Соединяемся через relay…' },
-  relaxWaitingDesc: {
-    en: 'Waiting for your peer to agree to the relay too.',
-    ru: 'Ждём, пока собеседник тоже согласится на relay.',
+  // --- Max-privacy direct-connection failure (STRICT model: never relays — step 6d) ---
+  directFailEyebrow: { en: 'direct connection failed', ru: 'прямое соединение не удалось' },
+  directFailTitle: { en: "Couldn't connect directly", ru: 'Не удалось соединиться напрямую' },
+  directFailHint: {
+    en: "Couldn't connect directly. Switch to Reliable to allow relaying through a server.",
+    ru: 'Не удалось соединиться напрямую. Переключитесь на Reliable, чтобы разрешить relay через сервер.',
   },
 
   // --- SAS (picker side — joiner is BLIND, identifies the phrase by listening) ---

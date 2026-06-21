@@ -93,10 +93,10 @@ export function ShareButton({ value }: { value: string }): ReactElement | null {
  * hidden from the peer, and the relay only carries end-to-end-encrypted traffic (it can't read it).
  *
  * The state is a persisted pref (prefs.tsx, default Max); it is read at pairing start to assemble the
- * iceServers, so flipping it mid-session affects the NEXT connection, not the live one. A live
- * Max-privacy ICE failure can still escalate to a relay via relax-retry (the strict-model offer on the
- * connecting screen, both sides consent). The description switches to spell out the active mode's
- * trade-off.
+ * iceServers, so flipping it mid-session affects the NEXT connection, not the live one. Max-privacy is
+ * STRICT: it NEVER relays — a direct connection that can't come up fails terminally (with a hint to
+ * switch to Reliable), it is never silently relayed or offered a relay. The description switches to
+ * spell out the active mode's trade-off.
  */
 export function PrivacyToggle(): ReactElement {
   const t = useT();

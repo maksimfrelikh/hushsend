@@ -41,10 +41,25 @@ export function FailedScreen(): ReactElement {
   const lower = error.toLowerCase();
   const isMismatch = /(match|man-in-the-middle|tamper|mismatch|compromis)/.test(lower);
   const isExpired = /(not found|expired|4009|room full|signaling closed)/.test(lower);
+  // Max-privacy STRICT model: a direct ICE failure is terminal (Max-privacy never relays). Surface a
+  // hint to switch to Reliable. Keyed off the stable reason DIRECT_FAIL_REASON sets in the core.
+  const isDirectFail = /connect directly|max privacy/.test(lower);
 
-  const eyebrow = isMismatch ? t('erMismatchEyebrow') : isExpired ? t('exEyebrow') : t('erGenericEyebrow');
-  const title = isMismatch ? t('erMismatchTitle') : isExpired ? t('exTitle') : t('erGenericTitle');
-  const desc = isMismatch ? t('erMismatchDesc') : isExpired ? t('exDesc') : '';
+  const eyebrow = isMismatch
+    ? t('erMismatchEyebrow')
+    : isExpired
+      ? t('exEyebrow')
+      : isDirectFail
+        ? t('directFailEyebrow')
+        : t('erGenericEyebrow');
+  const title = isMismatch
+    ? t('erMismatchTitle')
+    : isExpired
+      ? t('exTitle')
+      : isDirectFail
+        ? t('directFailTitle')
+        : t('erGenericTitle');
+  const desc = isMismatch ? t('erMismatchDesc') : isExpired ? t('exDesc') : isDirectFail ? t('directFailHint') : '';
   const glyphClass = isMismatch ? 'hs-glyph hs-glyph--warn' : 'hs-glyph';
   const glyph = isMismatch ? '△' : isExpired ? '⌕' : '!';
 
@@ -55,7 +70,11 @@ export function FailedScreen(): ReactElement {
       </span>
       <Eyebrow parts={[eyebrow]} />
       <h2 className="hs-h2">{title}</h2>
-      {desc && <p className="hs-sub">{desc}</p>}
+      {desc && (
+        <p className="hs-sub" data-testid={isDirectFail ? 'direct-fail-hint' : undefined}>
+          {desc}
+        </p>
+      )}
       <p className="hs-meta" data-testid="error">
         {error}
       </p>

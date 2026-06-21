@@ -18,10 +18,11 @@ export interface PeerConnectionHandlers {
   /** DataChannel or peer connection closed/failed. */
   onClose?: () => void;
   /**
-   * ICE could NOT establish connectivity AND we are in the Max-privacy strict model (dropping the
-   * peer's relay candidates), so no relay path can have formed without consent. The owner decides
-   * whether to OFFER a relay escalation (relax) rather than treating this as a hard close. Only fired
-   * while `filterRelay` is on; otherwise an ICE failure goes through `onClose` (a genuine close).
+   * ICE could NOT establish connectivity in the Max-privacy STRICT model (we drop the peer's relay
+   * candidates and never request local TURN, so no relay path could ever form). The owner treats this
+   * as a terminal failure with a hint to switch to Reliable. Only fired while `filterRelay` is on
+   * (Max-privacy); in Reliable an ICE failure goes through `onClose` (a genuine close — relay was
+   * available and still couldn't save it).
    */
   onIceFailed?: () => void;
   /** A message arrived on the DataChannel. Step-1 ping uses strings; binary transfer is step 2. */
@@ -32,15 +33,15 @@ export interface PeerConfig {
   /** ICE servers. Default is a public STUN; TURN/coturn fallback is configured later. */
   iceServers?: RTCIceServer[];
   /**
-   * Max-privacy STRICT model (step 6d, relax-retry): drop the peer's TURN-relay candidates until this
-   * side relaxes, so we are never relayed without consent. Set true in Max-privacy (not yet relaxed),
-   * false in Reliable or after a relax. Flipped live via `setRelayFilter`. See core/relax.ts.
+   * Max-privacy STRICT model (step 6d): drop the peer's TURN-relay candidates, so we are never relayed.
+   * Set true in Max-privacy, false in Reliable. Fixed for the connection's lifetime (Max-privacy never
+   * escalates to a relay — a direct failure is terminal). See core/relax.ts.
    */
   filterRelay?: boolean;
   /**
    * DEV/TEST only: simulate an ICE failure (and suppress our own candidates so no real path can form),
-   * driving the relax flow without a real network failure. Goes through the SAME `onIceFailure`
-   * decision as a real failure. Set by SessionController from the `?forceIceFail=1` knob.
+   * driving the Max-privacy-direct-failure path without a real network failure. Goes through the SAME
+   * `onIceFailure` decision as a real failure. Set by SessionController from the `?forceIceFail=1` knob.
    */
   forceIceFail?: boolean;
 }
@@ -76,13 +77,13 @@ export class PeerConnection {
   private readonly highWaterMark = 1 << 20; // 1 MiB
   /** Set on our own close() so deliberate teardown doesn't fire onClose. */
   private closed = false;
-  /** Strict-model relay filter: drop the peer's relay candidates while true (Max-privacy, not relaxed).
-   *  Mutable — flipped to false by setRelayFilter on a relax. */
-  private filterRelay: boolean;
+  /** Strict-model relay filter: drop the peer's relay candidates while true (Max-privacy). Fixed at
+   *  construction — Max-privacy never escalates to a relay. */
+  private readonly filterRelay: boolean;
   /** DEV/TEST: simulate an ICE failure + suppress our own candidates so no real path forms. */
   private readonly simulateIceFail: boolean;
-  /** one-shot guard so the ICE-failure → relax-offer is surfaced at most once while filtering. */
-  private relaxOffered = false;
+  /** one-shot guard so the Max-privacy ICE-failure is reported (onIceFailed) at most once. */
+  private iceFailureReported = false;
 
   constructor(
     private readonly handlers: PeerConnectionHandlers = {},
@@ -128,56 +129,29 @@ export class PeerConnection {
     }
 
     if (this.simulateIceFail) {
-      // DEV/TEST: report a failure shortly after start — same path as a real ICE failure, so the relax
-      // flow runs deterministically without a network failure. One-shot (onIceFailure self-guards).
+      // DEV/TEST: report a failure shortly after start — same path as a real ICE failure, so the
+      // Max-privacy-direct-failure path runs deterministically without a network failure. One-shot
+      // (onIceFailure self-guards).
       setTimeout(() => this.onIceFailure(), 300);
     }
   }
 
   /**
-   * ICE could not establish connectivity. In the Max-privacy strict model (`filterRelay` on) we are
-   * dropping the peer's relay candidates, so no relay path can have formed without consent — surface
-   * this as a relay ESCALATION (onIceFailed) rather than a hard close. Otherwise (Reliable, or already
-   * relaxed) a relay couldn't save it either, so it's a genuine close. The relax offer is one-shot.
+   * ICE could not establish connectivity. In the Max-privacy strict model (`filterRelay` on) we drop
+   * the peer's relay candidates and never request local TURN, so no relay path could ever have formed —
+   * report this as a terminal Max-privacy failure (onIceFailed; the owner fails with a switch-to-Reliable
+   * hint). Otherwise (Reliable) a relay was available and still couldn't save it, so it's a genuine
+   * close (onClose). One-shot.
    */
   private onIceFailure(): void {
     if (this.closed) return;
     if (this.filterRelay) {
-      if (this.relaxOffered) return;
-      this.relaxOffered = true;
+      if (this.iceFailureReported) return;
+      this.iceFailureReported = true;
       this.handlers.onIceFailed?.();
     } else {
       this.handlers.onClose?.();
     }
-  }
-
-  /** Strict-model toggle: stop (false, on relax) or start dropping the peer's relay candidates. */
-  setRelayFilter(on: boolean): void {
-    this.filterRelay = on;
-  }
-
-  /**
-   * Apply a new ICE-server set to the LIVE connection (relax: add TURN). This does NOT tear down the
-   * RTCPeerConnection and does NOT regenerate the DTLS certificate, so the fingerprint is stable and
-   * the SAS / key-confirmation channel binding survives. The new servers take effect on the next
-   * gathering — i.e. the ICE restart (`restartIce`).
-   */
-  setConfiguration(iceServers: RTCIceServer[]): void {
-    this.pc?.setConfiguration({ iceServers });
-  }
-
-  /**
-   * Re-offer with an ICE restart on the EXISTING connection (relax: re-gather now that TURN is in the
-   * config and relay filtering is off). No new RTCPeerConnection, no new certificate → the DTLS
-   * fingerprint is preserved, so the SAS binding holds across the restart. Initiator-only (it owns the
-   * offer); the responder just answers the restart offer through the normal `handleSignal` path.
-   */
-  async restartIce(): Promise<void> {
-    const pc = this.pc;
-    if (!pc) return;
-    await pc.setLocalDescription(await pc.createOffer({ iceRestart: true }));
-    const d = pc.localDescription;
-    if (d) this.handlers.onSignal?.({ kind: 'offer', description: { type: d.type, sdp: d.sdp } });
   }
 
   /** Handle an inbound signal payload relayed from the peer. */
@@ -279,10 +253,10 @@ export class PeerConnection {
   }
 
   private async addIce(pc: RTCPeerConnection, candidate: RTCIceCandidateInit): Promise<void> {
-    // STRICT model: in Max-privacy (not relaxed) drop the peer's TURN-relay candidates, so we are
-    // never relayed without consent — not locally (no TURN requested) and not via the peer's relay.
+    // STRICT model: in Max-privacy drop the peer's TURN-relay candidates, so we are never relayed —
+    // not locally (no TURN requested) and not via the peer's relay.
     if (shouldDropCandidate(this.filterRelay, candidate)) {
-      if (import.meta.env.DEV) console.debug('[webrtc] dropped peer relay candidate (Max-privacy, not relaxed)');
+      if (import.meta.env.DEV) console.debug('[webrtc] dropped peer relay candidate (Max-privacy)');
       return;
     }
     try {

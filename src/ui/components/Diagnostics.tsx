@@ -12,7 +12,6 @@ import { useAppSelector } from '../../store/hooks';
  */
 export function Diagnostics(): ReactElement | null {
   const dev = useAppSelector((s) => s.dev);
-  const relax = useAppSelector((s) => s.connection.relax);
   if (!import.meta.env.DEV) return null;
 
   return (
@@ -48,11 +47,6 @@ export function Diagnostics(): ReactElement | null {
       <p>
         turn user: <span data-testid="ice-turn-username">{dev.iceConfig?.username ?? '—'}</span> · cred:{' '}
         <span data-testid="ice-turn-credential">{dev.iceConfig?.credential ?? '—'}</span>
-      </p>
-      <p>
-        relax: avail <span data-testid="relax-available">{String(relax.available)}</span> · local{' '}
-        <span data-testid="relax-local">{String(relax.localRelaxed)}</span> · peer{' '}
-        <span data-testid="relax-peer">{String(relax.peerRelaxed)}</span>
       </p>
       {dev.log.length > 0 && (
         <ul>

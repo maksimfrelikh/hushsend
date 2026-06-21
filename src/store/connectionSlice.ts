@@ -45,17 +45,9 @@ export interface ConnectionState {
    *  bounced (the peer is already pairing with someone else). Cleared on the next pick or when the
    *  busy peer leaves. NOT a hang: the picker is back in the lobby and may pick another peer. */
   notice: { kind: 'busy'; peerId: string } | null;
-  /** Relay-escalation (relax-retry, step 6d) projection for the Max-privacy STRICT model. NOT an FSM
-   *  state — status stays `pairing`. `available`: the relay escalation is being offered to the human
-   *  (our ICE failed, or the peer relaxed). `localRelaxed`/`peerRelaxed`: which side has accepted relay
-   *  (the relay path forms only once BOTH have). Reset at each pairing start. */
-  relax: { available: boolean; localRelaxed: boolean; peerRelaxed: boolean };
   /** failure reason when status === 'failed' */
   error: string | null;
 }
-
-/** A fresh, inert relax projection (no offer surfaced, neither side relaxed). */
-const noRelax = (): ConnectionState['relax'] => ({ available: false, localRelaxed: false, peerRelaxed: false });
 
 const initialState: ConnectionState = {
   status: 'idle',
@@ -67,7 +59,6 @@ const initialState: ConnectionState = {
   sasRole: null,
   roster: [],
   notice: null,
-  relax: { available: false, localRelaxed: false, peerRelaxed: false },
   error: null,
 };
 
@@ -136,12 +127,6 @@ const slice = createSlice({
       if (!canGo(state.status, 'pairing')) return warnIllegal(state.status, 'pairing');
       state.status = 'pairing';
       state.peerId = action.payload.peerId;
-      state.relax = noRelax(); // a fresh pairing starts with no relay escalation offered
-    },
-    /** Project the relax-retry state (step 6d, Max-privacy escalation). NOT an FSM transition — status
-     *  stays `pairing`; this only tells the UI whether to offer relay and whether each side relaxed. */
-    relaxChanged(state, action: PayloadAction<{ available: boolean; localRelaxed: boolean; peerRelaxed: boolean }>) {
-      state.relax = action.payload;
     },
     sasReady(state, action: PayloadAction<{ sas: string }>) {
       if (!canGo(state.status, 'awaitingSas')) return warnIllegal(state.status, 'awaitingSas');
@@ -184,7 +169,6 @@ const slice = createSlice({
       state.sas = null;
       state.sasRole = null;
       state.peerId = null;
-      state.relax = noRelax();
     },
     confirmStarted(state) {
       if (!canGo(state.status, 'confirming')) return warnIllegal(state.status, 'confirming');

@@ -247,9 +247,8 @@ nonces:
   (`?sasTimeoutMs=N` / `window.__HUSHSEND_SAS_TIMEOUT_MS__`). They are kept SEPARATE deliberately —
   shrinking one must not pre-empt the other's state under test (the comparison-timeout e2e relies on
   the pre-SAS window keeping its default while only the comparison one shrinks). On expiry → `failSas`
-  → `failed` + close, same path as deny/abort. The pre-SAS deadline is **RE-ARMED when the relax relay
-  offer surfaces** (legitimate longer escalation window — see § Privacy mode + ICE / relax-retry). The
-  pre-SAS deadline's **FIRING direction is e2e-tested** (`?stallSasNonce=1` makes a peer reach the SAS
+  → `failed` + close, same path as deny/abort. The pre-SAS deadline's **FIRING direction is e2e-tested**
+  (`?stallSasNonce=1` makes a peer reach the SAS
   but withhold its nonce reveal → the other side fails at the shrunk pre-SAS deadline, not hangs —
   `tests/e2e/room-sas.spec.ts`).
 - **Inbound validation**: `sas-commit` / `sas-nonce` frames are zod-validated to exact decoded
@@ -397,9 +396,9 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
   not critical — only that a stalled re-auth fails closed) and read through a **DEV-only override**
   `reconnectTimeoutMs()` (`?reconnectTimeoutMs=N` / `window.__HUSHSEND_RECONNECT_TIMEOUT_MS__`,
   `import.meta.env.DEV`-gated → tree-shaken in prod, kept SEPARATE from the SAS knobs). Armed at
-  pairing start (`beginPairing`, reconnect path only) and **re-armed when the relax relay offer
-  surfaces** (`onIceFailed`, the same legitimate-longer-window reasoning as the pre-SAS re-arm);
-  cleared on settle/fallback/fail/dispose; expiry → `failReconnect` (→ `failed` + close), the SAME
+  pairing start (`beginPairing`, reconnect path only); cleared on settle/fallback/fail/dispose (a
+  Max-privacy ICE failure also clears it via `failDirect`); expiry → `failReconnect` (→ `failed` +
+  close), the SAME
   terminal path as a key-change / MITM. This is a **LIVENESS bound, not a security one** — the two-check
   verify, the reconnect **role (stays create/join)**, the wire frames, and the crypto are UNCHANGED;
   it only turns the mismatched-entry hang into a clean `failed`. DEV knob `?stallReconnect=1` (withholds
@@ -436,8 +435,9 @@ The home **"Max privacy" toggle is FUNCTIONAL** and drives the WebRTC `iceServer
 behaviour behind it). It is a persisted UI pref (`prefs.tsx`, `hushsend.privacy`, **default `max`**),
 pushed into the core via `<PrivacyModeSync>` (App) → `SessionController.setPrivacyMode`. The mode is
 **read at pairing start** (when `iceServers` are assembled), so flipping it mid-session affects the
-**NEXT** connection, NOT the live one. A LIVE Max-privacy ICE failure escalating to a relay on the fly
-is the **relax-retry** strict model — now DONE (see **relax-retry (strict model)** below).
+**NEXT** connection, NOT the live one. **Max-privacy is STRICT — it NEVER relays** (no consent
+escalation): a live Max-privacy ICE failure is **terminal** (→ `failed` + a switch-to-Reliable hint),
+see **Max-privacy strict model** below.
 - **Builder** (`src/core/iceServers.ts`, pure + unit-tested in `iceServers.test.ts`):
   `buildIceServers({mode, stunUrls, turn})`.
   - **Max-privacy (`max`, default)**: `iceServers = [{urls: <STUN>}]` (or `[]` if no STUN) — **STUN
@@ -464,59 +464,37 @@ is the **relax-retry** strict model — now DONE (see **relax-retry (strict mode
   `turn-request` and assembles a correct TURN iceServer — the relay itself is not run, both modes connect
   over loopback). Server `turn-credentials` minting is **done (6d server side)** — see Signaling server §.
 
-### relax-retry (strict model — done, completes 6d)
-**Max-privacy NEVER relays without consent.** The strict model enforces this bilaterally, then offers a
-human-consented escalation to a relay when a direct connection fails. Pure state machine + the
-candidate predicate live in **`src/core/relax.ts`** (`relax.test.ts`); the live wiring (PeerConnection
-+ signaling) is in `SessionController`. **No new FSM state** — status stays `pairing`; a projection
-`connection.relax = { available, localRelaxed, peerRelaxed }` drives the UI.
-- **Strict relay-candidate filter**: in Max-privacy (not yet relaxed) the PeerConnection **DROPS the
-  peer's incoming `typ relay` ICE candidates** (`PeerConnection.addIce` → `shouldDropCandidate` /
-  `isRelayCandidate`). Combined with Max-privacy never requesting local TURN (B1), this means we cannot
-  be relayed **either locally or via the peer's relay** without consent. In Reliable, or after WE relax,
-  filtering is off (`setRelayFilter(false)`).
-- **ICE-fail → offer relax**: an ICE failure (`iceconnectionstatechange`/`connectionstatechange` →
-  `failed`) WHILE filtering routes to `onIceFailed` (NOT the hard-close `onClose`); SessionController
-  sets `relax.available` and the connecting screen shows the relay offer. (In Reliable / already-relaxed,
-  ICE failure is a genuine `onClose` → `failed`.) A peer's relax signal ALSO surfaces the offer to us
-  (`relax.available`) so we never relay silently.
-- **Relax flow (each side consents; restart only when BOTH relaxed)**: a `relax` **signaling** frame
-  (`{kind:'relax'}`, over the relay — NOT the DataChannel, which never opened) is exchanged between the
-  paired peers (`from === peerId`, routed after the 1:1 gate like cpace/sas). On OUR accept
-  (`relaxConnection`): `localRelaxed = true`; fetch coturn creds (the B1 fetch, **forced** even in
-  Max-privacy); `pc.setConfiguration(STUN+TURN)`; `setRelayFilter(false)`; send `relax` to the peer. On
-  RECEIVING `relax`: `peerRelaxed = true`. **Restart rule** (`shouldRestartForRelay`): when
-  `localRelaxed && peerRelaxed` AND we are the **per-pairing initiator** → `pc.restartIce()`
-  (`createOffer({iceRestart:true})`) → the relay path renegotiates. A one-sided relax is useless (the
-  other side is still filtering) → **self-enforcing bilateral**. Decline → `failed` (we'd rather not
-  connect than relay without consent), no auto-retry.
-- **Restart preserves DTLS fingerprint + SAS binding (critical)**: the ICE restart is on the **EXISTING**
-  PeerConnection (`setConfiguration` + `createOffer({iceRestart:true})`) — **no teardown, no new
-  certificate** → the DTLS fingerprint is stable → the SAS / key-confirmation channel binding
-  (`fp_min`/`fp_max`) survives. The pairing/SAS state (nonces, derived SAS) is NOT reset; only ICE
-  restarts. **SAS is confirmed exactly ONCE, already over the relay** — ICE fails before the
-  DataChannel / `sas-confirm`, so the SAS is never re-negotiated. If the relay restart also fails →
-  `failed` (no further auto-retry).
-- **Pre-SAS deadline RE-ARM when the relay offer surfaces (room method robustness)**: surfacing the
-  relay offer (`onIceFailed` sets `relax.available`) opens a human-in-the-loop bilateral escalation —
-  each side must SEE the offer, accept, then ICE-restart + relay-connect — that legitimately runs
-  LONGER than the original pre-SAS pairing window (a single ICE-failure detection alone can eat
-  ~15–30 s). So on the room/SAS path, when the offer is shown AND the SAS has not yet surfaced (it
-  hasn't — ICE fails before the DataChannel opens, so no fingerprints / no SAS yet), `onIceFailed`
-  **RE-ARMS the pre-SAS deadline** (`armSasTimeout('SAS pairing timed out', preSasTimeoutMs())`) to
-  grant a fresh window for accept + restart + relay-connect. SAFE to extend: it is a **liveness** bound,
-  not a security one (the SAS hasn't happened), the escalation is ACTIVE (not a stall), and the deadline
-  STILL fires if the relax is never accepted/completed (a hung relax fails, just later). The re-arm is
-  guarded to the PRE-SAS window (`this.sas && !this.sas.surfaced`) so it can't clobber the comparison
-  timer, and is a NO-OP off the SAS path (words/link/qr have no `this.sas`) — the non-relax / non-SAS
-  paths are untouched.
+### Max-privacy strict model (done — completes 6d)
+**Max-privacy NEVER relays. Period — no consent escalation, no relay-retry.** Two always-on mechanisms
+enforce it in Max-privacy, then a direct failure is **terminal**:
+- **No local TURN** — Max-privacy never requests coturn creds, so we never offer a relay candidate
+  (`ensureTurnReady` is a no-op off Reliable).
+- **Strict relay-candidate filter** — the PeerConnection **DROPS the peer's incoming `typ relay` ICE
+  candidates** (`PeerConnection.addIce` → `shouldDropCandidate` / `isRelayCandidate`, the only thing
+  left in **`src/core/relax.ts`**), so even if the peer added TURN no relay path can complete on our
+  side. The filter is **fixed at construction** (`filterRelay = privacyMode === 'max'`) — Max-privacy
+  never flips it. In Reliable the filter is off (relay allowed).
+- **ICE-fail → terminal `failed` + hint**: an ICE failure (`iceconnectionstatechange` /
+  `connectionstatechange` → `failed`) while filtering routes to `onIceFailed` (one-shot), which calls
+  `failDirect(DIRECT_FAIL_REASON)` → close + `fail()` → the **existing `failed` state** (no new FSM
+  state). The `FailedScreen` classifies the reason from its text (like the MITM / room-not-found cases)
+  and renders the hint **"Couldn't connect directly. Switch to Reliable to allow relaying through a
+  server."** (i18n `directFailHint`, EN/RU; testid `direct-fail-hint`). In Reliable an ICE failure is a
+  genuine `onClose` → `failed` (relay was available and still couldn't save it — no hint).
+  `DIRECT_FAIL_REASON` (`"couldn't connect directly (Max privacy)"`) is the stable marker the screen
+  keys off (`/connect directly|max privacy/`).
+- **No relax-offer / bilateral / relax signal**: there is NO consent-gated relay escalation. The
+  `connection.relax` projection, the `relax` signaling frame, `relaxConnection`/`declineRelax`, and the
+  `pc.setConfiguration`/`restartIce` ICE-restart-over-relay were all **removed**. This also removes the
+  whole class of asymmetric relax bugs (incl. the suspected Firefox mixed-privacy hang — the failure
+  mode is gone by design: a Max-privacy side that can't go direct fails fast instead of half-relaxing).
 - **DEV/TEST knob**: `?forceIceFail=1` (DEV-gated, like `forgeReconnectKey`) makes the PeerConnection
-  treat ICE as failed AND suppress its own candidates, driving the relax flow in e2e without a real
-  network failure.
-- **Tests**: `relax.test.ts` (filter drops relay only while filtering; state machine — restart only
-  when both relaxed AND initiator); `connectionSlice.test.ts` (relax projection + pairing/lobby resets);
-  `tests/e2e/relax.spec.ts` (`forceIceFail` Max-privacy → offer appears; decline → `failed`; accept →
-  relax signal reaches the peer). The relay actually carrying bytes needs coturn → **verified at deploy**.
+  treat ICE as failed AND suppress its own candidates, driving the Max-privacy-direct-failure path in
+  e2e without a real network failure.
+- **Tests**: `relax.test.ts` (the relay-candidate filter: drops `typ relay` only while filtering, off
+  in Reliable, safe on null/empty); `tests/e2e/relax.spec.ts` (`forceIceFail` Max-privacy → both sides
+  reach `failed` with the `direct-fail-hint`, no relay offer, no hang). Reliable's relay actually
+  carrying bytes needs coturn → **verified at deploy**.
 
 ## QR (built — step 5b; WASM self-hosted — step 6e)
 `barcode-detector` + `qrcode` are installed. Generation: `qrcode` → an SVG QR rendered locally
@@ -631,8 +609,8 @@ X-Forwarded-For; binds to `127.0.0.1` (only the local nginx reaches it). Run wit
     only; SAS / key-confirmation are what actually stop a MITM. (`tests/integration/room-server.test.ts`.)
   - The `clipboard` mesh app is NOT `managed` — it keeps its shared-code mesh (`maxPeers` lobby, no
     TTL, no rate-limit), since those are one user's own devices typing the same code on purpose.
-- **TURN credentials for Reliable mode (server side — done; client side — done incl. relax-retry, see
-  Privacy mode + ICE §)**: the server
+- **TURN credentials for Reliable mode (server side — done; client side — done; Max-privacy is STRICT
+  / never relays, see Privacy mode + ICE §)**: the server
   answers a **`turn-request`** frame with short-lived, HMAC-derived **coturn** credentials
   (`use-auth-secret` / "REST API" scheme) so a 1:1 pair that can't connect directly can fall back to
   a relay. Gated on **`cfg.managed`** (the `filetransfer` rendezvous only; `clipboard` has no server
@@ -651,9 +629,9 @@ X-Forwarded-For; binds to `127.0.0.1` (only the local nginx reaches it). Run wit
   `total-quota` / `max-bps`, anti-SSRF `no-multicast-peers` / `no-loopback-peers` / `denied-peer-ip`
   on RFC1918 + link-local, `fingerprint`, `no-cli`) in **`deploy/coturn.conf.example`**. The client
   side (the functional toggle, `requestTurnCredentials`, feeding `iceServers`, Max-privacy never
-  requests) is **done** — see **Privacy mode + ICE** §; **relax-retry** (a live Max-privacy ICE failure
-  escalating to relay, both sides consenting) is also **done** — see **relax-retry (strict model)** there.
-  (`tests/integration/turn-credentials.test.ts`.)
+  requests) is **done** — see **Privacy mode + ICE** §. **Max-privacy is STRICT** — a live Max-privacy
+  ICE failure does NOT escalate to relay; it fails terminally with a switch-to-Reliable hint (see
+  **Max-privacy strict model** there). (`tests/integration/turn-credentials.test.ts`.)
 
 ## Deployment / configuration (step 6f — LIVE at hushsend.frelikh.dev, deployed 2026-06-20)
 One place that ties together every knob needed to run a live instance. The **artifacts** are built
@@ -764,7 +742,7 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
      **Deferred:** reconnect-in-lobby (lobby picks always do a fresh SAS; reconnect stays a separate
      by-code path — when it gains lobby support its reconnect role must move to id-order too),
      return-to-lobby after a finished/aborted session, and link/qr lobby-race resistance — see BACKLOG.
-   - ✅ **6d — TURN relay + Reliable / Max-privacy mode + relax-retry** *(DONE)* —
+   - ✅ **6d — TURN relay + Reliable / Max-privacy (STRICT) mode** *(DONE)* —
      **server side**: the signaling server mints short-lived HMAC coturn credentials on a
      `turn-request` frame (`use-auth-secret` scheme, `TURN_SECRET` shared with coturn + never sent to
      clients, empty-urls when unconfigured → direct-only); env `TURN_SECRET` / `TURN_URLS` /
@@ -775,15 +753,16 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
      `requestTurnCredentials` (`turn-request`) after `welcome` + before the PC, empty-urls → direct-only.
      `src/core/iceServers.ts` (builder, `VITE_STUN_URLS` STUN config) + `iceServers.test.ts`;
      `prefs.tsx` pref + `<PrivacyModeSync>` (App) → `setPrivacyMode`; `tests/e2e/privacy.spec.ts`.
-     **relax-retry (strict model, this pass):** Max-privacy NEVER relays without consent — the
-     PeerConnection drops the peer's `typ relay` candidates (`src/core/relax.ts` filter), and a live ICE
-     failure OFFERS a relay escalation (`connection.relax`, status stays `pairing`) instead of
-     hard-failing. The relay forms only once BOTH sides relax (self-enforcing bilateral): on accept we
-     fetch creds + `setConfiguration(STUN+TURN)` + stop filtering + signal the peer; the per-pairing
-     initiator then `restartIce()` on the EXISTING PC (no teardown, no new cert → DTLS fingerprint + SAS
-     binding preserved; SAS confirmed once, over the relay). Decline → `failed`. `src/core/relax.ts`
-     (+ `relax.test.ts`), `connectionSlice` relax projection, `ConnectingScreen` relax offer/waiting,
-     `?forceIceFail=1` DEV knob, `tests/e2e/relax.spec.ts`. See **Privacy mode + ICE / relax-retry** §.
+     **Max-privacy strict model (this pass — was relax-retry, now strict):** Max-privacy NEVER relays —
+     no consent escalation. The PeerConnection always drops the peer's `typ relay` candidates
+     (`src/core/relax.ts` filter) and never requests TURN, so a live Max-privacy ICE failure is
+     **terminal**: `onIceFailed` → `failDirect` → the existing `failed` state with a switch-to-Reliable
+     hint (`directFailHint`, EN/RU; `direct-fail-hint` testid). The relax-offer / `connection.relax` /
+     `relax` signaling frame / bilateral `relaxConnection`/`declineRelax` / `setConfiguration`+`restartIce`
+     escalation were all **REMOVED** (this also removes the asymmetric-relax bug class, incl. the
+     suspected Firefox mixed-privacy hang — gone by design). `src/core/relax.ts` (filter only,
+     `relax.test.ts`), `FailedScreen` hint, `?forceIceFail=1` DEV knob, `tests/e2e/relax.spec.ts`. See
+     **Privacy mode + ICE / Max-privacy strict model** §.
    - 🚧 **6e — cross-browser pass** — the **no-device parts are DONE** (this pass): (1) the QR-scan
      WASM is **self-hosted** (vendored, served from `'self'`, no CDN — `src/ui/zxingWasm.ts`
      `createQrDetector` + `setZXingModuleOverrides` over a Vite `?url` asset; `zxingWasm.test.ts`;
@@ -840,13 +819,13 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   `src/core/pairingRole.ts` `pairingRoleFor` (smaller id = initiator; same id order as
   `sasRole.ts`; `pairingRole.test.ts`) — drives the WebRTC offer, CPace init, SAS nonce/commit
   order, and key-confirmation/enrollment `lv(role)`; reconnect's protocol role stays create/join.
-- ✅ `src/core/relax.ts` — relax-retry STRICT model (step 6d, pure + `relax.test.ts`): the
-  relay-candidate filter (`isRelayCandidate`/`shouldDropCandidate` — Max-privacy drops the peer's `typ
-  relay` candidates until relaxed) + the relax state machine (`relaxOnIceFail`/`relaxOnLocal`/
-  `relaxOnPeer`/`shouldRestartForRelay` — restart only when BOTH relaxed AND we are the initiator). The
-  live wiring (filter in `PeerConnection.addIce`, `onIceFailed`/`relaxConnection`/`declineRelax`/
-  `onRelaxSignal`/`maybeRestartForRelay`, `restartIce` on the existing PC preserving the DTLS
-  fingerprint) is in PeerConnection + SessionController; `connection.relax` projects it.
+- ✅ `src/core/relax.ts` — Max-privacy STRICT relay filter (step 6d, pure + `relax.test.ts`): just the
+  relay-candidate predicate (`isRelayCandidate`/`shouldDropCandidate` — Max-privacy ALWAYS drops the
+  peer's `typ relay` candidates, off in Reliable). The live wiring (filter in `PeerConnection.addIce`;
+  `onIceFailed` → `failDirect` → the existing `failed` state with a switch-to-Reliable hint) is in
+  PeerConnection + SessionController. **Max-privacy never relays** — the relax-offer / `connection.relax`
+  / `relax` signaling frame / `relaxConnection`/`declineRelax` / `restartIce`-over-relay machinery was
+  removed (strict model, this pass).
 - ✅ `src/ui/` — **real, status-driven screens (steps 5a + 5b)**, built on kit tokens (monochrome,
   inversion-as-emphasis, light/dark via `[data-theme]`, EN/RU). `ScreenRouter` picks a screen by
   FSM status (+ method/phase); `HomeScreen` (landing → method picker [link / qr / words / room] →
@@ -860,8 +839,9 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   6c — the room mesh lobby: code + roster [`connection.roster` id/device/joinedAt] + a Connect button
   per peer → `pickPeer`), `WordsCreateScreen`, `LinkCreateScreen` (one-time link +
   copy/share), `QrCreateScreen` (the link as an SVG QR), `ScanScreen` (qr receive: camera +
-  paste-link fallback), `ConnectingScreen` (creating/joining/pairing-lobby/confirming, plus the
-**relax-retry** relay offer/waiting when `connection.relax.available` — step 6d), `SasScreen`
+  paste-link fallback), `ConnectingScreen` (creating/joining/pairing-lobby/confirming — a Max-privacy
+  ICE failure routes to the FailedScreen with a switch-to-Reliable hint, NOT a relay offer; step 6d
+  STRICT), `SasScreen`
   (**asymmetric pick-from-3**: reader shows its phrase; picker is blind among the real + 2 local
   decoys — **role per-pairing by readable-id order**, `src/core/sasRole.ts` → `connection.sasRole`,
   fail-closed "restart verification" on a missing id), `TransferScreen` (a finished/aborted transfer
