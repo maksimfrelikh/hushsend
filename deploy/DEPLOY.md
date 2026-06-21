@@ -69,7 +69,12 @@ served as static); unknown deep-link → `200` (SPA fallback). **Still pending:*
 P2P/SAS/transfer test on two devices, and a cross-network TURN relay check (only provable across
 different networks).
 
-The numbered steps below are the generic runbook; the live deploy followed them with the deltas above.
+**Repeat frontend-only redeploys** (new SPA build, signaling/nginx unchanged) are wrapped in
+[`deploy-frontend.sh`](deploy-frontend.sh): `bash ~/projects/hushsend/deploy/deploy-frontend.sh`
+pulls, `npm ci`, builds with the live `VITE_*` baked in, and `sudo`-publishes `dist/` to
+`/var/www/hushsend/dist`. It does NOT restart the signaling service or reload nginx (a static-asset
+swap needs neither). The numbered steps below are the full generic runbook; the live deploy followed
+them with the deltas above.
 
 ---
 
