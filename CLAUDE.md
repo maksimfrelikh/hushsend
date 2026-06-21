@@ -507,6 +507,24 @@ see **Max-privacy strict model** below.
   a closed socket / timeout / absent relay resolves to **NO_TURN (empty urls)** → direct-only. Creds are
   reset per session (`openSignaling`) since they are bound to the live socket. The built ICE config is
   published to the DEV diagnostics (`dev.iceConfig` — mode/relay/urls/username/credential) for the e2e.
+- **Pre-PC WebRTC-signal buffer (mixed-privacy / link-qr deadlock fix)**: because `startPeer` `await`s
+  `ensureTurnReady()` BEFORE building the PeerConnection, a **Reliable-mode answerer** is still fetching
+  coturn creds when a **Max-privacy offerer**'s offer arrives — so `this.peer` is null and the offer used
+  to hit the `this.peer?.handleSignal` no-op in `onSignal` and be **silently dropped** (deadlock). Fix:
+  `SessionController.pendingPeerSignals` buffers WebRTC offer/answer/ICE that arrive for the ACTIVE
+  pairing (past the `from === this.peerId` gate) while `this.peer` is null, and `startPeer` REPLAYS the
+  queue in arrival order right after building the PC (`flushPendingPeerSignals`); ICE that races ahead of
+  the offer is re-buffered by the PC's own `pendingIce`, and `setRemoteDescription` doesn't depend on
+  `iceServers`, so the "TURN in iceServers from the first candidate" invariant is intact. The buffer is a
+  level ABOVE `pendingIce` (whole signals, not just ICE) and is **method-agnostic** — it lives in the
+  shared WebRTC tail of `onSignal`, so it closes BOTH the room and the latent link/qr race (words is
+  unaffected: its offer is serialized behind the CPace gate, so the PC is already up). CLEARED
+  (`clearPendingPeerSignals`) on EVERY teardown/reset/retry — `resetPairingToLobby`, `teardownPeerOnly`
+  (words retry), `failLink`, `failSas`, `failReconnect`, `failDirect`, `dispose` — so a stale signal from
+  a finished attempt can never replay into the next attempt's PC. Unit-tested deterministically in
+  `SessionController.pendingPeerSignals.test.ts` (controllable `ensureTurnReady` + mock PeerConnection:
+  offer-while-`peer===null` is buffered → creds resolve → PC built → offer replayed → answer emitted; and
+  `resetPairingToLobby` empties the queue).
 - **Tests**: `iceServers.test.ts` (builder: max→STUN-only/empty, max ignores TURN, reliable+creds→STUN+TURN,
   reliable+empty-urls→STUN-only, default=max never relays); `tests/e2e/privacy.spec.ts` (toggle renders +
   flips + default max; Max-privacy still connects directly with no TURN; Reliable fetches creds via
@@ -875,6 +893,11 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   `src/core/pairingRole.ts` `pairingRoleFor` (smaller id = initiator; same id order as
   `sasRole.ts`; `pairingRole.test.ts`) — drives the WebRTC offer, CPace init, SAS nonce/commit
   order, and key-confirmation/enrollment `lv(role)`; reconnect's protocol role stays create/join.
+  Pre-PC WebRTC signals (offer/answer/ICE arriving for the active pairing while `this.peer` is null —
+  e.g. a Reliable answerer still awaiting coturn creds in `startPeer`) are buffered in
+  `pendingPeerSignals` and replayed by `flushPendingPeerSignals` after the PC is built, then cleared on
+  every teardown — the **mixed-privacy / link-qr deadlock fix** (`SessionController.pendingPeerSignals.test.ts`;
+  see **Privacy mode + ICE** §).
 - ✅ `src/core/relax.ts` — Max-privacy STRICT relay filter (step 6d, pure + `relax.test.ts`): just the
   relay-candidate predicate (`isRelayCandidate`/`shouldDropCandidate` — Max-privacy ALWAYS drops the
   peer's `typ relay` candidates, off in Reliable). The live wiring (filter in `PeerConnection.addIce`;

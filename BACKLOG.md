@@ -296,6 +296,20 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
 
 ## UX bugs — found in the manual test pass (Phase 1)
 
+- ✅ **Mixed-privacy room never connects (early offer dropped) — DONE.** When the two sides used
+  DIFFERENT privacy modes, a **Reliable-mode answerer** is still fetching coturn creds (`ensureTurnReady`)
+  inside `startPeer` when the **Max-privacy offerer**'s offer arrives — so `this.peer` is still null and
+  the offer hit the `this.peer?.handleSignal` **no-op** in `onSignal` and was **silently dropped**,
+  deadlocking the pair. Same latent race in **link/qr** (`startPeer` with no CPace gate to serialize the
+  offer); **words** was shielded by its CPace round-trip. **Fixed** by buffering pre-PC WebRTC signals
+  (`SessionController.pendingPeerSignals`) and replaying them after the PC is built
+  (`flushPendingPeerSignals`), cleared on every teardown/reset/retry (`clearPendingPeerSignals`). The
+  buffer is method-agnostic (shared WebRTC tail of `onSignal`) so it closes BOTH the room and the link/qr
+  race; the relay filter / strict-privacy / `ensureTurnReady` / `turn-request` are untouched, and the
+  "TURN in `iceServers` from the first candidate" invariant holds (`setRemoteDescription` is
+  iceServers-independent). Deterministic regression: `SessionController.pendingPeerSignals.test.ts`
+  (controllable `ensureTurnReady` + mock PeerConnection). (→ CLAUDE.md § Privacy mode + ICE.)
+
 - ✅ **Recent-devices / reconnect list accumulates duplicate rows for the same peer — DONE
   (display-dedup).** The list (read from the keystore via `listPins()`) was keyed by `pairingId`, but
   every *fresh* pairing (room+SAS / words / link/qr) runs enrollment, which mints a NEW

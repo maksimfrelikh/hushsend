@@ -509,6 +509,21 @@ function newReconnectState(role: ConfirmationRole, pairingId: Uint8Array | null)
 export class SessionController {
   private signaling: SignalingClient | null = null;
   private peer: PeerConnection | null = null;
+  /**
+   * WebRTC signals (offer / answer / ICE) that arrived for the ACTIVE pairing (`from === peerId`)
+   * while `this.peer` was still null — i.e. AFTER beginPairing fixed `peerId` but BEFORE startPeer
+   * finished building the PeerConnection. That window opens whenever startPeer is gated on an async
+   * step that runs concurrently with the peer's offer: most sharply, a Reliable-mode ANSWERER still
+   * awaiting its coturn creds (`ensureTurnReady` pending) when a Max-privacy offerer's offer arrives.
+   * Without buffering, that early offer hit `this.peer?.handleSignal` as a NO-OP and was silently
+   * DROPPED — deadlocking a mixed-privacy room pair, and latently link/qr (which, unlike words, has no
+   * CPace gate serializing the offer behind a round-trip). startPeer replays this queue in arrival
+   * order right after building the PC (flushPendingPeerSignals); ICE that races ahead of the offer is
+   * re-buffered by the PC's own pendingIce, so replay order is safe. CLEARED on every teardown / reset
+   * / retry (clearPendingPeerSignals) so a stale signal from a finished attempt can never replay into
+   * the next attempt's PC. Lives ONLY in the core (plain payloads, never entered into the store).
+   */
+  private readonly pendingPeerSignals: unknown[] = [];
 
   // --- identity + TOFU enrollment (step 4b-i) — long-term Ed25519 key + pinned peer keys. ---
   /** Persistent keystore (own identity + pinned peer keys). Survives sessions and reloads. */
@@ -822,6 +837,7 @@ export class SessionController {
     if (this.sas?.timer != null) clearTimeout(this.sas.timer);
     this.peer?.close();
     this.peer = null;
+    this.clearPendingPeerSignals(); // drop a stale pre-PC offer/ICE so it can't replay into the next pick's PC
     this.peerId = null;
     this.role = null;
     this.channelOpen = false;
@@ -977,6 +993,10 @@ export class SessionController {
       },
     );
     this.peer.start(initiator);
+    // Replay any WebRTC signals that arrived before this PC existed (e.g. the peer's offer reached a
+    // Reliable answerer while it was still fetching TURN creds). The queue is normally empty (signals
+    // hit handleSignal directly once the PC is up); it is non-empty only in the pre-PC race window.
+    this.flushPendingPeerSignals();
   }
 
   /** The iceServers for THIS pairing, from the privacy mode + configured STUN + (Reliable) fetched
@@ -1080,6 +1100,7 @@ export class SessionController {
     }
     this.peer?.close();
     this.peer = null;
+    this.clearPendingPeerSignals();
     this.fail(new Error(reason));
   }
 
@@ -1106,7 +1127,36 @@ export class SessionController {
       this.onSasSignal(sas.data);
       return;
     }
-    void this.peer?.handleSignal(data);
+    // WebRTC tail (offer / answer / ICE). Past the `from !== this.peerId` gate above, this signal is
+    // from our ACTIVE pairing. If the PeerConnection exists, hand it straight over. If not, the PC is
+    // still being built — e.g. a Reliable answerer awaiting coturn creds (ensureTurnReady) when the
+    // peer's offer arrives — so BUFFER it and replay once startPeer builds the PC, rather than dropping
+    // it on a null peer. Shared fix for the mixed-privacy room deadlock AND the latent link/qr race;
+    // words is unaffected (its offer is serialized behind the CPace gate, so the PC is already up).
+    if (this.peer) {
+      void this.peer.handleSignal(data);
+    } else {
+      this.pendingPeerSignals.push(data);
+    }
+  }
+
+  /**
+   * Replay the WebRTC signals buffered while `this.peer` was null (see onSignal / pendingPeerSignals)
+   * into the freshly-built PeerConnection, in arrival order. setRemoteDescription does not depend on
+   * iceServers, and our OWN candidates come from this already-built PC (creds included in Reliable), so
+   * the "TURN in iceServers from the first candidate" invariant is untouched. Snapshot-then-clear so a
+   * replay that synchronously re-enters (e.g. an answer being emitted) can't see a half-drained queue.
+   */
+  private flushPendingPeerSignals(): void {
+    if (!this.peer || this.pendingPeerSignals.length === 0) return;
+    const queued = this.pendingPeerSignals.splice(0);
+    for (const data of queued) void this.peer.handleSignal(data);
+  }
+
+  /** Drop any buffered pre-PC WebRTC signals. Called on every teardown / reset / retry so a stale
+   *  offer/ICE from a finished attempt can never be replayed into the NEXT attempt's PeerConnection. */
+  private clearPendingPeerSignals(): void {
+    this.pendingPeerSignals.length = 0;
   }
 
   /** Relay a CPace frame to the peer through the (untrusted) signaling server. */
@@ -1326,6 +1376,7 @@ export class SessionController {
     this.linkSettled = true;
     this.peer?.close();
     this.peer = null;
+    this.clearPendingPeerSignals();
     this.signaling?.close();
     this.fail(new Error(reason));
   }
@@ -1368,6 +1419,7 @@ export class SessionController {
   private teardownPeerOnly(): void {
     this.peer?.close();
     this.peer = null;
+    this.clearPendingPeerSignals(); // a fresh joiner's offer must not see a stale one from this attempt
     this.peerId = null;
     this.role = null;
     this.channelOpen = false; // next attempt's channel is not open yet
@@ -2145,6 +2197,7 @@ export class SessionController {
     }
     this.peer?.close();
     this.peer = null;
+    this.clearPendingPeerSignals();
     this.signaling?.close();
     this.fail(new Error(reason));
   }
@@ -2406,6 +2459,7 @@ export class SessionController {
     }
     this.peer?.close();
     this.peer = null;
+    this.clearPendingPeerSignals();
     this.signaling?.close();
     this.fail(new Error(reason));
   }
@@ -2575,6 +2629,7 @@ export class SessionController {
     this.peer?.close();
     this.signaling?.close();
     this.peer = null;
+    this.clearPendingPeerSignals();
     this.signaling = null;
     this.selfId = null;
     this.peerId = null;
