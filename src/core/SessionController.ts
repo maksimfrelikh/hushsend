@@ -20,6 +20,7 @@ import {
 import { generateLinkSecret, buildLinkUrl } from './link/link';
 import { sasRoleFor } from './sasRole';
 import { pairingRoleFor } from './pairingRole';
+import { peerLeftAbortsPairing } from './livenessGate';
 import {
   buildIceServers,
   configuredStunUrls,
@@ -589,6 +590,10 @@ export class SessionController {
   private attemptResolved = false;
   /** true once we've reached `connected`; after that a signaling drop is harmless (P2P is live). */
   private established = false;
+  /** true once the DataChannel has OPENED (transport up). From this point the DataChannel + ICE are
+   *  the SOLE liveness authority for the 1:1 methods — a signaling `peer-left` no longer aborts the
+   *  pairing (see onPeerLeft / livenessGate). Reset on a words retry / lobby reset / dispose. */
+  private channelOpen = false;
   private readonly signalingUrl: string;
 
   // --- privacy toggle + TURN relay (step 6d, client side) — picks the iceServers the PeerConnection
@@ -819,6 +824,7 @@ export class SessionController {
     this.peer = null;
     this.peerId = null;
     this.role = null;
+    this.channelOpen = false;
     this.confirmFps = null;
     this.peerConfirmTag = null;
     this.confirmSettled = false;
@@ -914,14 +920,20 @@ export class SessionController {
     this.dispatch(connectionActions.rosterRemove({ peerId }));
     if (peerId !== this.peerId) return;
     if (import.meta.env.DEV) console.debug('[session] peer left', peerId);
-    // words: a peer that drops BEFORE we're connected aborts this pairing attempt (counts on A;
-    // a clean leave-and-fail on B). Once connected, the live DataChannel survives a signaling
-    // drop, so we leave it alone (also the step-1 room behavior).
-    if (this.method === 'words' && !this.established) {
+    // words: a peer that drops while the rendezvous is still the liveness authority (BEFORE the
+    // DataChannel transport is up) aborts this pairing attempt (counts on A; a clean leave-and-fail
+    // on B). Once the channel is open the DataChannel/ICE are the sole liveness signal — a
+    // `peer-left` then is the benign post-connect socket close (ours or the peer's; the two sides
+    // can connect-then-close a hair apart), and a REAL abort after channel-open is still counted by
+    // onChannelClose. So we gate on peerLeftAbortsPairing, NOT a bare `!established` — this keeps the
+    // anti-bruteforce window intact (every actual guess is counted by the confirmation-mismatch /
+    // channel-close paths regardless) while not failing a peer that has, in fact, connected.
+    if (this.method === 'words' && peerLeftAbortsPairing(this.established, this.channelOpen)) {
       this.onWordsPairingFailure('peer left during pairing');
     }
-    // link/qr: a peer dropping before connected aborts this single-use attempt (no bytes).
-    if ((this.method === 'link' || this.method === 'qr') && !this.established) {
+    // link/qr: same gate — a peer dropping before the transport is up aborts this single-use attempt
+    // (no bytes); a post-channel-open `peer-left` is the benign post-connect close and is ignored.
+    if ((this.method === 'link' || this.method === 'qr') && peerLeftAbortsPairing(this.established, this.channelOpen)) {
       this.failLink('peer left during pairing');
     }
     // reconnect (pre-fallback): a peer dropping mid-re-auth is a hard stop (no bytes). After
@@ -1153,6 +1165,10 @@ export class SessionController {
   }
 
   private async onChannelOpen(): Promise<void> {
+    // The DataChannel transport is up: from here the DataChannel + ICE are the sole liveness signal,
+    // so a signaling `peer-left` no longer aborts the pairing (see onPeerLeft). Set for every method
+    // (it only GATES the 1:1 words/link/qr peer-left branches).
+    this.channelOpen = true;
     // room + SAS: the channel coming up means the DTLS fingerprints are now known (local SDP +
     // RECEIVED SDP both set). Feed them into the SAS computation — these are the SAME fingerprints
     // DTLS validates against. Status stays `pairing` until the SAS words are ready (→ awaitingSas);
@@ -1261,6 +1277,7 @@ export class SessionController {
       this.established = true;
       this.dispatch(connectionActions.connectionEstablished());
       this.startEnrollment(); // TOFU enrollment over the now-authenticated channel (does NOT gate)
+      this.closeSignalingAfterConnect(); // 1:1: the signaling socket has no further job — close it
     } else {
       this.onConfirmFailure(
         this.method === 'words'
@@ -1268,6 +1285,26 @@ export class SessionController {
           : 'key-confirmation mismatch — wrong or missing secret, or a man-in-the-middle',
       );
     }
+  }
+
+  /**
+   * On an AUTHENTICATED `connected`, the 1:1 methods (words / link / qr) close their own signaling
+   * socket. By that point signaling has no further job: ICE/SDP are exchanged, key-confirmation rode
+   * the DataChannel, and TOFU enrollment rides the DataChannel too — so closing the socket costs the
+   * session nothing while denying the UNTRUSTED server any knowledge of how long the P2P session
+   * runs (it sees only the short pairing window, then we vanish). The live DataChannel + ICE remain
+   * the sole liveness authority (see onPeerLeft / livenessGate), so neither this close nor the peer's
+   * own equivalent close disturbs the transfer. Our own SignalingClient.close() sets its `closed`
+   * flag, so it never calls back onSignalingClose — only the PEER observes a `peer-left`.
+   *
+   * 1:1 ONLY. The room method is a mesh LOBBY whose socket also carries the roster + other peers'
+   * picks; tearing it down needs a "seal room" step (deferred — see BACKLOG). Reconnect runs over its
+   * own fresh socket (method 'room', sas set), so it is excluded here and unaffected.
+   */
+  private closeSignalingAfterConnect(): void {
+    if (this.method !== 'words' && this.method !== 'link' && this.method !== 'qr') return;
+    this.dispatch(devActions.appendLog('signaling: P2P connected — closing signaling socket (server learns no session duration)'));
+    this.signaling?.close();
   }
 
   /** Route a key-confirmation failure to the right per-method teardown: the words retry/attempt
@@ -1333,6 +1370,7 @@ export class SessionController {
     this.peer = null;
     this.peerId = null;
     this.role = null;
+    this.channelOpen = false; // next attempt's channel is not open yet
     this.cpaceState = null;
     this.sessionKey = null;
     this.confirmFps = null;
@@ -2542,6 +2580,7 @@ export class SessionController {
     this.peerId = null;
     this.isCreator = false;
     this.established = false;
+    this.channelOpen = false;
     // words-method state
     this.method = null;
     if (this.sas?.timer != null) clearTimeout(this.sas.timer); // disarm a pending SAS timeout

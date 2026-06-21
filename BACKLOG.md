@@ -45,6 +45,18 @@ Forward-looking work only. Current built state + implementation caveats live in 
     SAS mismatch, peer left), return to the lobby to pick another peer without re-joining. Only the
     narrow busy-bounce return is built (pre-connection); a post-`connected` return needs channel/transfer
     teardown + a fresh SAS state and is not wired.
+  - **close the signaling socket on connect for the mesh (room) method** *(deferred — needs "seal
+    room")* — the 1:1 methods (words/link/qr) now CLOSE their own signaling socket on `connected` so the
+    untrusted server learns no session duration (DONE — see below + CLAUDE.md § Signaling WS lifecycle).
+    The **room** method does NOT, because its socket is a shared LOBBY: it carries the live roster and
+    other peers' `pair-request`/`busy` picks, and a paired pair may want to return to the lobby (the
+    deferred item above). Closing it would need a **"seal room"** step — the pair tells the server (and/or
+    the lobby) it has finished pairing, so the server can stop routing to it / free its seat without
+    treating the close as a generic `peer-left` for the other lobby members, and the FSM gains a defined
+    "in a 1:1 inside a still-live lobby" notion. Until that lands, the room socket stays open
+    post-`connected` (the server still learns the room's session duration for SAS pairs). 1:1 is the
+    common case and is covered; mesh is the residual. (When built, coordinate with return-to-lobby +
+    reconnect-in-lobby, which all touch the same lobby/seat lifecycle.)
   - ✅ **link/qr lobby-race resistance — DONE** (pre-deploy; same fix as "High-entropy rendezvous for
     link/QR" below — ONE change closes both). link/qr no longer share the 4-digit lobby: they rendezvous
     via their own high-entropy **token** (`codeType=token`, 128-bit, strictly 1:1 `ONE_TO_ONE_MAX_PEERS
@@ -145,6 +157,23 @@ Forward-looking work only. Current built state + implementation caveats live in 
   this is defense-in-depth only (worst case is a retry — SAS / key-confirmation are what stop a MITM).
 
 ## Security / correctness follow-ups (small)
+- ✅ **Close the signaling socket on connect for the 1:1 methods — DONE.** For `words` / `link` / `qr`
+  the client closes its OWN signaling socket the instant it reaches an authenticated `connected`
+  (`SessionController.closeSignalingAfterConnect`, a side-effect on entering `connected` — no new FSM
+  state, gated to the `connected` success branch so failure paths are untouched). By then signaling has
+  no job left (ICE/SDP exchanged, key-confirmation + enrollment ride the DataChannel), so the **untrusted
+  server learns no session duration** — it sees only the short pairing window, then both peers vanish.
+  Each side closes independently (no coordinating signal — key-confirmation is mutual). **Liveness was
+  decoupled from room presence:** the `peer-left` each close generates on the other side must not drop /
+  fail / bounce a connected (or about-to-be-connected) peer, so `src/core/livenessGate.ts`
+  `peerLeftAbortsPairing(established, channelOpen)` aborts a 1:1 pairing ONLY before the DataChannel
+  transport is up (after that, liveness = DataChannel/ICE, and a real abort is caught by
+  `onChannelClose`). **Guess-protection (words) is NOT weakened** — every actual guess is counted by the
+  confirmation-mismatch / channel-close paths; `peer-left` is the sole counter only pre-transport, which
+  the gate still catches. Unit: `livenessGate.test.ts` (arm/disarm boundary). e2e: `tests/e2e/ws-close.spec.ts`
+  (link + words — supersedes the old `words-ttl.spec.ts`, since the client now closes proactively rather
+  than waiting for the server TTL). **Mesh (room) close is deferred** — needs "seal room" (see Step 6
+  follow-ups above). See CLAUDE.md § Signaling WS lifecycle.
 - ✅ **SAS fail-closed on unset role — DONE** (folded into the mesh-lobby fix). The SAS role is no
   longer a UI default — it is computed PER PAIRING from the two readable ids (`src/core/sasRole.ts`
   `sasRoleFor`: lexicographically smaller id reads), projected as `connection.sasRole`. When the role

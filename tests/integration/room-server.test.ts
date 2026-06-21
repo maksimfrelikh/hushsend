@@ -7,7 +7,8 @@ import { spawn, type ChildProcess } from 'node:child_process';
  *   - strictly 1:1 (creator + one joiner) — a 3rd joiner is bounced with 4002 'room full';
  *   - a TTL invalidates a room that never connects and FREES its 4-digit code (4009 afterwards);
  *     after connected, closing signaling does NOT drop live P2P — that part is the client's job
- *     and is covered by the words-ttl e2e, so here we only assert the rendezvous-window teardown;
+ *     and is covered by the ws-close e2e (the 1:1 client closes its own socket on connect), so here
+ *     we only assert the rendezvous-window teardown;
  *   - per-IP create/join attempts are rate-limited (4011) to slow enumeration of the 10k space,
  *     keyed on clientIp() (X-Real-IP behind nginx). Loopback is EXEMPT — behind nginx a real client
  *     never looks like loopback, so the local proxy/dev/tests are never throttled.

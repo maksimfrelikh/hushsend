@@ -55,6 +55,42 @@ confirming → connected | failed`, and `pairing → awaitingSas` when it falls 
 `connected` / the `established` gate, i.e. after key-confirmation or mutual SAS-confirm). Keep
 this as a single gate check.
 
+## Signaling WS lifecycle (1:1 close-on-connect — presence decoupled from P2P liveness)
+For the **1:1 methods (`words` / `link` / `qr`)** the signaling socket is **CLOSED the instant the
+side reaches an authenticated `connected`** — a side-effect on entering `connected`, NOT a new FSM
+state (`SessionController.closeSignalingAfterConnect`, called from `tryVerifyConfirmation`'s success
+branch after `startEnrollment`). By that point signaling has no further job: ICE/SDP are exchanged,
+key-confirmation rode the DataChannel, and TOFU enrollment rides the DataChannel too — so the close
+costs the session nothing while denying the **untrusted server** any knowledge of **how long the P2P
+session runs** (it sees only the short pairing window, then both peers vanish). Each side closes
+**independently** — no coordinating signal: key-confirmation is mutual, so by the time one side closes
+the peer has already sent its tag and will complete over the reliable DataChannel. Our own
+`SignalingClient.close()` sets its `closed` flag, so it never fires `onSignalingClose` — only the PEER
+observes a `peer-left`.
+- **Liveness is the DataChannel/ICE, NOT room presence.** Each close makes the OTHER side observe a
+  `peer-left`; that must NEVER drop / fail / bounce a connected (or about-to-be-connected) peer. This
+  is enforced by **`src/core/livenessGate.ts` `peerLeftAbortsPairing(established, channelOpen)`**: a
+  signaling `peer-left` aborts a 1:1 pairing ONLY **before the DataChannel transport is up**
+  (`!established && !channelOpen`). Once the channel is open the DataChannel + ICE are the sole
+  liveness authority — a `peer-left` then is the benign post-connect close (ours or the peer's; the two
+  can connect-then-close a hair apart, a cross-channel race), and a REAL abort after channel-open is
+  caught by `onChannelClose` instead. `this.channelOpen` is set in `onChannelOpen`, reset on a words
+  retry / lobby reset / `dispose`.
+- **Guess-protection (words anti-bruteforce) is NOT weakened.** A guess is COUNTED whenever
+  key-confirmation actually fails (tag mismatch → `onConfirmFailure`) or the transport collapses
+  (`onChannelClose`) — both independent of signaling presence, both unchanged. `peer-left` is the SOLE
+  counter only **before the channel ever opens** (a peer abandoning the rendezvous / CPace), which the
+  gate still catches. After `established` a `peer-left` can no longer be a guess (the attacker would
+  have had to pass key-confirmation, impossible without the secret). `livenessGate.test.ts` pins the
+  exact arm (pre-transport → counts) / disarm (channel-open or established → ignored) boundary.
+- **Scope: 1:1 ONLY.** The **room** method is a mesh LOBBY whose socket also carries the roster + other
+  peers' picks; tearing it down on connect needs a "seal room" step — **deferred** (see BACKLOG). **The
+  room socket stays open.** **Reconnect** runs over its own fresh socket (method `room`, `sas` set) and
+  is excluded by the same `method` guard — unaffected. **Failure paths** (`failDirect`, `failLink`,
+  `failSas`, `failReconnect`, words retry) are untouched: the close is gated on the `connected` success
+  branch only. e2e: `tests/e2e/ws-close.spec.ts` (link + words: connect → socket closes → peer-left
+  doesn't drop P2P / count a guess → transfer AFTER close intact).
+
 ## Connection methods (4)
 All four resolve to the same FSM and the same DataChannel transfer; they differ only in how
 peers rendezvous + authenticate.
@@ -163,11 +199,18 @@ untrusted-server transcript is not offline-attackable).
   `equalBytes` → `connected`; mismatch (wrong words or MITM) → `failed`, no data. **No SAS** —
   successful CPace + key-confirmation IS the authentication.
 - **Rate-limit / TTL**: word-room windows are bounded by **MAX_PAIRING_ATTEMPTS = 10**
-  (failed CPace/confirmation/peer-drop/transport-abort counts as an attempt). On reaching the
+  (failed CPace/confirmation/peer-drop/transport-abort counts as an attempt). A **signaling
+  `peer-left` counts an attempt ONLY before the DataChannel transport is up** (the gate
+  `peerLeftAbortsPairing` — pre-transport the rendezvous is the liveness authority); once the
+  channel is open a guess is counted by the confirmation-mismatch / channel-close paths instead, and
+  a post-connect `peer-left` (the client's own close-on-`connected`, or the peer's) is ignored. This
+  does NOT weaken the bound — every actual guess (tag comparison) is still counted. See **§ Signaling
+  WS lifecycle**. On reaching the
   cap or if a server-side TTL (**WORD_ROOM_TTL_MS = 180000**, ~3 min) expires **before**
   `connected`, the word-room is invalidated → invalidates the rendezvous. After `connected`,
-  TTL does NOT tear down the already-authenticated P2P connection; signaling closes but the
-  DataChannel persists, allowing long transfers (10GB+ at typical speeds may exceed 3 min).
+  TTL does NOT tear down the already-authenticated P2P connection; the client closes signaling
+  itself on `connected` (1:1 privacy — server learns no duration) and the DataChannel persists,
+  allowing long transfers (10GB+ at typical speeds may exceed 3 min).
   A counts attempts and can manually regenerate (fresh 5 words, new room). This bounds online
   guessing: ≤10 tries × ~2 per guess ≈ 2^4 vs 2^41 secret space.
 - Server: word-rooms cap at **2 peers max** (creator + one joiner; 3rd joiner bounced with
@@ -431,6 +474,10 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
   (platform limit). The transfer itself works on all browsers.
 
 ## Privacy mode + ICE (Max-privacy / Reliable — step 6d, DONE)
+*(Separate privacy lever — server learns no session duration: for the 1:1 methods the client closes its
+signaling socket on `connected`. See **§ Signaling WS lifecycle**. The toggle below is unrelated — it
+only governs `iceServers`.)*
+
 The home **"Max privacy" toggle is FUNCTIONAL** and drives the WebRTC `iceServers` (the only transport
 behaviour behind it). It is a persisted UI pref (`prefs.tsx`, `hushsend.privacy`, **default `max`**),
 pushed into the core via `<PrivacyModeSync>` (App) → `SessionController.setPrivacyMode`. The mode is
@@ -812,9 +859,16 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   16-byte S, no throw; rejects an old 4-digit code). The rendezvous is a high-entropy token
   (`RENDEZVOUS_TOKEN_BYTES = 16`), so link/qr can't be enumerated/squatted. Used by the link/qr
   methods; the secret never reaches the server. (`link.test.ts`.)
+- ✅ `src/core/livenessGate.ts` — pure `peerLeftAbortsPairing(established, channelOpen)` predicate
+  (+ `livenessGate.test.ts`): a signaling `peer-left` aborts a 1:1 (words/link/qr) pairing ONLY before
+  the DataChannel transport is up. Backs the 1:1 close-signaling-on-`connected` privacy feature
+  (`SessionController.closeSignalingAfterConnect` + `this.channelOpen`) — see **§ Signaling WS
+  lifecycle**.
 - ✅ `src/core/` — transport (SignalingClient, PeerConnection), file transfer, SessionController
   orchestration (incl. SAS + post-connect enrollment wiring + the link/qr key-confirmation-over-S
-  path, step 5b). FSM in store (status, transitions, invariants enforced). The per-pairing
+  path, step 5b; **1:1 signaling-socket close on `connected`** via `closeSignalingAfterConnect`,
+  with `peer-left` decoupled from P2P liveness — `livenessGate`). FSM in store (status, transitions,
+  invariants enforced). The per-pairing
   transport/crypto role is fixed from the readable ids in `SessionController.beginPairing` via
   `src/core/pairingRole.ts` `pairingRoleFor` (smaller id = initiator; same id order as
   `sasRole.ts`; `pairingRole.test.ts`) — drives the WebRTC offer, CPace init, SAS nonce/commit
@@ -919,4 +973,8 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   and are scrubbed after read.
 - All random credential material from a CSPRNG, never user-chosen.
 - After `connected`, signaling closure does not tear down the live P2P connection (enables
-  long transfers and future reconnect).
+  long transfers and future reconnect). For the **1:1 methods** the client goes further and
+  **closes its own signaling socket on `connected`** (so the untrusted server never learns the
+  session duration); room presence is decoupled from P2P liveness — a post-connect `peer-left` is
+  ignored (liveness = DataChannel/ICE). See **§ Signaling WS lifecycle**. (Room/mesh close is
+  deferred — needs "seal room".)
