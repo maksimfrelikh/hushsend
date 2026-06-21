@@ -133,7 +133,20 @@ function LandingView({
         {t('scanQr')}
       </button>
 
-      <p className="hs-section-label">{t('homeKnown')}</p>
+      {/*
+        Reconnect is asymmetric, like every method: ONE side STARTS it (createReconnectSession opens a
+        room and shows a code), the OTHER JOINS by that code (joinReconnectSession). Mixing them up —
+        both "start" (→ two rooms that never meet) or "start" + a plain room "join" (→ a handshake
+        mismatch) — was an easy mistake, so the two affordances are explicitly split + labelled here.
+        UI-only: the reconnect protocol / roles / wire format are unchanged.
+      */}
+      <div className="hs-divider">
+        <span>{t('reconnectSection')}</span>
+      </div>
+      <p className="hs-sub">{t('reconnectSplitHint')}</p>
+
+      {/* START side — tap a recent device to OPEN a reconnect room; you then share the code it shows. */}
+      <p className="hs-section-label">{t('reconnectStartLabel')}</p>
 
       {devices.length === 0 ? (
         <p className="hs-sub">{t('noRecent')}</p>
@@ -152,13 +165,15 @@ function LandingView({
                 data-testid={i === 0 ? 'create-reconnect-btn' : undefined}
                 onClick={() => void session.createReconnectSession(d.pairingId)}
               >
-                {t('reconnectAction')}
+                {t('reconnectStartAction')}
               </button>
             </div>
           ))}
         </div>
       )}
 
+      {/* JOIN side — enter the code the OTHER side is showing. Deliberately separate from starting. */}
+      <p className="hs-section-label">{t('reconnectJoinLabel')}</p>
       <div className="hs-join-row">
         <input
           className="hs-input hs-input--code"
@@ -177,7 +192,7 @@ function LandingView({
           disabled={!reconnectOk}
           onClick={() => void session.joinReconnectSession(reconnectCode)}
         >
-          {t('reconnectByCode')}
+          {t('reconnectJoinAction')}
         </button>
       </div>
 

@@ -259,6 +259,67 @@ function preSasTimeoutMs(): number {
 }
 
 /**
+ * Reconnect re-auth liveness deadline (prod-fixed, matches the pre-SAS default). The reconnect path
+ * has its OWN backstop, separate from the SAS timers: the reconnect attempt keeps `this.sas` primed
+ * as the fallback (so the SAS pre-timer is also armed), but that timer guards the SAS commit-reveal,
+ * NOT a stalled `reconnect-init` / `reconnect-proof`. Without this deadline a MISMATCHED entry — this
+ * side on the reconnect path while the peer joined via the plain-SAS lobby (a fresh SAS, never a
+ * reconnect response) — would leave us waiting for a reconnect response that never comes, hanging in
+ * `pairing` ("agreeing on keys") forever. See reconnectTimeoutMs() / armReconnectTimeout().
+ */
+const DEFAULT_RECONNECT_TIMEOUT_MS = 120_000;
+
+/**
+ * Resolve the reconnect re-auth liveness deadline. Production ALWAYS uses the fixed 120 s default
+ * (same as the pre-SAS deadline — reconnect is automatic, so the exact value is not critical, only
+ * that a stalled re-auth eventually FAILS CLOSED rather than hangs). This is a LIVENESS bound, not a
+ * security one: it changes nothing in the two-check verify or the crypto. A DEV-only
+ * `?reconnectTimeoutMs=N` query override (or a `window.__HUSHSEND_RECONNECT_TIMEOUT_MS__` global) lets
+ * an e2e tab drive the FIRING direction in seconds instead of a real 120 s wait. Kept DELIBERATELY
+ * SEPARATE from the SAS knobs (preSasTimeoutMs / sasConfirmTimeoutMs) so shrinking it can't pre-empt
+ * the SAS pre-timer / comparison state in a test that exercises one path without the other. DEV-gated
+ * like the other knobs → dead-code-eliminated in prod.
+ */
+function reconnectTimeoutMs(): number {
+  if (import.meta.env.DEV) {
+    try {
+      const w = window as unknown as { __HUSHSEND_RECONNECT_TIMEOUT_MS__?: unknown };
+      if (typeof w.__HUSHSEND_RECONNECT_TIMEOUT_MS__ === 'number' && w.__HUSHSEND_RECONNECT_TIMEOUT_MS__ > 0) {
+        return w.__HUSHSEND_RECONNECT_TIMEOUT_MS__;
+      }
+      const q = new URLSearchParams(window.location.search).get('reconnectTimeoutMs');
+      const n = q ? Number(q) : NaN;
+      if (Number.isFinite(n) && n > 0) return n;
+    } catch {
+      /* no window (non-browser) — fall through to the default */
+    }
+  }
+  return DEFAULT_RECONNECT_TIMEOUT_MS;
+}
+
+/**
+ * DEV/TEST knob (reconnect liveness-deadline test): make THIS side reach the reconnect handshake but
+ * NEVER send its `reconnect-proof` — i.e. simulate a peer that does not complete the re-auth. (The
+ * real-world trigger is a MISMATCHED entry, where the peer joined via the plain-SAS lobby and never
+ * runs the reconnect protocol at all; withholding the proof reproduces the same "no reconnect response"
+ * stall deterministically.) Drives the FIRING direction of the reconnect deadline e2e: the peer (the
+ * reconnect initiator) never receives this side's proof, stays in `pairing`, and must fail at the
+ * (shrunk) reconnect deadline rather than hang. Mirrors stallSasNonceEnabled (`?stallReconnect=1` /
+ * `window.__HUSHSEND_STALL_RECONNECT__`): gated behind `import.meta.env.DEV` so it is dead-code-
+ * eliminated from production builds.
+ */
+function stallReconnectProofEnabled(): boolean {
+  if (!import.meta.env.DEV) return false;
+  try {
+    const w = window as unknown as { __HUSHSEND_STALL_RECONNECT__?: unknown };
+    if (w.__HUSHSEND_STALL_RECONNECT__ === true) return true;
+    return new URLSearchParams(window.location.search).get('stallReconnect') === '1';
+  } catch {
+    return false; // no window (non-browser) — never stall
+  }
+}
+
+/**
  * DEV/TEST knob (pre-SAS deadline test): force THIS side to reach the SAS commit-reveal but NEVER
  * reveal its own sas-nonce — i.e. simulate a peer that joins, commits, computes + shows the SAS
  * (reaches awaitingSas), then withholds its nonce reveal. Drives the FIRING direction of the pre-SAS
@@ -345,6 +406,10 @@ interface ReconnectState {
   fellBack: boolean;
   /** one-shot guard for the connected | failed decision (mirrors SasState.settled). */
   settled: boolean;
+  /** liveness deadline for the re-auth wait (reconnect-init → reconnect-proof/fallback); armed at
+   *  pairing start, cleared on settle / fallback / fail. Live handle — core-only, never in the store.
+   *  INDEPENDENT of the SAS timers (those guard the SAS commit-reveal, not a stalled reconnect). */
+  timer: ReturnType<typeof setTimeout> | null;
 }
 
 /**
@@ -433,6 +498,7 @@ function newReconnectState(role: ConfirmationRole, pairingId: Uint8Array | null)
     proofSent: false,
     fellBack: false,
     settled: false,
+    timer: null,
   };
 }
 
@@ -841,6 +907,15 @@ export class SessionController {
       }
       this.armSasTimeout('SAS pairing timed out', preSasTimeoutMs());
     }
+    // reconnect (4b-ii): the re-auth wait (reconnect-init → reconnect-proof/fallback) gets its OWN
+    // liveness deadline, INDEPENDENT of the SAS pre-timer above (which guards the SAS commit-reveal,
+    // not a stalled reconnect). Without it a MISMATCHED entry — this side on the reconnect path while
+    // the peer joined via the plain-SAS lobby (a fresh SAS, never a reconnect response) — would leave
+    // us waiting forever in `pairing`. Fail-closed: a stalled re-auth ends in `failed`, not a hang;
+    // nothing in the verify/crypto changes. A no-op off the reconnect path (`this.reconnect` null).
+    if (this.reconnect && !this.reconnect.fellBack) {
+      this.armReconnectTimeout('reconnect timed out — peer did not complete re-authentication', reconnectTimeoutMs());
+    }
     // Initiator offers, responder answers (for words the responder's PeerConnection was started above).
     void this.startPeer(peerId, initiator);
   }
@@ -1006,6 +1081,15 @@ export class SessionController {
       // without it) — so the non-relax / non-SAS paths are completely untouched.
       if (this.sas && !this.sas.surfaced) {
         this.armSasTimeout('SAS pairing timed out', preSasTimeoutMs());
+      }
+      // Likewise re-arm the reconnect deadline (reconnect path only): the relay escalation legitimately
+      // extends the re-auth window, and this is a liveness — not security — bound (no proof exchanged
+      // yet). A no-op off the reconnect path / once settled or fallen back.
+      if (this.reconnect && !this.reconnect.settled && !this.reconnect.fellBack) {
+        this.armReconnectTimeout(
+          'reconnect timed out — peer did not complete re-authentication',
+          reconnectTimeoutMs(),
+        );
       }
     }
   }
@@ -2019,6 +2103,24 @@ export class SessionController {
   }
 
   /**
+   * Arm (or re-arm) the reconnect re-auth liveness deadline — a backstop INDEPENDENT of the SAS
+   * timers (the reconnect path keeps `this.sas` primed as the fallback, so the SAS pre-timer is also
+   * armed, but it guards the SAS commit-reveal, NOT a stalled reconnect-init/-proof). On expiry →
+   * failReconnect (→ `failed` + close), the SAME terminal path as a key-change / MITM / channel drop.
+   * Liveness, not security: it changes nothing in the two-check verify or the crypto — a re-auth that
+   * never gets a response from the peer (e.g. a mismatched entry: this side on reconnect, the peer on
+   * the plain-SAS lobby path) ends in `failed` instead of an infinite "agreeing on keys" hang. It
+   * clears any prior handle first; the live handle lives on `this.reconnect` (core-only, never in the
+   * store). No-op once the reconnect attempt has settled or fallen back to SAS.
+   */
+  private armReconnectTimeout(reason: string, ms: number): void {
+    const rc = this.reconnect;
+    if (!rc || rc.settled || rc.fellBack) return;
+    if (rc.timer != null) clearTimeout(rc.timer);
+    rc.timer = setTimeout(() => this.failReconnect(reason), ms);
+  }
+
+  /**
    * Once BOTH nonces are exchanged AND the fingerprints are known, derive the SAS triple, then
    * surface it for the human comparison (→ awaitingSas). Order-independent; the word computation is
    * one-shot. The nonces are bound in fixed role order (initiator, responder) so both sides agree;
@@ -2114,6 +2216,13 @@ export class SessionController {
     this.sas.settled = true;
     if (this.sas.timer != null) clearTimeout(this.sas.timer);
     this.sas.timer = null;
+    // Symmetric to failReconnect closing out the SAS state: close out a parallel reconnect attempt so
+    // its (independent) liveness deadline can't fire a second teardown after the SAS path already failed.
+    if (this.reconnect && !this.reconnect.settled) {
+      this.reconnect.settled = true;
+      if (this.reconnect.timer != null) clearTimeout(this.reconnect.timer);
+      this.reconnect.timer = null;
+    }
     this.peer?.close();
     this.peer = null;
     this.signaling?.close();
@@ -2124,6 +2233,14 @@ export class SessionController {
 
   /** Relay a reconnect control frame to the peer over the DTLS-protected DataChannel. */
   private sendReconnect(frame: ReconnectFrame): void {
+    // DEV/TEST stall knob: a side that reaches the reconnect handshake but NEVER sends its
+    // reconnect-proof, to drive the reconnect liveness-deadline FIRING e2e — the peer then never
+    // completes the re-auth and must fail at the deadline, not hang. Only the proof is withheld (the
+    // initiator's reconnect-init still goes out). Dead-code-eliminated in prod (DEV-gated).
+    if (frame.kind === 'reconnect-proof' && stallReconnectProofEnabled()) {
+      this.dispatch(devActions.appendLog('reconnect: stalling — withholding reconnect-proof (DEV knob)'));
+      return;
+    }
     void this.peer
       ?.send(JSON.stringify(frame))
       .catch((err) => this.failReconnect(`reconnect: send failed (${errText(err)})`));
@@ -2322,6 +2439,8 @@ export class SessionController {
     const rc = this.reconnect;
     if (!rc || rc.settled) return;
     rc.settled = true;
+    if (rc.timer != null) clearTimeout(rc.timer); // re-auth succeeded — disarm the liveness deadline
+    rc.timer = null;
     if (this.sas) {
       this.sas.settled = true; // the fallback SAS never surfaced — close it out
       if (this.sas.timer != null) clearTimeout(this.sas.timer);
@@ -2342,6 +2461,10 @@ export class SessionController {
     const rc = this.reconnect;
     if (!rc || rc.settled || rc.fellBack) return;
     rc.fellBack = true;
+    // The SAS comparison takes over from here (its own pre-SAS / comparison deadlines bound it) — the
+    // reconnect-specific deadline no longer applies, so disarm it to avoid a spurious mid-SAS expiry.
+    if (rc.timer != null) clearTimeout(rc.timer);
+    rc.timer = null;
     if (send) this.sendReconnect({ kind: 'reconnect-fallback' });
     this.dispatch(devActions.setReconnect({ active: true, outcome: 'fell-back' }));
     this.dispatch(devActions.appendLog('reconnect: no shared pin — falling back to the SAS comparison'));
@@ -2354,6 +2477,8 @@ export class SessionController {
   private failReconnect(reason: string): void {
     if (!this.reconnect || this.reconnect.settled) return;
     this.reconnect.settled = true;
+    if (this.reconnect.timer != null) clearTimeout(this.reconnect.timer); // disarm the liveness deadline
+    this.reconnect.timer = null;
     if (this.sas) {
       this.sas.settled = true;
       if (this.sas.timer != null) clearTimeout(this.sas.timer);
@@ -2539,6 +2664,7 @@ export class SessionController {
     this.method = null;
     if (this.sas?.timer != null) clearTimeout(this.sas.timer); // disarm a pending SAS timeout
     this.sas = null; // room-method (SAS) state
+    if (this.reconnect?.timer != null) clearTimeout(this.reconnect.timer); // disarm the reconnect deadline
     this.reconnect = null; // reconnect (4b-ii) overlay state
     this.forgedIdentityPromise = null; // DEV/TEST forged key (if any) is per-session
     this.role = null;

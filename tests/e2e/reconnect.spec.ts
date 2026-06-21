@@ -121,6 +121,45 @@ test('happy reconnect: enrolled peers re-auth via the pinned key (no SAS) → co
   expect(sha256(readFileSync(out))).toBe(srcHash);
 });
 
+test('reconnect liveness deadline FIRES: a peer that never completes re-auth → the initiator fails at the deadline (no hang)', async ({
+  browser,
+}) => {
+  // Closes the "mismatched-entry hang" residual (BACKLOG § Reconnect UX): on the reconnect path the
+  // re-auth wait (reconnect-init → reconnect-proof) now has its OWN liveness deadline, INDEPENDENT of
+  // the SAS pre-timer (which guards the SAS commit-reveal, not a stalled reconnect). Two DEV-only knobs
+  // drive the FIRING direction (prod keeps the fixed 120 s deadline and never stalls — both are
+  // tree-shaken out):
+  //   - ?stallReconnect / window.__HUSHSEND_STALL_RECONNECT__ — this side reaches the reconnect
+  //     handshake but withholds its reconnect-proof, standing in for the real bug (a peer that joined
+  //     via the plain-SAS lobby and never runs the reconnect protocol at all → no reconnect response);
+  //   - ?reconnectTimeoutMs=N — shrink the reconnect deadline so its firing is observable in seconds,
+  //     NOT a real 120 s wait (SEPARATE from the SAS knobs, so it can't pre-empt SAS state).
+  // The knobs are INERT during the initial plain-SAS enrollment below (no reconnect state there).
+  const a = await openTab(browser, 'reconnectTimeoutMs=6000');
+  const b = await openTab(browser, 'reconnectTimeoutMs=6000&stallReconnect=1');
+
+  await enrollViaSas(a, b); // both pin each other (a fresh SAS pairing — reconnect knobs do nothing here)
+  await resetBoth(a, b);
+  await startReconnect(a, b); // A = reconnect-initiator (announces the pairingId); B = responder (stalls its proof)
+
+  // B receives A's reconnect-init and would prove possession of its pinned key — but withholds the
+  // reconnect-proof. So A (the initiator) waits for a response that never comes, stays in `pairing`,
+  // and FAILS at the (shrunk) reconnect deadline rather than hanging — the firing direction under test.
+  // Without the deadline this exact combination hung forever in "agreeing on keys".
+  await expect(a.getByTestId('status')).toHaveText('failed', { timeout: 30_000 });
+  await expect(a.getByTestId('error')).toContainText('timed out');
+  // The stalling side does not hang either — it fails at its own deadline (or on A's teardown).
+  await expect(b.getByTestId('status')).toHaveText('failed', { timeout: 30_000 });
+
+  // No DataChannel transfer happened on EITHER side — the transfer UI renders only at `connected`,
+  // so its absence is the structural proof that no byte could have crossed.
+  for (const page of [a, b]) {
+    await expect(page.getByTestId('file-input')).toHaveCount(0);
+    await expect(page.getByTestId('send-btn')).toHaveCount(0);
+    await expect(page.getByTestId('status')).not.toHaveText('connected');
+  }
+});
+
 test('key-changed hard-stop: a peer presenting a different key under the same pairingId is rejected → no transfer', async ({
   browser,
 }) => {

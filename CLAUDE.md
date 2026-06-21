@@ -387,6 +387,23 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
   zod-validated to exact lengths (pairingId 16B, challenge 16B, pubKey 32B, sig 64B). DEV/TEST knob
   `?forgeReconnectKey=1` makes a side present a fresh key under the real pairingId, driving the
   key-changed e2e.
+  **Liveness deadline (the reconnect wait has a timeout — fail-closed):** the re-auth wait
+  (reconnect-init → reconnect-proof/fallback) has its OWN deadline, **INDEPENDENT of the SAS timers**.
+  The reconnect path keeps `this.sas` primed as the fallback, so the SAS pre-timer is also armed — but
+  that guards the SAS commit-reveal, NOT a stalled reconnect-init/-proof. Without this, a **mismatched
+  entry** (one side on the reconnect path while the peer joined via the plain-SAS lobby → a fresh SAS,
+  never a reconnect response) would hang in `pairing` ("agreeing on keys") forever. The deadline is
+  **prod-fixed at 120 s** (same as the pre-SAS default; reconnect is automatic, so the exact value is
+  not critical — only that a stalled re-auth fails closed) and read through a **DEV-only override**
+  `reconnectTimeoutMs()` (`?reconnectTimeoutMs=N` / `window.__HUSHSEND_RECONNECT_TIMEOUT_MS__`,
+  `import.meta.env.DEV`-gated → tree-shaken in prod, kept SEPARATE from the SAS knobs). Armed at
+  pairing start (`beginPairing`, reconnect path only) and **re-armed when the relax relay offer
+  surfaces** (`onIceFailed`, the same legitimate-longer-window reasoning as the pre-SAS re-arm);
+  cleared on settle/fallback/fail/dispose; expiry → `failReconnect` (→ `failed` + close), the SAME
+  terminal path as a key-change / MITM. This is a **LIVENESS bound, not a security one** — the two-check
+  verify, the reconnect **role (stays create/join)**, the wire frames, and the crypto are UNCHANGED;
+  it only turns the mismatched-entry hang into a clean `failed`. DEV knob `?stallReconnect=1` (withholds
+  the reconnect-proof) drives the firing e2e (`tests/e2e/reconnect.spec.ts`).
 - **Keystore** (IndexedDB, behind a `KeystoreBackend` port — an IndexedDB impl for the app, an
   in-memory impl for unit tests): stores own identity (non-extractable `CryptoKey` or noble seed)
   and pinned peer keys (`pairingId → { peerPublicKey, firstSeen, label? }`). Pinning on first
@@ -833,7 +850,11 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
 - ✅ `src/ui/` — **real, status-driven screens (steps 5a + 5b)**, built on kit tokens (monochrome,
   inversion-as-emphasis, light/dark via `[data-theme]`, EN/RU). `ScreenRouter` picks a screen by
   FSM status (+ method/phase); `HomeScreen` (landing → method picker [link / qr / words / room] →
-  words-receive + QR-scan-receive, recent devices, join-by-code, reconnect-by-code, **functional "Max
+  words-receive + QR-scan-receive, **a "Reconnect a device" section with an EXPLICIT create-vs-join
+  split** — a one-line hint + **Start** [tap a recent device → `createReconnectSession` opens a room +
+  shows a code] vs **Join — enter the code the other side is showing** [`joinReconnectSession`], so
+  "both start → two rooms" / "reconnect + plain join → handshake mismatch" stop being easy mistakes
+  (UI-only; protocol/roles/wire unchanged), join-by-code, **functional "Max
   privacy" / Reliable toggle** — step 6d, drives `iceServers`), `RoomCreateScreen` (reconnect create
   path — code + waiting), `LobbyScreen` (step
   6c — the room mesh lobby: code + roster [`connection.roster` id/device/joinedAt] + a Connect button

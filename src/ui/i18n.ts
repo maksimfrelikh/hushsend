@@ -38,13 +38,28 @@ export const STR = {
   joinBtn: { en: 'Join', ru: 'Войти' },
   roomCodeAria: { en: 'Room code', ru: 'Код комнаты' },
   orWords: { en: 'Enter code words', ru: 'Ввести кодовые слова' },
-  homeKnown: { en: 'Recent devices', ru: 'Недавние устройства' },
-  reconnectAction: { en: 'reconnect', ru: 'переподключить' },
+  // Reconnect is asymmetric (one side STARTS + shares a code, the other JOINS by code). The copy
+  // makes the create-vs-join split explicit so "both start" / "start + plain join" stop being easy
+  // mistakes — see HomeScreen + BACKLOG § Reconnect UX (entry-point ergonomics).
+  reconnectSection: { en: 'Reconnect a device', ru: 'Переподключить устройство' },
+  reconnectSplitHint: {
+    en: 'One side starts the reconnect and shares the code; the other joins with that code. If you both start, you each open a separate room and never meet.',
+    ru: 'Одна сторона начинает переподключение и делится кодом; другая входит по этому коду. Если начнёте обе — откроете две разные комнаты и не встретитесь.',
+  },
+  reconnectStartLabel: {
+    en: 'Start — tap a device to open a reconnect room (you’ll get a code to share)',
+    ru: 'Начать — нажмите устройство, чтобы открыть комнату (получите код, чтобы поделиться)',
+  },
+  reconnectStartAction: { en: 'Start', ru: 'Начать' },
   noRecent: {
     en: 'No paired devices yet — a device appears here after your first verified connection.',
     ru: 'Пока нет сопряжённых устройств — они появятся после первого проверенного соединения.',
   },
-  reconnectByCode: { en: 'Reconnect by code', ru: 'Переподключить по коду' },
+  reconnectJoinLabel: {
+    en: 'Join — enter the code the other side is showing',
+    ru: 'Войти — введите код, который показывает другая сторона',
+  },
+  reconnectJoinAction: { en: 'Join', ru: 'Войти' },
   reconnectCodeAria: { en: 'Reconnect code', ru: 'Код переподключения' },
   lastSeen: { en: 'last seen', ru: 'был(а)' },
 

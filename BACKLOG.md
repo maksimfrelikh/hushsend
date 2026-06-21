@@ -193,12 +193,16 @@ deadline (both DEV-only / tree-shaken), and `tests/e2e/room-sas.spec.ts` asserts
 at the deadline rather than hanging. The pre-SAS deadline is also re-armed when the relax relay offer
 surfaces. See CLAUDE.md § room/SAS Timeouts + § Privacy mode + ICE / relax-retry.)
 
-## Reconnect UX — lobby-pick reconnect + entry-point ergonomics (deferred; observed in the manual test pass)
+## Reconnect UX — lobby-pick reconnect + entry-point ergonomics (PARTIALLY DONE; observed in the manual test pass)
 
 Expands the deferred **reconnect-in-lobby** item (Step 6 / 6c follow-ups). The manual cross-browser
 pass confirmed reconnect works correctly via its intended path (one side `reconnect` [create], the
 other `reconnect-by-code`), and surfaced two concrete failure modes from how the entry points
-combine:
+combine. **The two LOW-RISK parts are now DONE** (interim liveness deadline + entry-point ergonomics —
+see ✅ items under "What done looks like"); the SECURITY-SENSITIVE parts (lobby-pick reconnect +
+reconnect role create/join → id-order) remain **deferred (post-audit)**.
+
+The two failure modes (both now fail-closed / less likely, not yet fully fixed):
 
 - **Mismatched entry → permanent "agreeing on keys" hang.** If one side takes the **reconnect** path
   (pin-based auto-pair, protocol role create/join, NO SAS) while the other joins the same code via
@@ -219,22 +223,43 @@ combine:
 - A **lobby pick** should detect that the target peer is already pinned (`pairingId → key` present on
   both sides) and route that pair through **reconnect-auth (no SAS)** instead of a fresh SAS — i.e.
   reconnect becomes reachable *from the mesh lobby*, not only via the separate by-code path. (This is
-  the original reconnect-in-lobby goal.)
-- **The reconnect PROTOCOL role must move from create/join to id-order.** It is currently create/join
-  (creator = reconnect initiator / verifier-first), well-defined only for the 1:1 by-code path; a mesh
-  pick has no creator/joiner, so the initiator / verifier-first side must be derived from the
-  readable-id order (like `pairingRole`/`sasRole` already are). Re-verify the **key-changed-before-settle**
-  ordering (the two-check key-changed-vs-MITM verify) still holds under id-derived roles.
-- **Interim hardening (worth doing independently of the full feature):** add a liveness deadline on the
-  reconnect-init / reconnect-auth wait so a mismatched-entry pair ends in `failed` rather than an
-  infinite "agreeing on keys". Optionally, fail-fast / hint when an already-pinned peer joins via the
-  fresh-SAS lobby path. This removes the hang even before lobby-reconnect lands.
-- **Entry-point ergonomics:** make the reconnect create-vs-join distinction explicit in the UI (e.g.
-  one affordance to *start* a reconnect room, a clearly separate one to *join by code*), so "reconnect
-  on both" and "reconnect + regular join" aren't easy mistakes.
+  the original reconnect-in-lobby goal.) ***(still deferred — see "Deferred (post-audit)" below.)***
+- **The reconnect PROTOCOL role must move from create/join to id-order.** ***(still deferred — see
+  "Deferred (post-audit)" below.)***
+- ✅ **Interim hardening — liveness deadline on the reconnect wait — DONE (this pass).** The reconnect
+  re-auth wait (reconnect-init → reconnect-proof/fallback) now has its OWN liveness deadline,
+  INDEPENDENT of the SAS pre-timer (which guards the SAS commit-reveal, not a stalled reconnect). A
+  mismatched-entry pair — one side on reconnect, the other on the plain-SAS lobby path (a fresh SAS,
+  never a reconnect response) — now ends in **`failed`** instead of an infinite "agreeing on keys".
+  Prod-fixed at the same **120 s** default as the pre-SAS deadline, read through a DEV-only override
+  (`reconnectTimeoutMs()` ← `?reconnectTimeoutMs=N` / `window.__HUSHSEND_RECONNECT_TIMEOUT_MS__`,
+  tree-shaken in prod) for cheap e2e. Armed at pairing start (`SessionController.beginPairing`,
+  reconnect path only) + re-armed when the relax relay offer surfaces (`onIceFailed`); cleared on
+  settle (`settleReconnect`) / fallback (`reconnectFallback`) / fail (`failReconnect`) / dispose; expiry
+  → `failReconnect` (→ `failed` + close), the SAME terminal path as a key-change / MITM. **Fail-closed,
+  liveness only — the two-check verify, the reconnect role (create/join), the wire frames, and the
+  crypto are UNTOUCHED.** DEV knob `?stallReconnect=1` (withholds the reconnect-proof) drives the
+  firing e2e (`tests/e2e/reconnect.spec.ts` — "reconnect liveness deadline FIRES"). The optional
+  fail-fast/hint on the OTHER side (an already-pinned peer joining via the fresh-SAS lobby path) was
+  NOT done — it is nontrivial (the plain-SAS side has no reconnect state to key off) and the deadline
+  already removes the hang. (See CLAUDE.md § Crypto / Reconnect.)
+- ✅ **Entry-point ergonomics — DONE (this pass).** The reconnect create-vs-join split is now explicit
+  on the home screen: a **"Reconnect a device"** section with a one-line split hint ("one side starts +
+  shares the code, the other joins with it; both starting opens two rooms"), then two clearly-labelled
+  affordances — **Start** (tap a recent device → `createReconnectSession` opens a room + shows a code)
+  vs **Join — enter the code the other side is showing** (`joinReconnectSession`). EN/RU. UI-only — the
+  reconnect protocol / roles / wire format are unchanged; testids (`create-reconnect-btn` /
+  `reconnect-input` / `join-reconnect-btn`) are stable. This makes "reconnect on both" and "reconnect +
+  regular join" no longer easy mistakes.
 
-Until the above lands, the lobby keeps doing a fresh SAS, reconnect stays the separate by-code
-auto-pair path, and the two **must not be mixed** (the hang above).
+**Deferred (post-audit) — security-sensitive, NOT in this pass:** lobby-pick reconnect AND moving the
+reconnect PROTOCOL role from create/join to id-order. The role move changes the **verifier-first
+ordering** the two-check **key-changed-vs-MITM** verify depends on (today create/join fixes the
+verifier-first side so a key change is caught before a forger can settle); re-deriving it from the
+readable ids needs the key-changed-before-settle ordering re-verified under id-roles first. Until that
+audit lands, the lobby keeps doing a fresh SAS, reconnect stays the separate by-code auto-pair path,
+and the two **must not be mixed** — but the mix no longer HANGS (it now fails closed, per the liveness
+deadline above), and the entry-point ergonomics make the mix far less likely.
 
 ## UX bugs — found in the manual test pass (Phase 1)
 
