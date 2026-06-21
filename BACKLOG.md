@@ -192,3 +192,68 @@ makes a peer reach the SAS but withhold its nonce reveal, `?preSasTimeoutMs=N` s
 deadline (both DEV-only / tree-shaken), and `tests/e2e/room-sas.spec.ts` asserts the other side fails
 at the deadline rather than hanging. The pre-SAS deadline is also re-armed when the relax relay offer
 surfaces. See CLAUDE.md § room/SAS Timeouts + § Privacy mode + ICE / relax-retry.)
+
+## Reconnect UX — lobby-pick reconnect + entry-point ergonomics (deferred; observed in the manual test pass)
+
+Expands the deferred **reconnect-in-lobby** item (Step 6 / 6c follow-ups). The manual cross-browser
+pass confirmed reconnect works correctly via its intended path (one side `reconnect` [create], the
+other `reconnect-by-code`), and surfaced two concrete failure modes from how the entry points
+combine:
+
+- **Mismatched entry → permanent "agreeing on keys" hang.** If one side takes the **reconnect** path
+  (pin-based auto-pair, protocol role create/join, NO SAS) while the other joins the same code via
+  the **regular room join** (→ lobby → manual pick → always a *fresh* SAS, role by id-order), the two
+  run *different* handshakes over the same channel: one sends `reconnect-init` and waits for
+  `reconnect-proof`, the other sends `pair-request` / `sas-commit`. SDP/DTLS negotiate fine
+  (fingerprints exchange), but the app-level key step never converges → both sit in `pairing`
+  ("agreeing on keys") indefinitely. Note there is **no timeout-to-failed in this combination** — the
+  pre-SAS deadline guards the SAS side, not a stalled `reconnect-init`, so the mismatch hangs forever
+  instead of failing.
+- **Both sides press `reconnect` → two separate rooms, no rendezvous.** `reconnect` is
+  reconnect-**create** (allocates its own room/code); pressing it on both peers makes two independent
+  rooms that never meet. Same create/join asymmetry as every method, but the single "reconnect" label
+  reads like "reconnect to my peer" rather than "open a reconnect room" — the create-vs-join split for
+  reconnect is non-obvious.
+
+**What "done" looks like:**
+- A **lobby pick** should detect that the target peer is already pinned (`pairingId → key` present on
+  both sides) and route that pair through **reconnect-auth (no SAS)** instead of a fresh SAS — i.e.
+  reconnect becomes reachable *from the mesh lobby*, not only via the separate by-code path. (This is
+  the original reconnect-in-lobby goal.)
+- **The reconnect PROTOCOL role must move from create/join to id-order.** It is currently create/join
+  (creator = reconnect initiator / verifier-first), well-defined only for the 1:1 by-code path; a mesh
+  pick has no creator/joiner, so the initiator / verifier-first side must be derived from the
+  readable-id order (like `pairingRole`/`sasRole` already are). Re-verify the **key-changed-before-settle**
+  ordering (the two-check key-changed-vs-MITM verify) still holds under id-derived roles.
+- **Interim hardening (worth doing independently of the full feature):** add a liveness deadline on the
+  reconnect-init / reconnect-auth wait so a mismatched-entry pair ends in `failed` rather than an
+  infinite "agreeing on keys". Optionally, fail-fast / hint when an already-pinned peer joins via the
+  fresh-SAS lobby path. This removes the hang even before lobby-reconnect lands.
+- **Entry-point ergonomics:** make the reconnect create-vs-join distinction explicit in the UI (e.g.
+  one affordance to *start* a reconnect room, a clearly separate one to *join by code*), so "reconnect
+  on both" and "reconnect + regular join" aren't easy mistakes.
+
+Until the above lands, the lobby keeps doing a fresh SAS, reconnect stays the separate by-code
+auto-pair path, and the two **must not be mixed** (the hang above).
+
+## UX bugs — found in the manual test pass (Phase 1)
+
+- **Recent-devices / reconnect list accumulates duplicate rows for the same peer.** The list (read
+  from the keystore via `listPins()`) is keyed by `pairingId`, but every *fresh* pairing
+  (room+SAS / words / link/qr) runs enrollment, which mints a NEW key-independent `pairingId`. So
+  pairing the same two devices repeatedly — and the dual-pin-after-wipe case — leaves several pins
+  with **distinct pairingIds but the same `peerPublicKey`**, and the list renders one row per pin →
+  the same device shows up several times. **Fix:** dedup the recent-devices list by
+  **`peerPublicKey`** (the stable identity), not `pairingId` — one row per distinct peer key
+  (most-recent pin; merge `firstSeen`/`label`). Ideally also GC/merge the redundant keystore pins so
+  there is one canonical pin per peer (this is the **dual-pin** caveat surfacing in the UI — see
+  § Caveats). Reconnect stays keyed by `pairingId` on the wire; this is a display + keystore-hygiene
+  change, not a protocol change.
+
+- **Post-transfer "send another" doesn't reset between sends.** After a transfer finishes, the done
+  screen lets you start another send, but repeated sends stack transfer/history state instead of
+  resetting between them (the previous transfer's progress/records aren't cleared). **Fix:** reset
+  the transfer state to a clean slate for each new send (fresh per-transfer progress/file state, no
+  leftover from the prior one), and bound the in-memory history or make it clearable so the screen
+  doesn't accumulate stale rows across a session. Session-only history semantics are unchanged
+  (in-memory, gone on reload) — this is about resetting/clearing *within* a session.
