@@ -1853,12 +1853,14 @@ export class SessionController {
 
   /**
    * A-side: start a reconnect. Allocate a 4-digit room (same rendezvous as the SAS path) and pick
-   * the pairingId to reconnect under from our pins (most recently pinned). If we hold NO pin there
-   * is nothing to reconnect — we degrade to a plain SAS room (the `this.reconnect == null` path),
-   * exactly the normal first-connect. On `peer-joined` we initiate WebRTC; on channel-open we send
-   * `reconnect-init` announcing the pairingId + our challenge.
+   * the pairingId to reconnect under. The home screen passes the SELECTED recent-device row's
+   * `pairingId` (the deduped freshest pin for that peer); absent that we fall back to the
+   * most-recently-pinned peer overall. If we hold NO pin there is nothing to reconnect — we degrade
+   * to a plain SAS room (the `this.reconnect == null` path), exactly the normal first-connect. On
+   * `peer-joined` we initiate WebRTC; on channel-open we send `reconnect-init` announcing the
+   * pairingId + our challenge. (UI selection only — the reconnect protocol is unchanged.)
    */
-  async createReconnectSession(): Promise<void> {
+  async createReconnectSession(pairingId?: string): Promise<void> {
     this.dispatch(connectionActions.createStarted({ method: 'room' }));
     this.isCreator = true;
     this.method = 'room';
@@ -1870,8 +1872,11 @@ export class SessionController {
     try {
       const pins = await this.keystore.listPins();
       if (pins.length > 0) {
-        // Reconnect under the most-recently-pinned peer (the harness pins exactly one).
-        const pin = pins.reduce((a, b) => (b.firstSeen > a.firstSeen ? b : a));
+        // Reconnect under the SELECTED pin if the caller named one (and we still hold it); otherwise
+        // the most-recently-pinned peer overall. Either way it is a real pin from THIS keystore.
+        const pin =
+          (pairingId !== undefined ? pins.find((p) => p.pairingId === pairingId) : undefined) ??
+          pins.reduce((a, b) => (b.firstSeen > a.firstSeen ? b : a));
         this.reconnect = newReconnectState('initiator', hexToBytes(pin.pairingId));
         this.dispatch(devActions.setReconnect({ active: true, outcome: null }));
       } else {

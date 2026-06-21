@@ -150,7 +150,7 @@ function LandingView({
                 type="button"
                 className="hs-btn hs-btn--ghost hs-btn--sm"
                 data-testid={i === 0 ? 'create-reconnect-btn' : undefined}
-                onClick={() => void session.createReconnectSession()}
+                onClick={() => void session.createReconnectSession(d.pairingId)}
               >
                 {t('reconnectAction')}
               </button>

@@ -1,11 +1,11 @@
 import { useState, type ReactElement } from 'react';
 import { useSession } from '../SessionProvider';
-import { useAppSelector } from '../../store/hooks';
+import { useAppDispatch, useAppSelector } from '../../store/hooks';
 import { formatBytes } from '../../core/transfer/fileTransfer';
 import { useT } from '../prefs';
 import type { StrKey } from '../i18n';
 import type { ConnectionMethod } from '../../store/connectionSlice';
-import type { TransferState } from '../../store/transferSlice';
+import { transferActions, type TransferState } from '../../store/transferSlice';
 import { Screen, Eyebrow } from '../ui';
 
 /**
@@ -16,12 +16,29 @@ import { Screen, Eyebrow } from '../ui';
 export function TransferScreen(): ReactElement {
   const session = useSession();
   const t = useT();
+  const dispatch = useAppDispatch();
   const method = useAppSelector((s) => s.connection.method);
   const reconnectOutcome = useAppSelector((s) => s.dev.reconnect.outcome);
   const transfer = useAppSelector((s) => s.transfer);
   const [files, setFiles] = useState<File[]>([]);
 
-  const idle = transfer.phase === 'idle' || transfer.phase === 'done' || transfer.phase === 'cancelled';
+  // Drop zone + file selection show ONLY in a clean idle state. A finished/aborted transfer parks on
+  // its terminal plaque with an explicit "New transfer" button (below) so the done state never lingers
+  // alongside a fresh pick — each send starts from a clean slate.
+  const idle = transfer.phase === 'idle';
+  const terminal =
+    transfer.phase === 'done' ||
+    transfer.phase === 'cancelled' ||
+    transfer.phase === 'rejected' ||
+    transfer.phase === 'error';
+
+  // Reset ONLY the per-transfer projection (progress / file name / phase) back to idle and clear the
+  // local file pick — a clean ready-to-send for the next send. Does NOT touch the connection (the
+  // channel stays open) and does NOT clear the session-only history (those records persist).
+  const newTransfer = (): void => {
+    dispatch(transferActions.reset());
+    setFiles([]);
+  };
 
   return (
     <Screen wide>
@@ -66,6 +83,17 @@ export function TransferScreen(): ReactElement {
       )}
 
       <TransferPanel transfer={transfer} />
+
+      {terminal && (
+        <button
+          type="button"
+          className="hs-btn hs-btn--primary hs-btn--block"
+          data-testid="new-transfer-btn"
+          onClick={newTransfer}
+        >
+          {t('newTransfer')}
+        </button>
+      )}
 
       <button type="button" className="hs-textlink" data-testid="reset-btn" onClick={() => session.dispose()}>
         {t('closeChannel')}

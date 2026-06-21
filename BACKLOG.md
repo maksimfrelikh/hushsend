@@ -238,22 +238,31 @@ auto-pair path, and the two **must not be mixed** (the hang above).
 
 ## UX bugs — found in the manual test pass (Phase 1)
 
-- **Recent-devices / reconnect list accumulates duplicate rows for the same peer.** The list (read
-  from the keystore via `listPins()`) is keyed by `pairingId`, but every *fresh* pairing
-  (room+SAS / words / link/qr) runs enrollment, which mints a NEW key-independent `pairingId`. So
-  pairing the same two devices repeatedly — and the dual-pin-after-wipe case — leaves several pins
-  with **distinct pairingIds but the same `peerPublicKey`**, and the list renders one row per pin →
-  the same device shows up several times. **Fix:** dedup the recent-devices list by
-  **`peerPublicKey`** (the stable identity), not `pairingId` — one row per distinct peer key
-  (most-recent pin; merge `firstSeen`/`label`). Ideally also GC/merge the redundant keystore pins so
-  there is one canonical pin per peer (this is the **dual-pin** caveat surfacing in the UI — see
-  § Caveats). Reconnect stays keyed by `pairingId` on the wire; this is a display + keystore-hygiene
-  change, not a protocol change.
+- ✅ **Recent-devices / reconnect list accumulates duplicate rows for the same peer — DONE
+  (display-dedup).** The list (read from the keystore via `listPins()`) was keyed by `pairingId`, but
+  every *fresh* pairing (room+SAS / words / link/qr) runs enrollment, which mints a NEW
+  key-independent `pairingId`. So pairing the same two devices repeatedly — and the dual-pin-after-wipe
+  case — left several pins with **distinct pairingIds but the same `peerPublicKey`** → one row per pin.
+  **Fixed:** `src/ui/recentDevices.ts` now dedups the list by **`peerPublicKey`** (the stable identity)
+  via `dedupeByPeerKey` — one row per distinct peer key, keeping the **most-recent pin** (by
+  `firstSeen`), whose `pairingId` drives the reconnect tap (both sides pinned it at the freshest
+  enrollment → valid) and whose `label`/`firstSeen` show in the row; rows ordered newest-first. The
+  home reconnect button now passes the selected row's `pairingId` to `createReconnectSession(pairingId?)`
+  (UI selection only — the reconnect protocol / wire format / create-join role are unchanged).
+  `src/ui/recentDevices.test.ts` (in-memory keystore backend). This is a **display** fix; pins are NOT
+  removed from the keystore.
+  - **keystore-GC / pin-merge** *(still deferred)* — collapsing the redundant pins to one canonical pin
+    per peer in the keystore itself (so the dual-pin caveat stops accumulating dead pins) is NOT done;
+    the dedup is display-only. See § Caveats (dual-pin).
 
-- **Post-transfer "send another" doesn't reset between sends.** After a transfer finishes, the done
-  screen lets you start another send, but repeated sends stack transfer/history state instead of
-  resetting between them (the previous transfer's progress/records aren't cleared). **Fix:** reset
-  the transfer state to a clean slate for each new send (fresh per-transfer progress/file state, no
-  leftover from the prior one), and bound the in-memory history or make it clearable so the screen
-  doesn't accumulate stale rows across a session. Session-only history semantics are unchanged
-  (in-memory, gone on reload) — this is about resetting/clearing *within* a session.
+- ✅ **Post-transfer "send another" doesn't reset between sends — DONE.** The done screen now parks on
+  its terminal plaque with an explicit **"New transfer"** button (`new-transfer-btn`, reusing the
+  existing `newTransfer` string); the drop zone shows ONLY in a clean idle state, so a finished/aborted
+  transfer never lingers alongside a fresh pick. Each new send starts from a clean slate — `sendFiles`
+  already dispatches `transferActions.reset()`, and the "New transfer" button dispatches it (plus clears
+  the local file pick) on the way back to ready-to-send, without touching the connection. In-memory
+  history is left **bounded** (`HISTORY_CAP = 12`, oldest dropped) and **clearable** (`forgotten`, wired
+  to the home "forget" alongside the pin reset) — both already present, kept and now unit-tested. The
+  per-send reset touches ONLY the transfer slice — it does NOT clear history records. Session-only
+  history semantics unchanged (in-memory, gone on reload). `src/store/transferSlice.test.ts` +
+  `src/store/historySlice.test.ts`.

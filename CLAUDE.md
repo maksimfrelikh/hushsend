@@ -843,16 +843,26 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
 **relax-retry** relay offer/waiting when `connection.relax.available` — step 6d), `SasScreen`
   (**asymmetric pick-from-3**: reader shows its phrase; picker is blind among the real + 2 local
   decoys — **role per-pairing by readable-id order**, `src/core/sasRole.ts` → `connection.sasRole`,
-  fail-closed "restart verification" on a missing id), `TransferScreen`, `FailedScreen`
+  fail-closed "restart verification" on a missing id), `TransferScreen` (a finished/aborted transfer
+  parks on its terminal plaque with an explicit **"New transfer"** button [`new-transfer-btn`] that
+  `transferActions.reset()`s the per-transfer projection + clears the local pick → a CLEAN
+  ready-to-send per send, no leftover progress/file-name from the prior transfer; the drop zone shows
+  only in a clean `idle`. Does NOT touch the connection or clear the history records), `FailedScreen`
   (+ key-changed hard stop). The link fragment auto-join + scrub lives in `App.tsx`
   (`LinkFragmentJoin`). Shared `ui.tsx` (TopBar, StatusBeacon, PrivacyToggle, CopyButton,
   ShareButton, Eyebrow, …), `components/` (`WordPicker`, DEV-only `Diagnostics`), `qr.ts`
   (link→SVG QR via `qrcode`; `qr.test.ts`), `prefs.tsx` + `i18n.ts` (lang/theme/**privacy mode**, the
   last pushed into the core via `<PrivacyModeSync>` → `setPrivacyMode`), `sasOptions.ts`
   (+ `sasOptions.test.ts`: SAS pick-from-3 decoys + scoring) over `random.ts` (CSPRNG),
-  `recentDevices.ts` (recent devices read from the keystore). **Transfer history is SESSION-ONLY** —
-  an in-memory Redux slice (`src/store/historySlice.ts`), NOT persisted (file names are a privacy
-  trail; gone on reload). localStorage now holds **only prefs** (lang/theme/privacy mode); there is no
+  `recentDevices.ts` (recent devices read from the keystore, **deduped by `peerPublicKey`** —
+  `dedupeByPeerKey`, ONE row per distinct peer key keeping the most-recent pin; its `pairingId` drives
+  the reconnect tap [`createReconnectSession(pairingId?)`], its `label`/`firstSeen` the row — so a peer
+  that holds several pins under distinct pairingIds [fresh-enroll / dual-pin] shows once. Display-only:
+  pins are NOT GC'd; reconnect wire protocol unchanged. `recentDevices.test.ts`). **Transfer history is
+  SESSION-ONLY** — an in-memory Redux slice (`src/store/historySlice.ts`), NOT persisted (file names are
+  a privacy trail; gone on reload), kept **bounded** (`HISTORY_CAP = 12`) + **clearable** (`forgotten`,
+  via the home "forget"); the per-send transfer reset does NOT clear it (`transferSlice.test.ts` /
+  `historySlice.test.ts`). localStorage now holds **only prefs** (lang/theme/privacy mode); there is no
   longer a `persistence.ts`. The `dev` store slice stays as the auxiliary projection
   feed (identity pubkey / pinned peer / public DTLS fingerprints / **ICE config: privacy mode + relay
   + TURN creds** / log) the SessionController publishes; all fields are serializable + non-sensitive
