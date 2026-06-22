@@ -151,9 +151,9 @@ describe('4-digit room: lobby seat cap (codeType-dependent)', () => {
   const MAX = 3; // small lobby cap for a fast test; the prod default is 8 (FILETRANSFER_MAX_PEERS)
   let server: ChildProcess;
   beforeAll(async () => {
-    // TRUST_PROXY=1 + a distinct X-Real-IP per client so the realistic multi-peer lobby isn't
-    // limited by the per-IP-per-room anti-squat cap (MAX_PER_IP_PER_ROOM=2). Behind nginx every real
-    // client arrives with its own X-Real-IP, so that cap only bites peers genuinely sharing one IP.
+    // TRUST_PROXY=1 + a distinct X-Real-IP per client. (The per-IP-per-room cap now defaults to the
+    // room cap, so same-IP peers would also fit; distinct IPs keep this block focused purely on the
+    // seat cap and mirror how real clients arrive behind nginx — each with its own X-Real-IP.)
     server = await startServer(PORT, { TRUST_PROXY: '1', FILETRANSFER_MAX_PEERS: String(MAX) });
   });
   afterAll(() => {
@@ -454,5 +454,89 @@ describe('per-IP create/join attempt rate-limit', () => {
       const welcome = await c.waitFor('welcome');
       expect(welcome.type).toBe('welcome');
     }
+  });
+});
+
+describe('per-IP-per-room cap DEFAULTS to the room seat cap (one IP may fill a room — co-located group)', () => {
+  const PORT = 8099;
+  const MAX = 3; // small room cap for a fast test; MAX_PER_IP_PER_ROOM is deliberately UNSET below.
+  let server: ChildProcess;
+  beforeAll(async () => {
+    // TRUST_PROXY=1 so clientIp() reads our fake X-Real-IP. We deliberately DO NOT set
+    // MAX_PER_IP_PER_ROOM — the point of this block is that its default now equals the room cap
+    // (FILETRANSFER_MAX_PEERS), so a single IP can occupy the room up to the cap (the meeting/class/
+    // office-behind-one-NAT case), with the ROOM CAP — not a hardcoded 2 — as the binding per-room limit.
+    server = await startServer(PORT, { TRUST_PROXY: '1', FILETRANSFER_MAX_PEERS: String(MAX) });
+  });
+  afterAll(() => {
+    server?.kill();
+  });
+
+  it('admits room-cap peers ALL sharing one IP — no 4007 below the cap (group behind one NAT)', async () => {
+    const IP = '203.0.118.1'; // every peer behind ONE public IP (one office/class wifi)
+    const [, code] = await createRoom(PORT, IP); // creator takes seat 1 from IP
+    for (let i = 0; i < MAX - 1; i++) {
+      // Fill the remaining seats from the SAME IP. With the old hardcoded MAX_PER_IP_PER_ROOM=2 the
+      // 3rd same-IP peer would have been bounced 4007; now the per-IP cap defaults to the room cap (3).
+      const j = client(PORT, `app=filetransfer&room=${code}`, IP);
+      await j.opened();
+      const welcome = await j.waitFor('welcome');
+      expect(welcome.type).toBe('welcome');
+    }
+  });
+
+  it('bounces the (cap+1)-th same-IP peer with 4002 room-full — the ROOM CAP binds, not 4007', async () => {
+    const IP = '203.0.118.2';
+    const [, code] = await createRoom(PORT, IP);
+    for (let i = 0; i < MAX - 1; i++) {
+      const j = client(PORT, `app=filetransfer&room=${code}`, IP);
+      await j.opened();
+      await j.waitFor('welcome');
+    }
+    // One past the room cap: the seat-cap check (4002) runs before the per-IP check, and since the
+    // per-IP default == the room cap, the binding per-room limit is the room cap → 4002, NOT 4007.
+    const over = client(PORT, `app=filetransfer&room=${code}`, IP);
+    const close = await over.waitClose();
+    expect(close.code).toBe(4002);
+    expect(close.reason).toMatch(/full/i);
+  });
+});
+
+describe('per-IP-per-room cap: a LOWER MAX_PER_IP_PER_ROOM override re-tightens anti-domination (4007)', () => {
+  const PORT = 8100;
+  const MAX = 4; // room cap
+  const PER_IP = 2; // override BELOW the room cap → one IP may take only 2 of the 4 seats
+  let server: ChildProcess;
+  beforeAll(async () => {
+    server = await startServer(PORT, {
+      TRUST_PROXY: '1',
+      FILETRANSFER_MAX_PEERS: String(MAX),
+      MAX_PER_IP_PER_ROOM: String(PER_IP),
+    });
+  });
+  afterAll(() => {
+    server?.kill();
+  });
+
+  it('admits PER_IP same-IP peers, then bounces the next with 4007 while the room still has free seats', async () => {
+    const IP = '203.0.119.1';
+    const [, code] = await createRoom(PORT, IP); // same-IP peer 1 (creator)
+    for (let i = 0; i < PER_IP - 1; i++) {
+      const j = client(PORT, `app=filetransfer&room=${code}`, IP);
+      await j.opened();
+      await j.waitFor('welcome');
+    }
+    // The (PER_IP+1)-th SAME-IP peer is over the override even though the room (cap MAX=4) has free
+    // seats → 4007, NOT 4002. Proves a lower override re-arms the per-room anti-domination cap.
+    const over = client(PORT, `app=filetransfer&room=${code}`, IP);
+    const close = await over.waitClose();
+    expect(close.code).toBe(4007);
+    expect(close.reason).toMatch(/network/i);
+
+    // The remaining seats are still reachable from a DIFFERENT IP → the cap is per-IP, not per-room.
+    const other = client(PORT, `app=filetransfer&room=${code}`, '203.0.119.99');
+    await other.opened();
+    const welcome = await other.waitFor('welcome');
+    expect(welcome.type).toBe('welcome');
   });
 });

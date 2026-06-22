@@ -698,6 +698,18 @@ X-Forwarded-For; binds to `127.0.0.1` (only the local nginx reaches it). Run wit
     is EXEMPT** (`127.0.0.1` / `::1`) — behind nginx a real client always arrives via `X-Real-IP` and
     never looks like loopback, so the local proxy / dev / e2e are never throttled. Defense-in-depth
     only; SAS / key-confirmation are what actually stop a MITM. (`tests/integration/room-server.test.ts`.)
+  - **Per-IP-per-room cap — DEFAULTS TO THE ROOM CAP (not a hardcoded 2)**. The per-room anti-squat
+    check (`sameIp >= perIpPerRoomCap` → close **4007 `'too many from your network'`**) uses
+    `perIpPerRoomCap = MAX_PER_IP_PER_ROOM || maxPeers` — i.e. with `MAX_PER_IP_PER_ROOM` unset it is
+    the room's OWN seat cap (`maxPeers`: 8 for the 4-digit lobby, 2 for the 1:1 words/token rooms). So
+    by default the **room cap is the binding per-room limit**: ONE IP may fill a room up to the cap, and
+    a peer past it hits the seat-cap **4002** (which runs first), never 4007. This is deliberate — a
+    room is a shared code for a group up to `FILETRANSFER_MAX_PEERS` (8) that then pairs 1:1, and the
+    natural such group (a meeting/class/office behind one NAT = one shared public IP) must not be
+    throttled by a small per-IP cap. Set `MAX_PER_IP_PER_ROOM` to a value **below** the room cap to
+    RE-tighten anti-domination (one IP can't fill a room → 4007 fires before the room is full) at the
+    cost of co-located groups gathering past that value. Global per-IP limits are untouched
+    (`MAX_CONNS_PER_IP` 4006, `IP_RL_MAX` 4011). (`tests/integration/room-server.test.ts`.)
   - The `clipboard` mesh app is NOT `managed` — it keeps its shared-code mesh (`maxPeers` lobby, no
     TTL, no rate-limit), since those are one user's own devices typing the same code on purpose.
 - **TURN credentials for Reliable mode (server side — done; client side — done; Max-privacy is STRICT

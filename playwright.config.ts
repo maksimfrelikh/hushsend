@@ -34,10 +34,10 @@ export default defineConfig({
       url: 'http://127.0.0.1:8080/health',
       reuseExistingServer: !process.env.CI,
       timeout: 30_000,
-      // All Playwright tabs share the loopback IP (no TRUST_PROXY here), so raise the per-IP-per-room
-      // anti-squat cap above its prod default (2) — otherwise a 3-peer LOBBY test (creator + 2
-      // joiners) would bounce the 3rd with 4007. Server CODE/defaults are unchanged; this is purely
-      // the test environment, mirroring how the integration suite passes its own caps via env.
+      // All Playwright tabs share the loopback IP (no TRUST_PROXY here). The per-IP-per-room anti-squat
+      // cap now DEFAULTS to the room cap (8), so 3 same-IP lobby tabs already fit; we pin it to 8
+      // explicitly so this test stays robust to a future default change. Server CODE/defaults are
+      // unchanged; this is purely the test environment, mirroring how the integration suite passes caps.
       //
       // TURN_SECRET + TURN_URLS configure the coturn-credential minting so the Reliable-mode e2e
       // (privacy.spec) can fetch real creds via `turn-request` and assert the client built the TURN
