@@ -141,12 +141,53 @@ export function StatusBeacon(): ReactElement {
   );
 }
 
+/**
+ * Brand wordmark — "hush" solid, "send" fading out (the design-reference logo).
+ * `fill="currentColor"` so it follows the monochrome theme (dark ink on light,
+ * light ink on dark); colour comes from `.hs-wordmark` (var(--fg)).
+ */
+export function Wordmark(): ReactElement {
+  return (
+    <svg
+      className="hs-wordmark"
+      viewBox="0 0 766 198"
+      role="img"
+      aria-label="hushsend"
+    >
+      <defs>
+        <filter id="hs-wm-b1" x="-60%" y="-60%" width="220%" height="220%">
+          <feGaussianBlur stdDeviation="1.8" />
+        </filter>
+        <filter id="hs-wm-b2" x="-60%" y="-60%" width="220%" height="220%">
+          <feGaussianBlur stdDeviation="4" />
+        </filter>
+        <filter id="hs-wm-b3" x="-80%" y="-80%" width="260%" height="260%">
+          <feGaussianBlur stdDeviation="7.5" />
+        </filter>
+        <filter id="hs-wm-b4" x="-100%" y="-100%" width="300%" height="300%">
+          <feGaussianBlur stdDeviation="11.5" />
+        </filter>
+      </defs>
+      <g fontFamily="Archivo, Arial, sans-serif" fontWeight="600" fontSize="160" fill="currentColor">
+        <text x="40" y="156">h</text>
+        <text x="127.85" y="156">u</text>
+        <text x="215.53" y="156">s</text>
+        <text x="296.5" y="156">h</text>
+        <text x="384.35" y="156" opacity="0.85" filter="url(#hs-wm-b1)">s</text>
+        <text x="465.31" y="156" opacity="0.62" filter="url(#hs-wm-b2)">e</text>
+        <text x="549.48" y="156" opacity="0.4" filter="url(#hs-wm-b3)">n</text>
+        <text x="637.33" y="156" opacity="0.22" filter="url(#hs-wm-b4)">d</text>
+      </g>
+    </svg>
+  );
+}
+
 /** Top bar: wordmark + language toggle + light/dark theme toggle. */
 export function TopBar(): ReactElement {
   const { lang, setLang, theme, toggleTheme } = usePrefs();
   return (
     <header className="hs-topbar">
-      <span className="hs-wordmark">hushsend</span>
+      <Wordmark />
       <div className="hs-topbar__right">
         <div className="hs-seg" role="group" aria-label="language">
           <button

@@ -61,10 +61,10 @@
   border-bottom: 1px solid var(--line);
 }
 .hs-wordmark {
-  font-family: var(--font-mono);
-  font-weight: var(--w-strong);
-  font-size: 14px;
-  letter-spacing: -0.01em;
+  display: block;
+  width: auto;
+  height: 22px;
+  color: var(--fg); /* source for the SVG's fill="currentColor" */
 }
 .hs-topbar__right {
   display: flex;
