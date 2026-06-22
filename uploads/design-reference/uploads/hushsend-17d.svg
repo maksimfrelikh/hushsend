@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="766" height="198" viewBox="0 0 766 198" role="img" aria-label="hushsend">
+  <defs>
+    
+    <filter id="b1" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="1.8"></feGaussianBlur></filter>
+    <filter id="b2" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="4"></feGaussianBlur></filter>
+    <filter id="b3" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="7.5"></feGaussianBlur></filter>
+    <filter id="b4" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="11.5"></feGaussianBlur></filter>
+  </defs>
+  <g font-family="Archivo, Arial, sans-serif" font-weight="600" font-size="160" fill="#0b0b0b">
+    <text x="40.00" y="156">h</text>
+    <text x="127.85" y="156">u</text>
+    <text x="215.53" y="156">s</text>
+    <text x="296.50" y="156">h</text>
+    <text x="384.35" y="156" opacity="0.85" filter="url(#b1)">s</text>
+    <text x="465.31" y="156" opacity="0.62" filter="url(#b2)">e</text>
+    <text x="549.48" y="156" opacity="0.4" filter="url(#b3)">n</text>
+    <text x="637.33" y="156" opacity="0.22" filter="url(#b4)">d</text>
+  </g>
+</svg>
