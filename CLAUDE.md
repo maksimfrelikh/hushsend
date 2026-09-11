@@ -522,6 +522,14 @@ see **Max-privacy strict model** below.
     availability is keyed off `urls.length`, never off a credential being present).
 - **STUN config**: build-time `VITE_STUN_URLS` (comma-separated → array; `parseStunUrls`). Empty in
   dev/test = no STUN (two loopback tabs use host candidates).
+- **NO built-in / third-party ICE fallback (invariant).** `PeerConfig.iceServers` is **required** and
+  `PeerConnection` has **no default** — `buildIceServers()` is the ONLY source. A built-in public STUN
+  would leak the client's public IP to a host we don't control on every connection, contradicting the
+  threat model, so there is nothing to fall back to; `[]` (no ICE servers at all — dev/loopback, or
+  Max-privacy with no STUN configured) is a legitimate value and is passed explicitly. (A dead
+  `DEFAULT_ICE_SERVERS = stun:stun.l.google.com` fallback lived in `PeerConnection.ts` until it was
+  removed: unreachable in the app, but it still shipped as a string in `dist/` — found in a bundle
+  audit at deploy. Never reintroduce an implicit default.)
 - **Cred fetch (Reliable only)**: `SignalingClient.requestTurnCredentials()` sends `{type:'turn-request'}`
   and awaits the zod-validated `{type:'turn-credentials', urls, username, credential, ttl}` reply (the
   untrusted relay — validated before use). Fetched **after** the WS is up (`welcome` arrived) and
@@ -877,7 +885,7 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
      to direct call), `navigator.share`/`crypto.subtle`/`indexedDB` (all guarded with fallbacks).
      **Remaining (after deploy, real devices):** transport + FSA→Blob + QR scan + camera permissions
      verified on actual iOS Safari / Firefox.
-   - ✅ **6f — nginx deployment — LIVE (deployed 2026-06-20 at hushsend.frelikh.dev)** — the config
+   - ✅ **6f — nginx deployment — LIVE at hushsend.frelikh.dev** — the config
      templates + runbook are built and committed: `deploy/nginx.conf.example` (TLS, 80→443, SPA
      `try_files $uri /index.html`, the `/ws` proxy with `proxy_set_header X-Real-IP $remote_addr;` +
      WS-upgrade + raised `proxy_read_timeout`, and security headers — HSTS / a build-tuned **CSP**
@@ -886,17 +894,23 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
      `server/.env.example` (all server env in one place), `deploy/coturn.conf.example` (from 6d), and
      `deploy/DEPLOY.md` (step-by-step + inline gotchas). The only code change was an **additive startup
      `[config]` summary log** (no secrets) in `signaling-server.js`. Consolidated env reference:
-     **§ Deployment / configuration** above. **LIVE bring-up done (2026-06-20)** on `frelikhmax.fvds.ru`
-     (Ubuntu 24.04, nginx 1.24, Node 24/nvm): frontend built on-server → `/var/www/hushsend/dist`;
-     signaling = the SEPARATE universal repo `~/projects/hush-signaling-server` under systemd
-     `hushsend-signaling` (`127.0.0.1:8080`); **coturn on the SAME host, `turn:`-only on `:3478`** (no
-     `turns:`/TLS); cert via `certbot certonly --webroot`. nginx-template fix applied during deploy:
-     `http2 on;` → `listen … ssl http2;` (the standalone directive is nginx ≥1.25.1; 1.24 errors).
-     External smoke ALL green (security headers/CSP, `/health`, `.wasm` as `application/wasm`,
-     `/ws`→426 reaching Node, SPA fallback). **Remaining (ops, not code):** the in-browser
-     P2P/SAS/transfer test on two devices + a cross-network TURN relay check (overlaps 6e real-device).
-     (link/qr high-entropy rendezvous = codeType=token, done pre-deploy.) **Runbook + as-realized
-     notes: DEPLOY.md § 0.**
+     **§ Deployment / configuration** above. **LIVE — first bring-up 2026-06-20 on a VPS
+     (`frelikhmax.fvds.ru`), MOVED to the owner's home server 2026-08-16**, which is what serves it
+     today (facts re-verified on the box 2026-09-12; **DEPLOY.md § 0 is the as-realized source of
+     truth** — do not cite the old VPS): Ubuntu 26.04.1, nginx 1.28.3, **Node v22.22.1 system
+     `/usr/bin/node`** (not nvm); frontend built on-server → `/var/www/hushsend/dist`; signaling = the
+     SEPARATE universal repo `hush-signaling-server` (clone `~/projects/…`, **running copy
+     `/var/www/hush-signaling-server`**) under systemd `hushsend-signaling` (`127.0.0.1:8080`,
+     `User=frelikh`); **coturn on the SAME host, `turn:`-only on `:3478`** (no `turns:`/TLS); TLS =
+     the box's **wildcard `*.frelikh.dev`** cert (certbot DNS-01), not a per-host webroot cert. The
+     host is behind a **residential NAT**, so the router forwards 80/443 tcp + 3478 tcp/udp + the
+     relay range 49160–49200/udp, and coturn needs `external-ip=<public>/<lan>` or the relay
+     advertises a private address. The old `http2 on;` → `listen … ssl http2;` template fix was for
+     the VPS's nginx 1.24 and no longer applies (1.28 accepts both; HTTP/2 is currently OFF on the
+     vhost — a free win, not a fix). External smoke ALL green (security headers/CSP, `/health`,
+     `.wasm` as `application/wasm`, `/ws`→426 reaching Node, SPA fallback). **Remaining (ops, not
+     code):** the in-browser P2P/SAS/transfer test on two devices + a cross-network TURN relay check
+     (overlaps 6e real-device). (link/qr high-entropy rendezvous = codeType=token, done pre-deploy.)
 
 ## Current state
 - ✅ `src/core/crypto/` — `cpace` (CFRG draft-21 vectors passing), `keyConfirmation` (channel

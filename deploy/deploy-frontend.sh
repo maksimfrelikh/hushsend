@@ -4,7 +4,7 @@
 # nginx web root. Does NOT touch the signaling server (separate repo, systemd
 # hushsend-signaling) or nginx — a frontend-only change needs no service restart.
 #
-# Run it from anywhere on the web host (frelikhmax.fvds.ru), e.g.:
+# Run it from anywhere on the web host (the home server — see deploy/DEPLOY.md § 0), e.g.:
 #   bash ~/projects/hushsend/deploy/deploy-frontend.sh
 #
 # Overridable via env (defaults match the live hushsend.frelikh.dev deploy):

@@ -1,4 +1,4 @@
-# hushsend — deployment checklist (step 6f) — ✅ LIVE (hushsend.frelikh.dev, 2026-06-20)
+# hushsend — deployment checklist (step 6f) — ✅ LIVE (hushsend.frelikh.dev)
 
 Live-instance bring-up for **hushsend.frelikh.dev**. The app is feature-complete (6a–6d done);
 this is the ops runbook + the artifacts it needs. The signaling server is **untrusted** — all
@@ -10,54 +10,75 @@ Artifacts referenced here: [`nginx.conf.example`](nginx.conf.example) ·
 [`../server/.env.example`](../server/.env.example) · [`coturn.conf.example`](coturn.conf.example).
 Config cross-reference: **CLAUDE.md § Deployment / configuration**.
 
-Topology: one web host (nginx + static `dist/` + the loopback Node signaling server) and a
-**separate** coturn host. nginx terminates TLS, serves the SPA, and reverse-proxies the WebSocket to
-`127.0.0.1:8080`.
+Topology: one web host (nginx + static `dist/` + the loopback Node signaling server) plus coturn —
+generically a **separate** host, though the live deploy runs coturn on the SAME box (see § 0).
+nginx terminates TLS, serves the SPA, and reverse-proxies the WebSocket to `127.0.0.1:8080`.
 
 ---
 
-## 0. Live instance — as deployed (hushsend.frelikh.dev, 2026-06-20)
+## 0. Live instance — as deployed (hushsend.frelikh.dev)
 
-✅ Deployed and **externally verified** on `frelikhmax.fvds.ru` (Ubuntu 24.04, nginx 1.24, Node 24
-via nvm; the box also runs other apps — nginx is hand-managed, process manager is systemd). The
-realized layout differs from the generic topology above in two ways, plus a few pinned specifics:
+✅ **LIVE and externally verified.** History in one line: first bring-up **2026-06-20** on a VPS
+(`frelikhmax.fvds.ru`); the live instance **moved to the owner's home server on 2026-08-16** and that
+is what serves hushsend today. Everything below was re-verified on the box on **2026-09-12**. The
+realized layout differs from the generic topology above in three ways, plus the pinned specifics
+table:
 
+- **A home server behind a residential NAT**, not a VPS. The router must forward **80/443 tcp**,
+  **3478 tcp+udp**, and the coturn **relay range 49160–49200/udp** to the box (ufw allows the same
+  set), and coturn MUST set `external-ip=<public-ip>/<lan-ip>` — without it the relay advertises the
+  private address and no remote peer can ever use it.
 - **coturn on the SAME host** as nginx (not a separate host), `turn:`-only on **:3478**, **no
-  `turns:`/TLS** (no 5349, no extra cert). STUN + TURN both from this one coturn; relay + auth
-  verified with `turnutils_uclient`. (turns: can be added later for strict networks — see § 3.)
-- **Signaling = its own repo** at `~/projects/hush-signaling-server` (the universal, multi-app
-  server — NOT the `server/` dir inside the frontend repo); built/run there under systemd.
-- **Frontend** repo at `~/projects/hushsend`, built on-server (`cp -a dist/. /var/www/hushsend/dist`
-  — no `rsync` on the host). TLS via `certbot certonly --webroot -w /var/www/certbot`. DNS for
-  `hushsend.` + `turn.hushsend.` already points at the box.
-- **nginx-template fix during deploy:** the repo template's `http2 on;` (nginx ≥1.25.1 only) was
-  changed to the portable `listen 443 ssl http2;`; the deployed `hushsend.conf` is already patched.
-  The template itself is now fixed, so a future `git pull` on the server's frontend-repo clone makes
-  re-running the step-4 `cp` valid again — the "re-cp reintroduces the error" caveat no longer
-  applies once the clone is pulled. (If you ever see `unknown directive "http2"`, the clone predates
-  the fix.)
+  `turns:`/TLS** (no 5349, no extra cert). STUN and TURN both come from this one coturn; STUN and the
+  full relay path were verified with `turnutils_stunclient` / `turnutils_uclient` (0% packet loss).
+- **Signaling = its own repo** (`hush-signaling-server`, the universal multi-app server — NOT the
+  `server/` dir in this repo). The repo clone is at `~/projects/hush-signaling-server`; the **running
+  copy is `/var/www/hush-signaling-server`**, which is what the unit points at.
 
-systemd unit actually in use (Node is from nvm → `ExecStart` pins the absolute node path; an nvm
-node-version bump needs this line updated):
+Pinned specifics (ssh-verified 2026-09-12):
+
+| | |
+|---|---|
+| OS / nginx / Node | Ubuntu 26.04.1 LTS · nginx 1.28.3 (apt) · Node **v22.22.1, system** (`/usr/bin/node` — not nvm, so no absolute nvm path to maintain in the unit) |
+| Frontend | repo `~/projects/hushsend`, built on-server → published to `/var/www/hushsend/dist` |
+| Signaling | systemd `hushsend-signaling.service` on `127.0.0.1:8080` (unit below) |
+| TLS | **wildcard `*.frelikh.dev`** (`/etc/letsencrypt/live/frelikh.dev/`, certbot **DNS-01** via the cloudflare plugin), shared with the box's other sites — NOT a per-host webroot cert |
+| Build-time env | `VITE_SIGNALING_URL=wss://hushsend.frelikh.dev/ws` · `VITE_STUN_URLS=stun:turn.hushsend.frelikh.dev:3478` (both confirmed present in the deployed bundle) |
+| Server env | `HOST=127.0.0.1` · `PORT=8080` · **`TRUST_PROXY=1`** · `TURN_URLS=turn:turn.hushsend.frelikh.dev:3478` · `TURN_CRED_TTL_S=3600` · `FILETRANSFER_MAX_PEERS=8` · `IP_RL_MAX=60` |
+| DNS | `hushsend.frelikh.dev` → the box · `turn.hushsend.frelikh.dev` → the same box (coturn) |
+
+- **HTTP/2 is currently OFF on this vhost** — the deployed config uses a plain `listen 443 ssl;`. The
+  old template caveat (`http2 on;` is nginx ≥1.25.1, and the first host ran 1.24, so it was rewritten
+  to `listen … ssl http2;`) **no longer applies here**: nginx is 1.28, both forms work. Turning HTTP/2
+  on is a free win, not a fix for anything.
+- **Ops source of truth for the box itself** — network, firewall, the other services sharing it,
+  secrets, deploy history — lives OUTSIDE this repo, in the owner's `laptop-server/` notes. This file
+  covers only what hushsend needs.
+
+systemd unit actually in use:
 
 ```ini
 # /etc/systemd/system/hushsend-signaling.service
 [Unit]
 Description=hushsend signaling server
 After=network.target
+
 [Service]
 Type=simple
-User=clawd
-WorkingDirectory=/home/clawd/projects/hush-signaling-server
-EnvironmentFile=/home/clawd/projects/hush-signaling-server/.env
+User=frelikh
+Group=frelikh
+WorkingDirectory=/var/www/hush-signaling-server
+EnvironmentFile=/var/www/hush-signaling-server/.env
 Environment=NODE_ENV=production
-ExecStart=/home/clawd/.nvm/versions/node/v24.15.0/bin/node signaling-server.js
+ExecStart=/usr/bin/node signaling-server.js
 Restart=on-failure
 RestartSec=2
+
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
 PrivateTmp=true
+
 [Install]
 WantedBy=multi-user.target
 ```
@@ -65,9 +86,10 @@ WantedBy=multi-user.target
 External smoke — all green: security headers (HSTS/CSP/Permissions-Policy/nosniff/Referrer/X-Frame);
 `GET /health` → `ok`; `http` → `301 https`; `/assets/*.js|css` immutable-cached; **`/assets/*.wasm`
 → `application/wasm`** (the QR-scan compile path); `/ws` → `426 Upgrade Required` (reaches Node, not
-served as static); unknown deep-link → `200` (SPA fallback). **Still pending:** the in-browser
-P2P/SAS/transfer test on two devices, and a cross-network TURN relay check (only provable across
-different networks).
+served as static); unknown deep-link → `200` (SPA fallback). Re-checked 2026-09-12: `/` → 200,
+`/health` → `ok`, all three units (`nginx`, `hushsend-signaling`, `coturn`) active. **Still pending:**
+the in-browser P2P/SAS/transfer test on two devices, and a cross-network TURN relay check (only
+provable across different networks).
 
 **Repeat frontend-only redeploys** (new SPA build, signaling/nginx unchanged) are wrapped in
 [`deploy-frontend.sh`](deploy-frontend.sh): `bash ~/projects/hushsend/deploy/deploy-frontend.sh`

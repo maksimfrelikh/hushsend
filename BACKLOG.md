@@ -142,15 +142,21 @@ the same pass as CLAUDE.md when items land.
     only the missing mediaDevices guard added.
   - **Remaining (real devices, post-deploy):** transport + FSA→Blob caps + QR scan + camera
     permissions on actual iOS Safari / Firefox.
-- ✅ **Deployment behind nginx (6f) — LIVE (deployed 2026-06-20 at hushsend.frelikh.dev; see DEPLOY.md § 0).**
-  On `frelikhmax.fvds.ru` (Ubuntu 24.04, nginx 1.24, Node 24/nvm): frontend built on-server →
-  `/var/www/hushsend/dist`; signaling = the SEPARATE universal repo `~/projects/hush-signaling-server`
-  under systemd `hushsend-signaling` (127.0.0.1:8080); **coturn on the SAME host, `turn:`-only on :3478**
-  (no `turns:`); cert via certbot webroot. External smoke green (headers/CSP, /health, `.wasm`→
+- ✅ **Deployment behind nginx (6f) — LIVE at hushsend.frelikh.dev (see DEPLOY.md § 0 — the
+  as-realized source of truth).** First bring-up 2026-06-20 on a VPS (`frelikhmax.fvds.ru`); **the live
+  instance MOVED to the owner's home server 2026-08-16** and that is what runs today (re-verified on the
+  box 2026-09-12): Ubuntu 26.04.1, nginx 1.28.3, **Node v22.22.1 system `/usr/bin/node`** (not nvm);
+  frontend built on-server → `/var/www/hushsend/dist`; signaling = the SEPARATE universal repo
+  `hush-signaling-server` (clone `~/projects/…`, **running copy `/var/www/hush-signaling-server`**) under
+  systemd `hushsend-signaling` (127.0.0.1:8080, `User=frelikh`); **coturn on the SAME host, `turn:`-only
+  on :3478** (no `turns:`); TLS = the box's **wildcard `*.frelikh.dev`** cert (certbot DNS-01). Home
+  server ⇒ **residential NAT**: the router forwards 80/443 tcp + 3478 tcp/udp + relay 49160–49200/udp and
+  coturn sets `external-ip=<public>/<lan>`. External smoke green (headers/CSP, /health, `.wasm`→
   `application/wasm`, /ws→426, SPA fallback); **remaining: in-browser P2P/SAS/transfer + cross-network
-  relay**. Template fix during deploy: `http2 on;` → `listen … ssl http2;` (nginx 1.24 lacks the 1.25+
-  directive). Original deploy-prep artifacts Built +
-  committed: `deploy/nginx.conf.example` (TLS, 80→443, SPA `try_files $uri /index.html`, the `/ws`
+  relay**. The `http2 on;` → `listen … ssl http2;` template fix was for the VPS's nginx 1.24 and no
+  longer applies (1.28 takes both; HTTP/2 is currently off on the vhost — the committed template does
+  enable it, so that vhost drifted from the template). Original deploy-prep artifacts built + committed:
+  `deploy/nginx.conf.example` (TLS, 80→443, SPA `try_files $uri /index.html`, the `/ws`
   proxy with `X-Real-IP` + WS-upgrade + raised `proxy_read_timeout`, HSTS / build-tuned **CSP**
   [`'wasm-unsafe-eval'` for the QR-scan WASM, now **self-hosted** (step 6e) so `connect-src` lists no
   CDN] / `Permissions-Policy camera=(self)`), `server/.env.example` (all server env + criticality notes),
@@ -173,6 +179,19 @@ the same pass as CLAUDE.md when items land.
   this is defense-in-depth only (worst case is a retry — SAS / key-confirmation are what stop a MITM).
 
 ## Security / correctness follow-ups (small)
+- ✅ **Dead third-party STUN fallback removed from the bundle — DONE (2026-09-12).** `PeerConnection.ts`
+  carried `DEFAULT_ICE_SERVERS = [{urls:'stun:stun.l.google.com:19302'}]` behind
+  `this.config.iceServers ?? DEFAULT_ICE_SERVERS`. It was **unreachable** (the sole call site,
+  `SessionController.startPeer`, always passes `buildIceServers()`'s array), but it still shipped as a
+  literal string in `dist/assets/*.js` — spotted in a bundle audit during the home-server deploy
+  (2026-08-16) and left as tech debt. Now `PeerConfig.iceServers` is **required**, the constant is gone,
+  and the constructor's `config: PeerConfig = {}` default was dropped with it — so a missing ICE config
+  is a compile error instead of a silent fall back to a third party. Behaviour is unchanged (the single
+  call site already passed `buildIceServers()`'s array); the only observable difference is the Google
+  host string no longer appearing in a built bundle. Verified on the box (Node 22, throwaway copy):
+  `tsc --noEmit` clean, eslint clean, **184 vitest tests green** (159 unit + 25 integration).
+  **Verify after the next frontend redeploy:** `grep -r 'stun.l.google' /var/www/hushsend/dist` must
+  return nothing (it currently matches — the live bundle predates this fix).
 - ✅ **Close the signaling socket on connect (per-pair: 1:1 methods + room/SAS) — DONE.** For `words` /
   `link` / `qr` AND a connected `room`/SAS pair the client closes its OWN signaling socket the instant it
   reaches an authenticated `connected` (`SessionController.closeSignalingAfterConnect` — from

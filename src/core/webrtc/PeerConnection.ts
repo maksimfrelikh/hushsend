@@ -30,8 +30,15 @@ export interface PeerConnectionHandlers {
 }
 
 export interface PeerConfig {
-  /** ICE servers. Default is a public STUN; TURN/coturn fallback is configured later. */
-  iceServers?: RTCIceServer[];
+  /**
+   * ICE servers for this connection. REQUIRED, with NO implicit default ON PURPOSE: the only source
+   * is `buildIceServers()` (privacy mode + our OWN coturn from `VITE_STUN_URLS` + Reliable-mode TURN
+   * creds). A built-in third-party STUN fallback would leak the client's public IP to a host we do
+   * not control on every connection — a direct contradiction of the threat model — so there is
+   * nothing to fall back to. `[]` (no ICE servers at all: dev/loopback, or Max-privacy with no STUN
+   * configured) is a legitimate value and must be passed explicitly.
+   */
+  iceServers: RTCIceServer[];
   /**
    * Max-privacy STRICT model (step 6d): drop the peer's TURN-relay candidates, so we are never relayed.
    * Set true in Max-privacy, false in Reliable. Fixed for the connection's lifetime (Max-privacy never
@@ -45,8 +52,6 @@ export interface PeerConfig {
    */
   forceIceFail?: boolean;
 }
-
-const DEFAULT_ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
 
 // Inbound signal payloads come from an UNTRUSTED relay — validate before touching the PC.
 const descriptionSchema = z.object({ type: z.string(), sdp: z.string() });
@@ -87,7 +92,9 @@ export class PeerConnection {
 
   constructor(
     private readonly handlers: PeerConnectionHandlers = {},
-    private readonly config: PeerConfig = {},
+    // No default: `iceServers` is required and has no fallback (see PeerConfig), so a config must be
+    // passed explicitly rather than defaulting to `{}` and silently connecting with no ICE config.
+    private readonly config: PeerConfig,
   ) {
     this.filterRelay = config.filterRelay ?? false;
     this.simulateIceFail = config.forceIceFail ?? false;
@@ -101,7 +108,7 @@ export class PeerConnection {
    * it works for any pair (incl. a joiner↔joiner lobby pair), not just "the side already in the room".
    */
   start(initiator: boolean): void {
-    const pc = new RTCPeerConnection({ iceServers: this.config.iceServers ?? DEFAULT_ICE_SERVERS });
+    const pc = new RTCPeerConnection({ iceServers: this.config.iceServers });
     this.pc = pc;
 
     pc.onicecandidate = (e) => {
