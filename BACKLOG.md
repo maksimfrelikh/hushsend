@@ -162,8 +162,9 @@ the same pass as CLAUDE.md when items land.
     **Not a substitute for real devices:** Playwright's WebKit is WebKitGTK on Linux, not Safari on
     iOS; no camera, no cellular NAT, no cross-network path.
   - ✅ **Per-engine suite matrix + size ladder — DONE (2026-09-12).** The WHOLE suite now runs under
-    each engine as its own Playwright project: **chromium 28/28, firefox 28/28, webkit 28/28** (plus
-    the 5 interop pairs). Firefox needed no code change at all. **WebKit needed a STUN server on the
+    each engine as its own Playwright project: **32/32 under each of chromium / firefox / webkit**
+    (count as of 2026-09-12 — it was 28/28 when this landed; plus the 4 phone-profile tests and the
+    5 interop pairs). Firefox needed no code change at all. **WebKit needed a STUN server on the
     stand, not a code change:** it has no switch to disable mDNS obfuscation of host candidates
     (Chromium has the flag, Firefox the pref), so it only ever emits `<uuid>.local` — measured on the
     box: chrome/firefox emit `192.168.1.19`, webkit emits `<uuid>.local` — and a headless server runs
@@ -253,15 +254,16 @@ the same pass as CLAUDE.md when items land.
   call site already passed `buildIceServers()`'s array); the only observable difference is the Google
   host string no longer appearing in a built bundle. Verified on the box (Node 22, throwaway copy):
   `tsc --noEmit` clean, eslint clean, **184 vitest tests green** (159 unit + 25 integration).
-  **Verify after the next frontend redeploy:** `grep -r 'stun.l.google' /var/www/hushsend/dist` must
-  return nothing (it currently matches — the live bundle predates this fix).
+  ✅ **Verified after the 2026-09-12 redeploy:** `grep -r 'stun.l.google' /var/www/hushsend/dist`
+  returns nothing — the live bundle no longer carries the third-party host string.
 - ✅ **Close the signaling socket on connect (per-pair: 1:1 methods + room/SAS) — DONE.** For `words` /
   `link` / `qr` AND a connected `room`/SAS pair the client closes its OWN signaling socket the instant it
   reaches an authenticated `connected` (`SessionController.closeSignalingAfterConnect` — from
   `tryVerifyConfirmation` for 1:1 key-confirmation, from `trySasSettle` for room/SAS; a side-effect on
   entering `connected` — no new FSM state, gated to the `connected` success branch so failure paths are
-  untouched; **reconnect is excluded** — its own fresh socket). By then signaling has no job left (ICE/SDP
-  exchanged, key-confirmation / SAS-confirm + enrollment ride the DataChannel), so the **untrusted server
+  untouched; **reconnect included since 2026-09-12** — it was the last exemption, see § Security
+  audit). By then signaling has no job left (ICE/SDP exchanged, key-confirmation / SAS-confirm +
+  enrollment ride the DataChannel), so the **untrusted server
   learns no session duration** — it sees only the short pairing window, then both peers vanish. The close
   is **WS-only** (no room-destroy / leave frame), so for the room mesh the server just drops the leaver +
   notifies the rest — the **room survives** and **unrelated pairs are untouched** (no "seal room" step
@@ -299,11 +301,12 @@ the same pass as CLAUDE.md when items land.
   SAME fix as "link/qr lobby-race resistance" above. (See CLAUDE.md § link/qr method + § Signaling server.)
 
 ## Ops / housekeeping (small, no devices)
-- **The RUNNING signaling copy has drifted from its repo again.** `/var/www/hush-signaling-server`
-  (what systemd runs) predates the `DEV_ORIGINS` commit in `hush-signaling-server`. Behaviour is
-  IDENTICAL in production — the whole branch is dead unless `NODE_ENV !== 'production'` — so this is
-  housekeeping, not an incident: pull the running copy on the next touch so the two stop diverging.
-  (The same drift in the other direction is what hid the hardcoded dev origin for a whole test run.)
+- ✅ **The RUNNING signaling copy is back in sync — VERIFIED 2026-09-12.** `/var/www/hush-signaling-server`
+  (what systemd runs) is at `3cfd00a`, the `DEV_ORIGINS` commit, and 0 behind its `origin/main`. Keep
+  pulling it whenever the repo moves — drift in the other direction is what once hid a hardcoded dev
+  origin for a whole test run. Check it with
+  `git -C /var/www/hush-signaling-server rev-list --count HEAD..origin/main` (needs a `git fetch` first);
+  a doc-only change needs no `systemctl restart`.
 - **HTTP/2 is off on the live vhost** while the committed nginx template enables it (DEPLOY.md § 0).
   A free win, not a fix for anything — but the vhost and the template should agree.
 - **Scheduled CI expires on a quiet repo.** GitHub disables `schedule:` workflows after 60 days with
@@ -583,8 +586,8 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   next item — and the text has been corrected to say so.
 - **The actual reconnect fingerprint the relay CAN see: the post-connect socket close.** Every other
   method closes its own signaling socket the instant it reaches `connected`
-  (`closeSignalingAfterConnect`), and **reconnect is explicitly excluded** — so a reconnect pair is the
-  one pair that *keeps its socket open for the whole session*. That hands the untrusted server both
+  (`closeSignalingAfterConnect`), and **reconnect WAS explicitly excluded** — so a reconnect pair was the
+  one pair that *kept its socket open for the whole session*. That handed the untrusted server both
   "this pair is a reconnect (they have paired before)" AND the session duration the close was designed
   to hide. ✅ **FIXED the same day** — reconnect was folded into the per-pair close together with the
   `peerLeftAbortsPairing` gate it required (see residual (a) under § Signaling WS lifecycle).

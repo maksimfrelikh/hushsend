@@ -18,9 +18,10 @@ file transfer is gated on an authenticated `connected` state.
 
 What the server can still observe: that two IPs rendezvoused, and how long the *pairing* took — each
 peer closes its own signaling socket the moment the authenticated connection is up, so the session
-duration is not the server's to know. (One exception today: a **reconnect** session keeps its socket
-open, which tells the server the pair has met before. Tracked in the backlog.) Known residuals are
-listed in [CLAUDE.md](CLAUDE.md) § Known residuals; nothing is swept under the rug.
+duration is not the server's to know. **No method is exempt** — reconnect was the last one keeping its
+socket open (a fingerprint that told the server the pair had met before) and was folded into the same
+close on 2026-09-12. Known residuals are listed in [CLAUDE.md](CLAUDE.md) § Known residuals; nothing is
+swept under the rug.
 
 ## Four ways to pair
 
@@ -43,17 +44,23 @@ pairing is an SSH-style hard stop, never a dismissable toast.
 - **Reliable** — adds a TURN relay (short-lived HMAC credentials minted per session; the shared
   secret never leaves the server) so a pair behind hostile NATs still connects.
 
-> **Honest caveat.** An internal audit (2026-09-12) found the Max-privacy guarantee is enforced
-> against relay candidates the peer *signals*, but ICE can still **learn** a peer's relay address as
-> a peer-reflexive candidate — so in a **mixed** pair (Max ↔ Reliable) where the direct path fails, a
-> relayed path can complete. Confidentiality is unaffected (DTLS + PAKE/SAS are untouched); the
-> privacy promise is. The fix is tracked in [BACKLOG.md](BACKLOG.md) § Security audit / Findings.
+> **Honest caveat.** An internal audit (2026-09-12) found that filtering the relay candidates a peer
+> *signals* was not enough: ICE can also **learn** a peer's relay address as a peer-reflexive
+> candidate, so in a **mixed** pair (Max ↔ Reliable) with the direct path down, a relayed path could
+> complete. Confidentiality was never affected (DTLS + PAKE/SAS untouched) — the privacy promise was.
+> **Fixed the same day:** the path actually selected is re-checked against `getStats()` before the
+> DataChannel opens, and a relayed one fails closed with the switch-to-Reliable hint. Two things stay
+> open and are tracked in [BACKLOG.md](BACKLOG.md) § Security audit / Findings: the check runs at
+> channel-open only (a mid-session re-nomination onto a relay is not re-checked), and the fix is still
+> to be confirmed on real devices ([TESTPLAN.md](TESTPLAN.md) § C4).
 
 ## Status
 
 **Feature-complete and deployed.** All four methods, reconnect, the mesh lobby, TURN, i18n (EN/RU),
-light/dark, and the deployment are built and live. 184 unit + integration tests and a Playwright e2e
-suite cover the protocol paths.
+light/dark, and the deployment are built and live. **206 vitest tests** (181 unit + 25 integration)
+and a Playwright e2e suite — **32 per engine** across chromium / firefox / webkit, plus a phone
+profile and 5 cross-engine pairs — cover the protocol paths. Counts verified 2026-09-12; refresh them
+here whenever the suite grows.
 
 Before a public launch, two things remain and neither is code:
 

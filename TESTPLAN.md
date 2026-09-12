@@ -23,9 +23,12 @@ the DEV query knobs (`?forceIceFail=1`, `?stallSasNonce=1`, `?preSasTimeoutMs=N`
 
 ### 0.1 Preconditions
 
-- [ ] Frontend redeployed from current `main` (`bash ~/projects/hushsend/deploy/deploy-frontend.sh`).
-- [ ] **Verify the new bundle is live:** `grep -r 'stun.l.google' /var/www/hushsend/dist` returns
-      nothing (the pre-2026-09-12 bundle matched — this is the BACKLOG "verify after redeploy" item).
+- [x] Frontend redeployed from current `main` (`bash ~/projects/hushsend/deploy/deploy-frontend.sh`)
+      — done 2026-09-12 10:50; `/var/www/hushsend/dist` is byte-identical to the local build.
+      **Re-run it if `main` has moved since**, and re-tick.
+- [x] **Verify the new bundle is live:** `grep -r 'stun.l.google' /var/www/hushsend/dist` returns
+      nothing — confirmed 2026-09-12 (the pre-2026-09-12 bundle matched; this was the BACKLOG
+      "verify after redeploy" item).
 - [ ] Hard-refresh every test device (Ctrl/Cmd+Shift+R; on iOS: close the tab and reopen) so no
       device runs the cached old bundle. Confirm the asset hash in devtools matches the deployed one.
 - [ ] `curl -s https://hushsend.frelikh.dev/health` → `ok`; nginx / hushsend-signaling / coturn all

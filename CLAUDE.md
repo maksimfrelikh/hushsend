@@ -19,6 +19,13 @@ work. So whenever a change alters the app's actual state, update this file in th
 - deferring something → note it under **Known residuals / deferred**.
 - forward-looking / deferred work (step 6, follow-ups, nice-to-haves) lives in **BACKLOG.md** —
   read it when picking the next task, and update it in the SAME pass as this file when items land.
+- **recorded numbers are claims too** — test counts (README § Status, BACKLOG's per-engine matrix),
+  measured ceilings, live-host specifics. Re-run the thing and refresh the number, do not copy it
+  forward.
+- **the signaling server is a SIBLING REPO** (`hush-signaling-server`, next to this one; `server/`
+  here is the local-dev copy) and the running checkout is `/var/www/hush-signaling-server`. A change
+  to any of the three has to reach the other two's docs in the same pass — `.env.example` there is
+  the env-var reference and must list every var the code reads.
 Stale markers (e.g. a finished step still marked 🚧, or a built module missing from the
 inventory) cause real rework for the next session. Treat doc drift as a bug.
 
@@ -106,8 +113,11 @@ method used only by the words attempt-cap path).
   DataChannel/ICE — and `onPeerLeft` returns early for any `peer-left` whose id ≠ `this.peerId`, after
   the roster update), and the **other peer in our own pair** observes our `peer-left` already gated away
   by channel-open (the SAS gate above). **Reconnect** runs over its own fresh socket (method `room`,
-  `sas` + `reconnect` set) and stays **EXCLUDED** by the `this.reconnect != null` check in
-  `closeSignalingAfterConnect` (reconnect-in-lobby is deferred — see BACKLOG). **Failure paths**
+  `sas` + `reconnect` set) and since 2026-09-12 is **INCLUDED** like every other method — the old
+  `this.reconnect != null` guard in `closeSignalingAfterConnect` is GONE, so the function now gates on
+  the method alone. Keeping the socket was itself a signal ("this pair has met before" + the session
+  duration); `settleReconnect` calls the close, and the reconnect `onPeerLeft` branch moved to the
+  `peerLeftAbortsPairing` gate so our own close cannot abort a peer mid-settle. **Failure paths**
   (`failDirect`, `failLink`, `failSas`, `failReconnect`, words retry) are untouched: the close is gated
   on the `connected` success branch only. Unit: `SessionController.sasPeerLeft.test.ts` (the
   channel-open race fix + the room per-pair close + reconnect, included since 2026-09-12). e2e:
@@ -1054,7 +1064,8 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   browsers per test and runs link-pairing + a hashed transfer across chrome/firefox/webkit in both
   directions — run it with `E2E_SIGNALING_PORT=… npx playwright test`, engines absent from the host
   skip with a printed reason; the WHOLE suite also runs per engine as its own project —
-  chromium/firefox/**webkit** 28/28 each — where **webkit needs `E2E_STUN_URLS` on a headless host**:
+  chromium/firefox/**webkit** 32/32 each (count as of 2026-09-12) — where **webkit needs
+  `E2E_STUN_URLS` on a headless host**:
   it cannot disable mDNS obfuscation, so without a STUN server its only host candidate is
   `<uuid>.local` and two of its tabs never pair. plus a `mobile-webkit` project (WebKit + the iPhone device descriptor) that is the ONLY place the
   UA-selected mobile receive cap runs, and an opt-in size ladder, `tests/e2e/limits.spec.ts`); **6f LIVE** — deployed + externally verified at hushsend.frelikh.dev
