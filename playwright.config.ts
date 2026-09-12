@@ -53,6 +53,28 @@ export default defineConfig({
       },
     },
     {
+      // The SAME suite under Gecko. Everything Chromium never exercises lives here: a different
+      // WebRTC stack, IndexedDB/Web Locks under another engine, and whichever half of the
+      // WebCrypto-Ed25519-vs-noble fork this engine takes (src/core/crypto/identity.ts).
+      name: 'firefox',
+      testIgnore: /interop\.spec\.ts/,
+      use: {
+        browserName: 'firefox',
+        launchOptions: {
+          // Same purpose as the Chromium mDNS flag: two tabs on one host must exchange usable host
+          // candidates, and .local names need an mDNS responder a headless box has no reason to run.
+          firefoxUserPrefs: { 'media.peerconnection.ice.obfuscate_host_addresses': false },
+        },
+      },
+    },
+    {
+      // The same suite under WebKit. The closest proxy available off-device for Safari — NOT the
+      // same thing (WebKitGTK on Linux), but it catches engine-level breakage before a phone does.
+      name: 'webkit',
+      testIgnore: /interop\.spec\.ts/,
+      use: { browserName: 'webkit' },
+    },
+    {
       // Cross-engine interop: the spec launches its own browsers (one per side) with per-engine
       // options, so this project must not impose a channel or Chromium flags on them.
       name: 'interop',
@@ -90,7 +112,16 @@ export default defineConfig({
       url: `http://localhost:${VITE_PORT}`,
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,
-      env: { VITE_SIGNALING_URL: `ws://127.0.0.1:${SIGNALING_PORT}` },
+      env: {
+        VITE_SIGNALING_URL: `ws://127.0.0.1:${SIGNALING_PORT}`,
+        // STUN is normally OFF in tests (two loopback tabs pair on host candidates). WEBKIT NEEDS IT
+        // on a headless host: it has no switch to disable mDNS obfuscation (Chromium has the flag,
+        // Firefox the pref), so it only ever emits `<uuid>.local` host candidates — unresolvable
+        // without an mDNS responder, which a server has no reason to run. One STUN server gives it a
+        // usable srflx candidate instead; a loopback STUN keeps the whole thing on this machine.
+        // Measured on the deploy box: chrome/firefox emit 192.168.x.y, webkit emits <uuid>.local.
+        VITE_STUN_URLS: process.env.E2E_STUN_URLS ?? '',
+      },
     },
   ],
 });

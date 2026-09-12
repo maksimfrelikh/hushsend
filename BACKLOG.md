@@ -153,6 +153,25 @@ the same pass as CLAUDE.md when items land.
     `sudo npx playwright install-deps firefox webkit` then `npx playwright install firefox webkit`.
     **Not a substitute for real devices:** Playwright's WebKit is WebKitGTK on Linux, not Safari on
     iOS; no camera, no cellular NAT, no cross-network path.
+  - ✅ **Per-engine suite matrix + size ladder — DONE (2026-09-12).** The WHOLE suite now runs under
+    each engine as its own Playwright project: **chromium 28/28, firefox 28/28, webkit 28/28** (plus
+    the 5 interop pairs). Firefox needed no code change at all. **WebKit needed a STUN server on the
+    stand, not a code change:** it has no switch to disable mDNS obfuscation of host candidates
+    (Chromium has the flag, Firefox the pref), so it only ever emits `<uuid>.local` — measured on the
+    box: chrome/firefox emit `192.168.1.19`, webkit emits `<uuid>.local` — and a headless server runs
+    no mDNS responder, so two WebKit tabs never pair and every connecting test times out. One STUN
+    endpoint gives it a usable `srflx` instead: `E2E_STUN_URLS=stun:127.0.0.1:3478` (loopback keeps it
+    on the machine). NOT a product bug — real networks and real iPhones have mDNS; it is a stand
+    limitation, now plumbed through `playwright.config.ts`. (The interop pairs passed even before
+    this, because the *other* engine advertised a real IP and WebKit's address was learned as
+    peer-reflexive — the same RFC 8445 §7.3.1.3 mechanism as the Max-privacy finding, here being
+    useful.) `tests/e2e/limits.spec.ts` adds an OPT-IN **size ladder** (`E2E_LIMITS=1`,
+    `E2E_LIMITS_SIZES=…`) that lifts our own `__HUSHSEND_MAX_BYTES__` cap so the ENGINE is what fails,
+    walks the rungs and stops at the first failure. First run (256/512 MB, wire-time only): **every
+    rung OK on every engine** — chromium 6.6/5.0 MB/s, firefox 2.2/3.5, webkit 2.3/3.2. **Do not read
+    those rates as a product characteristic:** the box is a throttled mobile Ryzen 5 3500U at ~19%
+    clock under load average 10–14, sharing itself with the live services. Bigger rungs (1–2 GB) are
+    for a workstation — the receiving tab holds the whole file in RAM.
   - **Remaining (real devices, post-deploy):** what only hardware shows — QR scan + camera permissions
     on actual iOS Safari, the FSA→Blob cap on real hardware, everything cross-network (TESTPLAN § C),
     and iOS background-tab suspension mid-transfer (§ F1). Engine-level transport interop is now
