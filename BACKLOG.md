@@ -172,6 +172,13 @@ the same pass as CLAUDE.md when items land.
     those rates as a product characteristic:** the box is a throttled mobile Ryzen 5 3500U at ~19%
     clock under load average 10–14, sharing itself with the live services. Bigger rungs (1–2 GB) are
     for a workstation — the receiving tab holds the whole file in RAM.
+    **First real ceilings, measured on a Mac (2026-09-12):** Chromium OK at 1 GB (30 MB/s) and 2 GB
+    (25 MB/s), **fails at 3 GB** with `download.saveAs: canceled`; WebKit OK to 1.5 GB, **fails at
+    1.75 GB**, freezing after ~80%. Both fail at the END, so it is the single-Blob handover that
+    collapses, not chunk reception — and neither engine raises a catchable error, it just stops.
+    This VALIDATES `MAX_BYTES_DESKTOP_BLOB = 1 GiB` as conservative-on-purpose (see the constant's
+    comment): raising it would swap a clear pre-accept refusal for a dead tab. The MOBILE cap
+    (512 MiB) remains unmeasured — only a real iOS device can answer that (TESTPLAN § B2).
   - **Remaining (real devices, post-deploy):** what only hardware shows — QR scan + camera permissions
     on actual iOS Safari, the FSA→Blob cap on real hardware, everything cross-network (TESTPLAN § C),
     and iOS background-tab suspension mid-transfer (§ F1). Engine-level transport interop is now

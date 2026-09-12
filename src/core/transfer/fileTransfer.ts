@@ -32,7 +32,17 @@ import { makeZip, predictLength } from 'client-zip';
 export const CHUNK_MIN = 16 * 1024; // 16 KiB
 /** Chunk-size ceiling: never send messages larger than this. */
 export const CHUNK_MAX = 256 * 1024; // 256 KiB
-/** Blob-fallback caps (RAM-bound paths only). FSA streaming-to-disk is unbounded. */
+/**
+ * Blob-fallback caps (RAM-bound paths only). FSA streaming-to-disk is unbounded.
+ *
+ * MEASURED 2026-09-12 (`tests/e2e/limits.spec.ts`, on a Mac, with our own cap lifted so the ENGINE
+ * is what fails): Chromium carries 1 GB and 2 GB but dies at 3 GB, and WebKit carries up to 1.5 GB
+ * but dies at 1.75 GB. Both fail at the END — the chunks arrive, then assembling/handing over the
+ * single Blob collapses (Chromium: `download.saveAs: canceled`; WebKit: progress freezes near 100%).
+ * Neither raises an error the page could catch: the tab simply stops. So the desktop cap sits well
+ * under both ceilings ON PURPOSE — raising it would trade a clear pre-accept refusal for a dead tab.
+ * The mobile cap is still a judgement call: no real iOS device has been measured (TESTPLAN § B2).
+ */
 export const MAX_BYTES_DESKTOP_BLOB = 1024 * 1024 * 1024; // ~1 GB
 export const MAX_BYTES_MOBILE_BLOB = 512 * 1024 * 1024; // ~0.5 GB
 

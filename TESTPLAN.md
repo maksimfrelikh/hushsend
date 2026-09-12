@@ -49,6 +49,11 @@ the DEV query knobs (`?forceIceFail=1`, `?stallSasNonce=1`, `?preSasTimeoutMs=N`
 
 - Receive path: **FSA streaming (`showSaveFilePicker`) = unbounded**; otherwise **Blob in RAM**, capped
   at **1 GiB desktop / 512 MiB mobile** (UA-based), and the cap is rejected **before** accept.
+  **Measured engine ceilings** (2026-09-12, `limits.spec.ts` with the cap lifted, on a Mac):
+  Chromium OK at 1 GB and 2 GB, **fails at 3 GB** (`download.saveAs: canceled`); WebKit OK to 1.5 GB,
+  **fails at 1.75 GB** (freezes near 100%). Both die at the END — the chunks arrive, the single Blob
+  does not — and **neither raises a catchable error**, so the desktop cap is deliberately far below.
+  B2 below is what tells us whether the MOBILE cap is equally well placed; nothing else can.
 - Chunk size: the SCTP-negotiated max clamped to **[16 KiB, 256 KiB]**; backpressure via `bufferedAmount`.
 - Deadlines (all **120 s**): pre-SAS pairing, SAS confirmation, reconnect re-auth.
 - Words: **4 secret words** + 1 rendezvous word (~41 bits of secret), **≤10 pairing attempts**;
