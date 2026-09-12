@@ -19,6 +19,7 @@ export function TransferScreen(): ReactElement {
   const dispatch = useAppDispatch();
   const method = useAppSelector((s) => s.connection.method);
   const reconnectOutcome = useAppSelector((s) => s.dev.reconnect.outcome);
+  const pathConfirmed = useAppSelector((s) => s.connection.pathConfirmed);
   const transfer = useAppSelector((s) => s.transfer);
   const [files, setFiles] = useState<File[]>([]);
 
@@ -46,7 +47,22 @@ export function TransferScreen(): ReactElement {
       <span className="hs-badge hs-badge--verified" data-testid="auth-state">
         ✓ {authStateText(method, reconnectOutcome)}
       </span>
+      {/* Path attestation, beside the authenticity badge but deliberately NOT dressed like it: the
+          authenticity badge states a guarantee, this one states the result of a check. "Not
+          confirmed" is the ordinary outcome on a browser that cannot enumerate its own addresses,
+          so the hint has to say plainly that the files are still encrypted — otherwise it reads as
+          "you are being attacked", which for this product's users is a costly false alarm. */}
+      {pathConfirmed !== null && (
+        <span
+          className={`hs-badge${pathConfirmed === 'yes' ? ' hs-badge--verified' : ''}`}
+          data-testid="path-state"
+          title={pathConfirmed === 'yes' ? undefined : t('pathUnknownHint')}
+        >
+          {pathConfirmed === 'yes' ? `✓ ${t('pathOk')}` : `· ${t('pathUnknown')}`}
+        </span>
+      )}
       <h2 className="hs-h2">{t('trTitle')}</h2>
+      {pathConfirmed === 'no' && <p className="hs-sub hs-path__hint">{t('pathUnknownHint')}</p>}
 
       {idle && (
         <label className="hs-drop">

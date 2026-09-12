@@ -2719,6 +2719,7 @@ export class SessionController {
       if (!pa || pa.settled) return;
       pa.settled = true;
       this.dispatch(devActions.setPath({ verdict: 'unknown', selected: null, peerAddrs: [] }));
+      this.dispatch(connectionActions.pathSettled({ confirmed: false }));
       this.dispatch(devActions.appendLog('path: peer never attested — UNVERIFIED (advisory)'));
     }, PATH_ATTEST_TIMEOUT_MS);
     // Replay an attestation that beat our own settle (the two peers do not settle at the same instant).
@@ -2780,6 +2781,8 @@ export class SessionController {
     if (!this.pathAttest || this.pathAttest.settled) return; // torn down while awaiting stats
     const verdict = pathVerdict(selected, pa.peerAddrs);
     this.dispatch(devActions.setPath({ verdict, selected, peerAddrs: pa.peerAddrs ?? [] }));
+    // Only `ok` reassures the human. `mismatch` folds into "not confirmed" — see connectionSlice.
+    this.dispatch(connectionActions.pathSettled({ confirmed: verdict === 'ok' }));
     pa.settled = true;
     pa.verified = verdict === 'ok';
     if (pa.timer != null) clearTimeout(pa.timer);

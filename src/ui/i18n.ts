@@ -218,6 +218,15 @@ export const STR = {
 
   // --- transfer ---
   trEyebrow: { en: 'transfer', ru: 'передача' },
+  /** Path attestation, shown beside the authenticated badge. Deliberately says what was CHECKED, not
+   *  what is guaranteed: the check is advisory, and "not confirmed" is the ordinary result on
+   *  browsers that cannot enumerate their own addresses (Safari) — it is not an accusation. */
+  pathOk: { en: 'direct path confirmed', ru: 'прямой путь подтверждён' },
+  pathUnknown: { en: 'direct path not confirmed', ru: 'прямой путь не подтверждён' },
+  pathUnknownHint: {
+    en: 'Your files are still encrypted end-to-end and unreadable to anyone in between. What could not be confirmed here is WHICH route they took — this browser does not expose enough to check it. Safari never does.',
+    ru: 'Файлы всё равно зашифрованы сквозным образом и нечитаемы для любого посредника. Не удалось подтвердить только МАРШРУТ — этот браузер не раскрывает достаточно данных для проверки. Safari не раскрывает их никогда.',
+  },
   trTitle: { en: 'What are we sending?', ru: 'Что отправляем?' },
   dropTitle: { en: 'Choose files to send', ru: 'Выберите файлы' },
   dropDesc: { en: 'pick one or more from your device', ru: 'выберите один или несколько с устройства' },

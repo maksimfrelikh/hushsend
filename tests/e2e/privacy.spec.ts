@@ -125,4 +125,10 @@ test('path attestation resolves to ok on a real connection (not silently unknown
   // And it verified a real address, not an empty projection.
   await expect(sender.getByTestId('path-selected')).not.toHaveText('—');
   await expect(sender.getByTestId('path-selected')).not.toHaveText('');
+
+  // The USER-FACING badge follows the verdict. It is deliberately binary: only `ok` reassures, and
+  // `mismatch` folds into "not confirmed" rather than accusing anyone — see connectionSlice.
+  await expect(sender.getByTestId('path-state')).toContainText('confirmed');
+  await expect(sender.getByTestId('path-state')).toHaveClass(/hs-badge--verified/);
+  await expect(receiver.getByTestId('path-state')).toHaveClass(/hs-badge--verified/);
 });

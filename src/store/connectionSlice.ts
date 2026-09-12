@@ -37,6 +37,19 @@ export interface ConnectionState {
    *  (`sasRoleFor`), so it works for ANY pair (incl. joiner↔joiner). `null` = not resolved yet OR an
    *  id was missing → the SAS screen FAILS CLOSED (restart, never a functional picker). */
   sasRole: SasUiRole | null;
+  /**
+   * User-facing path-attestation result, deliberately BINARY (see `core/pathAttest.ts`).
+   *
+   * The underlying verdict is three-way, but only `ok` is safe to present as reassurance. A
+   * `mismatch` is today indistinguishable from an ordinary NAT quirk — a peer behind mDNS-obfuscated
+   * host candidates cannot name the address it was reached on — and it is exactly what made
+   * enforcement flap on honest firefox↔webkit pairs. Telling a journalist "someone is in between" on
+   * that signal is a false accusation at the worst possible moment, so `mismatch` and `unknown` both
+   * surface as "not confirmed" and the three-way detail stays in the DEV diagnostics.
+   *
+   * `null` until the attestation settles (or off the authenticated paths).
+   */
+  pathConfirmed: 'yes' | 'no' | null;
   /** Mesh-lobby roster (room method): everyone currently in the 4-digit room EXCEPT us. The human
    *  picks whom to raise a 1:1 channel with. Maintained from welcome (set) / peer-joined (add) /
    *  peer-left (remove). Empty/unused for words/link/qr (they auto-pair with a single peer). */
@@ -57,6 +70,7 @@ const initialState: ConnectionState = {
   credential: null,
   sas: null,
   sasRole: null,
+  pathConfirmed: null,
   roster: [],
   notice: null,
   error: null,
@@ -139,6 +153,12 @@ const slice = createSlice({
      *  `awaitingSas`. */
     sasRoleResolved(state, action: PayloadAction<{ role: SasUiRole }>) {
       state.sasRole = action.payload.role;
+    },
+
+    /** Path attestation settled. Only `ok` becomes a "yes" — see the field's own note for why a
+     *  `mismatch` must not be shown to the human as an accusation while it is advisory. */
+    pathSettled(state, action: PayloadAction<{ confirmed: boolean }>) {
+      state.pathConfirmed = action.payload.confirmed ? 'yes' : 'no';
     },
 
     // --- mesh-lobby roster (room method) — serializable projections, NOT FSM transitions ---
