@@ -95,3 +95,34 @@ test('reliable · fetches coturn creds via turn-request and builds a TURN iceSer
   await expect(sender.getByTestId('ice-turn-username')).not.toHaveText('');
   await expect(sender.getByTestId('ice-turn-credential')).not.toHaveText('');
 });
+
+/**
+ * Path attestation (core/pathAttest.ts) must actually REACH A VERDICT, not sit silently at
+ * "unknown". `unknown` is benign by design — a missing API must not kill a working connection —
+ * which means a wholly broken implementation would look exactly like a working one from the outside.
+ * This test is the thing that tells them apart: a real SAME-ENGINE pair must resolve to `ok` and name
+ * the address it actually selected.
+ *
+ * It is deliberately same-engine. A firefox↔webkit pair resolves to `mismatch` with no attacker
+ * present — WebKit cannot disable mDNS obfuscation, so it cannot attest to the address its peer
+ * reached it on — which is exactly why the verdict is ADVISORY and gates nothing. See
+ * SessionController.startPathAttestation and BACKLOG § Security audit.
+ */
+test('path attestation resolves to ok on a real connection (not silently unknown)', async ({ browser }) => {
+  const sender = await openIsolatedTab(browser);
+  const receiver = await openIsolatedTab(browser);
+
+  const words = await createWords(sender);
+  await pickWords(receiver, words);
+
+  await expect(sender.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
+  await expect(receiver.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
+
+  // BOTH sides attest and both verify — the check is symmetric, so a one-sided pass is a bug.
+  await expect(sender.getByTestId('path-verdict')).toHaveText('ok', { timeout: 30_000 });
+  await expect(receiver.getByTestId('path-verdict')).toHaveText('ok', { timeout: 30_000 });
+
+  // And it verified a real address, not an empty projection.
+  await expect(sender.getByTestId('path-selected')).not.toHaveText('—');
+  await expect(sender.getByTestId('path-selected')).not.toHaveText('');
+});

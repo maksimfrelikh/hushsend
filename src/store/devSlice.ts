@@ -35,12 +35,25 @@ export interface DevState {
    *  Reliable mode with a non-empty TURN url set. Non-secret dev projection (the credential is the
    *  per-session value also sent to coturn; the shared TURN secret never reaches the client). */
   iceConfig: { mode: PrivacyMode; relay: boolean; urls: string[]; username: string; credential: string } | null;
+  /** Path attestation verdict (core/pathAttest.ts), once the peer has attested: `ok` = the address
+   *  ICE selected is one the peer named, `unknown` = this engine could not say (allowed, not a
+   *  failure), `mismatch` = something is on the path (the session is torn down). Non-secret: both
+   *  values are addresses the two peers already know about each other. */
+  pathVerdict: 'ok' | 'unknown' | 'mismatch' | null;
+  /** The remote address we actually selected — shown beside the verdict for the real-device pass. */
+  pathSelected: string | null;
+  /** What the PEER attested to. Shown beside the verdict so a mismatch can be read at a glance
+   *  instead of guessed at; both values are addresses the two peers already know about each other. */
+  pathPeerAddrs: string[];
 }
 
 const initialState: DevState = {
   selfId: null,
   localFingerprint: null,
   remoteFingerprint: null,
+  pathVerdict: null,
+  pathSelected: null,
+  pathPeerAddrs: [],
   log: [],
   pairingAttempts: 0,
   maxPairingAttempts: 0,
@@ -56,6 +69,14 @@ const slice = createSlice({
   reducers: {
     setSelfId(state, action: PayloadAction<string>) {
       state.selfId = action.payload;
+    },
+    setPath(
+      state,
+      action: PayloadAction<{ verdict: 'ok' | 'unknown' | 'mismatch'; selected: string | null; peerAddrs: string[] }>,
+    ) {
+      state.pathVerdict = action.payload.verdict;
+      state.pathSelected = action.payload.selected;
+      state.pathPeerAddrs = action.payload.peerAddrs;
     },
     setFingerprints(state, action: PayloadAction<{ local: string | null; remote: string | null }>) {
       state.localFingerprint = action.payload.local;

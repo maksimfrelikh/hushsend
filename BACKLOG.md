@@ -162,7 +162,7 @@ the same pass as CLAUDE.md when items land.
     **Not a substitute for real devices:** Playwright's WebKit is WebKitGTK on Linux, not Safari on
     iOS; no camera, no cellular NAT, no cross-network path.
   - ✅ **Per-engine suite matrix + size ladder — DONE (2026-09-12).** The WHOLE suite now runs under
-    each engine as its own Playwright project: **32/32 under each of chromium / firefox / webkit**
+    each engine as its own Playwright project: **33/33 under each of chromium / firefox / webkit**
     (count as of 2026-09-12 — it was 28/28 when this landed; plus the 4 phone-profile tests and the
     5 interop pairs). Firefox needed no code change at all. **WebKit needed a STUN server on the
     stand, not a code change:** it has no switch to disable mDNS obfuscation of host candidates
@@ -682,17 +682,42 @@ Also fixed in the same pass, from the same audit:
 
 **Still open from this pass — deliberately not rushed, both are protocol work, not one-liners:**
 
-- [ ] **Path attestation over the authenticated channel.** A hostile server can put itself ON THE PATH
-  in Max privacy and no candidate filter can stop it: ICE credentials ride the SDP it relays, so it can
-  answer connectivity checks, and a client cannot tell an attacker's `typ host` from the peer's —
-  the peer's real address is only ever learned FROM the server. Confidentiality is unaffected (DTLS is
-  end-to-end; a forwarding attacker sees ciphertext), but the Max-privacy PATH promise is not
-  verifiable today. **Fix shape:** after authentication, each side sends its own candidate/address set
-  over the DataChannel — which the server cannot forge — and each verifies that the remote address it
-  actually selected appears in the peer's set. That converts "we filtered relay candidates" (an
-  unverifiable intention) into "we checked who we are talking to" (a verifiable fact), exactly as the
-  DTLS fingerprint binding already does for identity. Also covers the documented mid-session
-  re-nomination residual.
+- [ ] **Path attestation over the authenticated channel — BUILT, but ADVISORY ONLY (2026-09-12).**
+  The mechanism is in the tree and working; what is NOT done is making it a control, and the blocker
+  is measured rather than guessed. **It fails on honest Safari.** With the gate in place (`mismatch`
+  → teardown, bytes gated) an `interop · firefox → webkit` pair on ONE LAN failed reproducibly with
+  no attacker present: WebKit cannot disable mDNS obfuscation, so it offers only `<uuid>.local` host
+  candidates, its peer learns the real address peer-reflexively, and WebKit therefore cannot attest
+  to the address it was reached on. Removing the gate: 9/9 interop and 96/96 engine tests pass. Since
+  that is exactly what real Safari/iOS does, failing closed there would break honest transfers on a
+  primary target platform — worse than the leak it closes.
+  **Next step, and the reason the verdict is now projected:** the real-device pass should record
+  `path-verdict` / `path-selected` / `path-peer-addrs` on each engine, which is the input needed to
+  choose between (a) inverting the check — each side attests the address it SELECTED, and the peer
+  checks that against its OWN local addresses, so the side that must know the address is the side
+  that does know it; (b) gating only when both sides report a usable set; or (c) leaving it advisory.
+  Details of what IS built below.
+- ℹ️ **What was built (the mechanism).** A hostile server can put
+  itself ON THE PATH in Max privacy and no candidate filter can stop it: ICE credentials ride the SDP
+  it relays, so it can answer connectivity checks, and a client cannot tell an attacker's `typ host`
+  from the peer's — the peer's real address is only ever learned FROM the server. Confidentiality was
+  never affected (DTLS is end-to-end; a forwarding attacker sees ciphertext), but the Max-privacy PATH
+  promise was not verifiable. **Built:** `src/core/pathAttest.ts` (pure) +
+  `SessionController.startPathAttestation` / `onPathAttest` / `verifyPath` / `failPath`. On
+  `established` each side sends `{kind:'path-attest', addrs}` over the AUTHENTICATED DataChannel and
+  checks that the remote address ICE actually selected (`PeerConnection.selectedRemoteAddress`, via
+  `getStats()`) is one the peer named. In principle a forwarding attacker's two moves are both
+  visible: pass the real addresses through → `mismatch`; drop the frame → nothing arrives within
+  15 s. Today both outcomes are RECORDED, not enforced — see the blocker above. `unknown` (an engine
+  that cannot enumerate candidates, or no selected pair yet) is benign by design, which is precisely
+  why `tests/e2e/privacy.spec.ts` asserts a real same-engine pair reaches `ok` on chromium, firefox
+  AND webkit: `unknown` everywhere would make a broken implementation indistinguishable from a
+  working one. The verdict is polled until ICE has actually selected a pair (the attestation frame
+  can beat the selection — measured on firefox↔webkit). **Residual, stated plainly:** the comparison is address-only (honest
+  NATs vary the port, so comparing ports would reject working connections), and it rests on the peer's
+  own view of its addresses, which for srflx comes from STUN — the same operator. An operator that
+  both lies over STUN *and* sits on the path can still make the two sides agree; removing that means
+  not being the STUN provider. Unit: `pathAttest.test.ts`. (See CLAUDE.md § Path attestation.)
 - [ ] **`pairingId` disclosure to whoever wins the reconnect join race** — unchanged from the first
   pass (a blinded `HMAC(pairingId, fp_min‖fp_max)` announcement). Note finding (4) made this worse
   before it was fixed; with the enrollment gate in place it is back to linkability + nuisance.

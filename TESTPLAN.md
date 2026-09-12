@@ -122,6 +122,15 @@ Both peers on the home Wi-Fi, default **Max-privacy**. Baseline: if these fail, 
 
 The point of 6e: every fallback path on a real engine, not a polyfilled test env.
 
+> **Record the path-attestation verdict on EVERY pair you make in this pass.** The DEV diagnostics
+> strip shows `path-verdict` / `path-selected` / `path-peer-addrs` (they are dev-only, so read them
+> against `npm run dev`, not the live host). Attestation is ADVISORY precisely because we do not yet
+> know what real engines report: a firefox↔webkit pair on one LAN says `mismatch` with no attacker
+> present, because WebKit cannot attest to the address it was reached on. What this pass needs is the
+> table — for each pair (same-network and cross-network, each engine combination): the verdict, what
+> each side selected, and what each side attested. That decides whether the check can become a
+> control, and in which direction. See BACKLOG § Security audit / Path attestation.
+
 > **The phone-shaped half is pre-covered too** by `tests/e2e/mobile.spec.ts` (WebKit + an iPhone
 > device descriptor): the 512 MB cap is genuinely selected by the phone UA and quoted in the refusal,
 > the Blob path completes, the layout holds at 390 px, and the QR paste fallback works. So on a real

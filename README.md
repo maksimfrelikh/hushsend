@@ -49,22 +49,27 @@ pairing is an SSH-style hard stop, never a dismissable toast.
 - **Reliable** — adds a TURN relay (short-lived HMAC credentials minted per session; the shared
   secret never leaves the server) so a pair behind hostile NATs still connects.
 
-> **Honest caveat — what Max privacy does and does not promise.** Confidentiality against the network
-> path is solid: DTLS is end-to-end between the two real peers and the fingerprint binding defeats any
-> MITM that terminates it, so nothing on the path reads a byte. The *path* promise is weaker than the
-> wording used to suggest. An untrusted signaling server relays the SDP, which carries the ICE
-> credentials — so it can always answer connectivity checks and attract the path to itself, and a
-> candidate filter cannot tell its `typ host` from a real peer's. Relay candidates are dropped and the
-> selected path is re-checked at channel-open (including ones hidden inside the SDP), which stops an
-> honest peer's relay; it does not stop a hostile server from being on the path and seeing both IPs
-> and traffic volume. Making that verifiable — attesting the selected path over the already
-> authenticated DataChannel — is the open item in [BACKLOG.md](BACKLOG.md) § Security audit.
+> **Honest caveat — what Max privacy does and does not promise.** Confidentiality is solid: DTLS is
+> end-to-end between the two real peers and the fingerprint binding defeats any MITM that terminates
+> it, so nothing on the path reads a byte. The *path* promise cannot rest on candidate filtering — an
+> untrusted server relays the SDP, which carries the ICE credentials, so it can answer connectivity
+> checks itself and a filter cannot tell its `typ host` from a real peer's. So the claim is
+> **verified instead of assumed**: once the pair is authenticated, each side attests over the
+> DataChannel to the addresses it can be reached at, and each checks that the address ICE actually
+> selected is one the peer named. **That check is ADVISORY today, not enforced** — and the reason is
+> worth stating rather than burying: enforcing it broke an honest Firefox↔Safari pair on one LAN,
+> because WebKit cannot disable mDNS obfuscation of its host candidates and so cannot attest to the
+> address its peer actually reached it on. Failing closed there would break real Safari users, which
+> is worse than the leak it closes. So the verdict is recorded while the real-device pass establishes
+> what each engine reports; the open item is in [BACKLOG.md](BACKLOG.md) § Security audit. Until then,
+> the honest statement is: **nothing on the path can read your files, and a relay is refused — but a
+> hostile server can be on the path and learn who is talking to whom.**
 
 ## Status
 
 **Feature-complete and deployed.** All four methods, reconnect, the mesh lobby, TURN, i18n (EN/RU),
-light/dark, and the deployment are built and live. **219 vitest tests** (194 unit + 25 integration)
-and a Playwright e2e suite — **32 per engine** across chromium / firefox / webkit, plus a phone
+light/dark, and the deployment are built and live. **231 vitest tests** (206 unit + 25 integration)
+and a Playwright e2e suite — **33 per engine** across chromium / firefox / webkit, plus a phone
 profile and 5 cross-engine pairs — cover the protocol paths. Counts verified 2026-09-12; refresh them
 here whenever the suite grows.
 

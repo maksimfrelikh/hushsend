@@ -19,6 +19,7 @@ import {
 } from './crypto/keyConfirmation';
 import { generateLinkSecret, buildLinkUrl } from './link/link';
 import { sasRoleFrom } from './sasRole';
+import { pathVerdict } from './pathAttest';
 import { pairingRoleFor } from './pairingRole';
 import { peerLeftAbortsPairing } from './livenessGate';
 import {
@@ -129,6 +130,21 @@ function maxPairingAttempts(): number {
 // The relay is UNTRUSTED, so the "words"-method payloads are validated before use, exactly
 // like the SDP/ICE signal payloads. Even-length lowercase/uppercase hex.
 const HEX = /^(?:[0-9a-fA-F]{2})*$/;
+
+/**
+ * Path attestation (`core/pathAttest.ts`): the addresses the peer says it can be reached at, sent
+ * over the AUTHENTICATED DataChannel so the untrusted server can neither read nor forge it. Bounded
+ * hard — this is peer-supplied data even after authentication.
+ */
+const PATH_ATTEST_MAX_ADDRS = 16;
+const PATH_ATTEST_MAX_LEN = 64; // longest plausible IPv6 textual form, with room to spare
+const pathAttestSchema = z.object({
+  kind: z.literal('path-attest'),
+  addrs: z.array(z.string().max(PATH_ATTEST_MAX_LEN)).max(PATH_ATTEST_MAX_ADDRS),
+});
+/** How long the peer has to attest before we treat the silence as an on-path attacker dropping the
+ *  frame. Generous: both sides send immediately on `established`, so this is slack, not a race. */
+const PATH_ATTEST_TIMEOUT_MS = 15_000;
 /** CPace message over signaling: `{ kind:'cpace', sid?, msg }`. `sid` is present only on the
  *  initiator's FIRST message (it chooses the public session id); the responder echoes none. */
 const cpaceFrameSchema = z.object({
@@ -638,6 +654,18 @@ export class SessionController {
    *  declines to expire the room hangs the client indefinitely. Fail-closed, liveness only: no
    *  crypto, no transcript, no guessing budget is touched. (2026-09-12 audit.) */
   private confirmTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Path-attestation state for this pairing. `verified` gates FILE BYTES in both directions: an
+   *  authenticated pair still has to establish that the path carries them to each other and not
+   *  through an interposer. Null off an established pairing. */
+  private pathAttest: {
+    peerAddrs: string[] | null;
+    verified: boolean;
+    settled: boolean;
+    timer: ReturnType<typeof setTimeout> | null;
+  } | null = null;
+  /** An attestation that arrived before we settled — held and replayed, same reasoning as
+   *  `pendingEnrollFrame` (the two peers do not settle at the same instant). */
+  private pendingPathAttest: string[] | null = null;
   /** A-side: our PUBLIC rendezvous word (room id), kept across retries so the same words are
    *  re-shown while the attempt counter climbs. */
   private rendezvous: string | null = null;
@@ -1366,6 +1394,7 @@ export class SessionController {
       this.linkSettled = true; // success — link/qr teardown guards are now closed
       this.established = true;
       this.dispatch(connectionActions.connectionEstablished());
+      this.startPathAttestation(); // verify WHO is on the path — gates file bytes (core/pathAttest.ts)
       this.startEnrollment(); // TOFU enrollment over the now-authenticated channel (does NOT gate)
       this.closeSignalingAfterConnect(); // 1:1: the signaling socket has no further job — close it
     } else {
@@ -1611,6 +1640,13 @@ export class SessionController {
       return;
     }
 
+    // Path attestation: the addresses the peer can be reached at (see core/pathAttest.ts).
+    const attest = pathAttestSchema.safeParse(msg);
+    if (attest.success) {
+      this.onPathAttest(attest.data.addrs);
+      return;
+    }
+
     // TOFU enrollment (step 4b-i): the peer's identity key + signature (a control message, NOT
     // file bytes). Runs over the already-authenticated channel; validated to exact lengths.
     const enroll = enrollFrameSchema.safeParse(msg);
@@ -1655,6 +1691,9 @@ export class SessionController {
       return;
     }
     if (this.sender || this.receiver || this.pendingOffer) return; // one transfer at a time
+    // NOTE: path attestation does NOT gate here. It was written to, and the gate was removed when a
+    // firefox↔webkit pair on one LAN failed it with no attacker present — see startPathAttestation
+    // for why that is structural (mDNS host candidates) rather than a bug to fix.
     this.dispatch(transferActions.reset());
     this.sender = startSend(this.wire(), files, (e) => this.onSendEvent(e));
   }
@@ -2307,6 +2346,7 @@ export class SessionController {
     sas.timer = null;
     this.established = true; // gates file bytes — set only on a mutual match
     this.dispatch(connectionActions.connectionEstablished());
+    this.startPathAttestation(); // verify WHO is on the path — gates file bytes (core/pathAttest.ts)
     this.startEnrollment(); // TOFU enrollment over the now-authenticated channel (does NOT gate)
     this.closeSignalingAfterConnect(); // per-pair: close our own signaling socket (server learns no duration)
   }
@@ -2650,6 +2690,121 @@ export class SessionController {
    * signed identity immediately (it owns the pairingId); the responder waits for that frame.
    * No-op off the authenticated paths.
    */
+  /**
+   * Begin path attestation for a freshly AUTHENTICATED pairing (see `core/pathAttest.ts`).
+   *
+   * Send the addresses we can be reached at; the peer checks the address it actually selected
+   * against them. The frame rides the DataChannel, which is DTLS-protected and — since we are
+   * `established` — authenticated, so the untrusted server can neither read nor forge it.
+   *
+   * ⚠️ **ADVISORY, NOT A CONTROL — and that is a measured decision, not an oversight.** It was built
+   * to tear the session down on a mismatch and to gate file bytes. Then a firefox↔webkit pair on one
+   * LAN failed it, reproducibly, with no attacker present. The cause is structural: WebKit cannot
+   * disable mDNS obfuscation of its host candidates, so it only ever offers `<uuid>.local`, its peer
+   * learns its real address peer-reflexively, and WebKit therefore **cannot attest to the address it
+   * was actually reached on**. That is not a test artifact — it is what real Safari, including iOS,
+   * does. A control that fails closed there would break honest transfers on a primary target
+   * platform, which is worse than the leak it closes.
+   *
+   * So the verdict is computed, logged and projected (`dev.pathVerdict` / `pathSelected` /
+   * `pathPeerAddrs`) but nothing is torn down and no byte is gated. What it buys today is evidence:
+   * the real-device pass (TESTPLAN) can now record what each engine actually reports, which is
+   * exactly the input needed to decide whether this can become a control. Tracked in BACKLOG.
+   */
+  private startPathAttestation(): void {
+    if (this.pathAttest) return; // one per pairing
+    this.pathAttest = { peerAddrs: null, verified: false, settled: false, timer: null };
+    this.pathAttest.timer = setTimeout(() => {
+      const pa = this.pathAttest;
+      if (!pa || pa.settled) return;
+      pa.settled = true;
+      this.dispatch(devActions.setPath({ verdict: 'unknown', selected: null, peerAddrs: [] }));
+      this.dispatch(devActions.appendLog('path: peer never attested — UNVERIFIED (advisory)'));
+    }, PATH_ATTEST_TIMEOUT_MS);
+    // Replay an attestation that beat our own settle (the two peers do not settle at the same instant).
+    const held = this.pendingPathAttest;
+    this.pendingPathAttest = null;
+    void (async () => {
+      // An engine that cannot enumerate its candidates attests an EMPTY set, which the peer reads as
+      // "cannot judge" — never as a mismatch. Failing to attest at all is not an option: silence is
+      // what the deadline treats as an attacker, so any error here still sends the empty set.
+      let addrs: string[] = [];
+      try {
+        addrs = (await this.peer?.localAddresses()) ?? [];
+      } catch {
+        /* stats unavailable — attest nothing rather than nothing at all */
+      }
+      this.dispatch(devActions.appendLog(`path: attesting ${addrs.length} local address(es)`));
+      void this.peer?.send(JSON.stringify({ kind: 'path-attest', addrs })).catch(() => {});
+      if (held) this.onPathAttest(held);
+    })().catch(() => {});
+  }
+
+  /** The peer's attested addresses. Held if we have not settled yet (same reasoning as enrollment). */
+  private onPathAttest(addrs: string[]): void {
+    const pa = this.pathAttest;
+    if (!pa) {
+      this.pendingPathAttest = addrs;
+      return;
+    }
+    if (pa.settled || pa.peerAddrs) return; // one attestation per pairing
+    pa.peerAddrs = addrs;
+    void this.verifyPath();
+  }
+
+  /**
+   * Compare the address ICE actually selected for us against the peer's attested set.
+   *
+   * `mismatch` is a HARD STOP on the same terminal path as a SAS mismatch — something is on the
+   * path, and the user is told so rather than shown a quietly-working transfer. `unknown` (no
+   * selected address yet, or an engine that reports no usable candidates) passes: absence of
+   * evidence is not evidence, and a missing API must not kill a working connection. The downgrade
+   * that would otherwise open — drop the frame and never be judged — is closed by the deadline, not
+   * by treating `unknown` as guilt.
+   */
+  private async verifyPath(): Promise<void> {
+    const pa = this.pathAttest;
+    if (!pa || pa.settled) return;
+    // WAIT for ICE to have selected a pair. The attestation frame can beat the selection — measured
+    // on a firefox↔webkit pair, where one side had no selected pair yet when the peer's addresses
+    // arrived. Judging then yields `unknown` (or worse, a verdict on a pair that is about to change),
+    // which would make this control silently inert exactly where it is hardest to get right. Poll
+    // instead, bounded, and let the attestation deadline be the backstop.
+    let selected: string | null = null;
+    for (let i = 0; i < 20 && selected === null; i++) {
+      selected = (await this.peer?.selectedRemoteAddress()) ?? null;
+      if (selected !== null) break;
+      if (!this.pathAttest || this.pathAttest.settled) return; // torn down while polling
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    if (!this.pathAttest || this.pathAttest.settled) return; // torn down while awaiting stats
+    const verdict = pathVerdict(selected, pa.peerAddrs);
+    this.dispatch(devActions.setPath({ verdict, selected, peerAddrs: pa.peerAddrs ?? [] }));
+    pa.settled = true;
+    pa.verified = verdict === 'ok';
+    if (pa.timer != null) clearTimeout(pa.timer);
+    pa.timer = null;
+    if (verdict === 'mismatch') {
+      // ADVISORY (see startPathAttestation): recorded loudly, but NOT a teardown. An honest peer
+      // behind mDNS-obfuscated host candidates — i.e. any Safari — cannot attest to the address it
+      // was reached on, so a mismatch here is not yet evidence of an attacker.
+      this.dispatch(
+        devActions.appendLog(
+          `path: MISMATCH — we selected ${selected}, peer attested [${(pa.peerAddrs ?? []).join(', ')}] (advisory)`,
+        ),
+      );
+      return;
+    }
+    this.dispatch(devActions.appendLog(`path: ${verdict === 'ok' ? `verified (${selected})` : 'UNVERIFIABLE on this engine'}`));
+  }
+
+  /** Disarm + forget the attestation (teardowns). */
+  private clearPathAttest(): void {
+    if (this.pathAttest?.timer != null) clearTimeout(this.pathAttest.timer);
+    this.pathAttest = null;
+    this.pendingPathAttest = null;
+  }
+
   private startEnrollment(): void {
     if (!this.isAuthenticatedMethod()) return; // authenticated paths only
     // Replay an enroll frame that arrived in the gap before we settled (see pendingEnrollFrame).
@@ -2767,6 +2922,7 @@ export class SessionController {
     this.enrollInitiated = false;
     this.enrollPinned = false;
     this.pendingEnrollFrame = null;
+    this.clearPathAttest();
     this.dispatch(devActions.setPinnedPeer(null));
     await this.publishIdentity(); // generate + show a fresh identity
   }
@@ -2826,6 +2982,7 @@ export class SessionController {
     this.enrollInitiated = false;
     this.enrollPinned = false;
     this.pendingEnrollFrame = null;
+    this.clearPathAttest();
     this.dispatch(connectionActions.reset());
     this.dispatch(transferActions.reset());
     this.dispatch(devActions.reset());

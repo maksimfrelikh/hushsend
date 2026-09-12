@@ -38,6 +38,11 @@ export function Diagnostics(): ReactElement | null {
       <p>local fp: {dev.localFingerprint ?? '—'}</p>
       <p>remote fp: {dev.remoteFingerprint ?? '—'}</p>
       <p>
+        path: <span data-testid="path-verdict">{dev.pathVerdict ?? '—'}</span> ·{' '}
+        <span data-testid="path-selected">{dev.pathSelected ?? '—'}</span> · peer attested:{' '}
+        <span data-testid="path-peer-addrs">{dev.pathPeerAddrs.join(',') || '—'}</span>
+      </p>
+      <p>
         ice mode: <span data-testid="ice-mode">{dev.iceConfig?.mode ?? '—'}</span> · relay:{' '}
         <span data-testid="ice-relay">{dev.iceConfig ? String(dev.iceConfig.relay) : '—'}</span>
       </p>

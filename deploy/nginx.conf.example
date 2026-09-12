@@ -50,11 +50,14 @@ server {
     # ssl_trusted_certificate /etc/letsencrypt/live/hushsend.frelikh.dev/chain.pem; # for OCSP stapling
     # ssl_stapling on; ssl_stapling_verify on;
 
-    # --- Security response headers (set ONCE at server level; `always` so they
-    #     also ride on error responses). The static `location /` and the proxy
-    #     locations below add NO add_header of their own, so these are inherited
-    #     by all of them (nginx drops inherited add_header only when a block sets
-    #     its own). -----------------------------------------------------------
+    # --- Security response headers (`always` so they ride on error responses too).
+    #     ⚠️ These are NOT inherited by a location that sets ANY add_header of its
+    #     own — nginx applies inherited add_header directives only when the current
+    #     level defines none. `location /assets/` and the `.wasm` block below both
+    #     set their own Cache-Control, so they MUST repeat this whole block, and
+    #     they do. Verified live 2026-09-12 after the opposite claim stood here and
+    #     was wrong: the HTML carried all five headers, the JS bundle carried only
+    #     cache-control. If you add a header here, add it there too. ------------
 
     # HSTS: pin HTTPS for 2 years incl. subdomains. Drop `preload` (and submit to
     # hstspreload.org) ONLY once you're sure every *.frelikh.dev host is HTTPS —
@@ -135,6 +138,11 @@ server {
 
     location / {
         try_files $uri /index.html;
+        # The default `combined` format writes the client IP, the FULL User-Agent and the
+        # query string for every request. hushsend deliberately sends the server a coarse
+        # one-bit device label instead of a UA, and the rendezvous code rides ?room= — so
+        # logging here undoes both. The error log is untouched. (2026-09-12 audit.)
+        access_log off;
     }
 
     # Long-cache the content-hashed assets (Vite fingerprints filenames, so this
@@ -143,6 +151,15 @@ server {
         try_files $uri =404;
         expires 1y;
         add_header Cache-Control "public, immutable" always;
+        # Repeated: this block sets its own add_header, which drops the inherited
+        # server-level set (see the note above). Keep in step with it.
+        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' wss://hushsend.frelikh.dev; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'" always;
+        add_header Permissions-Policy "camera=(self), microphone=(), geolocation=(), display-capture=(), usb=(), payment=(), interest-cohort=()" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "no-referrer" always;
+        add_header X-Frame-Options "DENY" always;
+        access_log off;
     }
 
     # --- WebAssembly MIME (defensive — matters for QR scan on iOS/Firefox) ---
@@ -165,6 +182,15 @@ server {
         try_files $uri =404;
         expires 1y;
         add_header Cache-Control "public, immutable" always;
+        # Repeated: this block sets its own add_header, which drops the inherited
+        # server-level set (see the note above). Keep in step with it.
+        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' wss://hushsend.frelikh.dev; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'" always;
+        add_header Permissions-Policy "camera=(self), microphone=(), geolocation=(), display-capture=(), usb=(), payment=(), interest-cohort=()" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "no-referrer" always;
+        add_header X-Frame-Options "DENY" always;
+        access_log off;
     }
 
     # --- WebSocket signaling proxy (CRITICAL) --------------------------------
@@ -196,6 +222,9 @@ server {
 
         # Don't buffer a streaming/long-poll-like upgraded connection.
         proxy_buffering off;
+        # Same reasoning as `location /`: X-Real-IP above still reaches the signaling
+        # server for its per-IP caps, but nginx need not write the UA + code to disk.
+        access_log off;
     }
 
     # --- Health check (optional) ---------------------------------------------

@@ -1090,7 +1090,7 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   browsers per test and runs link-pairing + a hashed transfer across chrome/firefox/webkit in both
   directions — run it with `E2E_SIGNALING_PORT=… npx playwright test`, engines absent from the host
   skip with a printed reason; the WHOLE suite also runs per engine as its own project —
-  chromium/firefox/**webkit** 32/32 each (count as of 2026-09-12) — where **webkit needs
+  chromium/firefox/**webkit** 33/33 each (count as of 2026-09-12) — where **webkit needs
   `E2E_STUN_URLS` on a headless host**:
   it cannot disable mDNS obfuscation, so without a STUN server its only host candidate is
   `<uuid>.local` and two of its tabs never pair. plus a `mobile-webkit` project (WebKit + the iPhone device descriptor) that is the ONLY place the
@@ -1151,8 +1151,55 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   (Server cap/TTL/rate-limit for 4-digit rooms is **done — step 6a**; see Signaling server §
   *Managed-room hardening*.)
 
+## Path attestation (`src/core/pathAttest.ts`) — who is actually on the wire
+Authentication answers "is this my peer?"; attestation answers **"is the traffic going to them?"**.
+The audit established that no candidate filter can answer the second one: ICE credentials ride the
+SDP the untrusted server relays, so it can answer our connectivity checks itself and inject its own
+`typ host` candidate at its own address — and a client cannot tell that from the peer's, because the
+peer's real address is only ever learned FROM the server. The relay filter (`relax.ts`) refuses
+`typ relay`, which stops an honest peer's TURN path, not a server that never offers one.
+
+So the claim moves onto a channel the attacker does not control, exactly as the DTLS fingerprint
+binding already does for identity. On `established` each side sends
+`{kind:'path-attest', addrs}` over the **authenticated** DataChannel (`startPathAttestation`) and
+checks that the remote address ICE actually selected for it (`PeerConnection.selectedRemoteAddress`,
+from `getStats()`) appears in the peer's set (`pathVerdict`). An interposer's address is in neither
+peer's set, so it is named by the very peer it is impersonating. A forwarding attacker has two moves
+and both are caught: pass the real addresses through (→ `mismatch`) or drop the frame (→ nothing
+arrives → the 15 s deadline fails the session). A TERMINATING attacker never reaches here — the
+fingerprint binding stops it at the SAS / key-confirmation step.
+
+- **Verdicts.** `ok` (selected address attested), `unknown` (nothing to judge on — no selected
+  address, or an engine that reports no usable candidates: **allowed**, because a missing API must
+  not tear down a working connection), `mismatch` → terminal, same teardown as an authenticity
+  failure. Projected DEV-only as `dev.pathVerdict` / `dev.pathSelected`
+  (`path-verdict` / `path-selected` testids).
+- ⚠️ **ADVISORY — it does NOT tear down and does NOT gate bytes.** It was built as a control (fail
+  closed on `mismatch`, gate `sendFiles`/`acceptIncoming`) and the gate was REMOVED after a
+  firefox↔webkit pair on one LAN failed it reproducibly **with no attacker present**. The cause is
+  structural, not a bug: WebKit cannot disable mDNS obfuscation of host candidates, so it only ever
+  offers `<uuid>.local`, its peer learns its real address peer-reflexively, and WebKit therefore
+  **cannot attest to the address it was actually reached on**. That is what real Safari does,
+  including iOS. A control that fails closed there breaks honest transfers on a primary target
+  platform — worse than the leak it closes. Measured, not assumed: with the gate in place
+  `interop · firefox → webkit` failed every run; without it, 9/9 interop + 96/96 engine tests pass.
+- **What it buys today: evidence.** The verdict is logged and projected, so the real-device pass can
+  record what each engine actually reports — precisely the input needed to decide whether this can
+  become a control (e.g. by having each side attest the address it SELECTED and checking that against
+  our own, which inverts who needs to know what). Tracked in BACKLOG § Security audit.
+- **Other limits, stated not hidden.** Address only, never the port — plenty of honest NATs vary
+  the port per destination, so comparing ports would reject working connections; an attacker sharing
+  the peer's IP is therefore not caught. And it rests on the peer's own view of its addresses, which
+  for srflx comes from STUN — **the same operator**. An operator that both lies over STUN *and* sits
+  on the path can still make the two sides agree; the way to remove that is to stop being the STUN
+  provider.
+- Pure halves unit-tested in `pathAttest.test.ts`; `tests/e2e/privacy.spec.ts` asserts a real pair
+  reaches `ok` on every engine — `unknown` is allowed, so a broken implementation would otherwise
+  look exactly like a working one.
+
 ## Cross-cutting invariants
-- No file bytes before the connection is authenticated (`connected` / `established`).
+- No file bytes before the connection is authenticated (`connected` / `established`). Path
+  attestation is ADVISORY and deliberately does NOT extend this gate — see § Path attestation.
 - Validate every inbound signaling frame with the zod schemas (the server is untrusted).
 - Secret words / link secrets never go to the server; link secrets live in the URL fragment
   and are scrubbed after read.

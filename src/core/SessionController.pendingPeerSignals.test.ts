@@ -57,6 +57,12 @@ const hoisted = vi.hoisted(() => {
     remoteFingerprint(): string | null {
       return null;
     }
+    async localAddresses(): Promise<string[]> {
+      return ['192.168.1.19'];
+    }
+    async selectedRemoteAddress(): Promise<string | null> {
+      return '192.168.1.19';
+    }
     maxMessageSize(): number {
       return 0;
     }

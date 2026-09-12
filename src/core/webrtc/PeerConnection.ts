@@ -7,6 +7,7 @@ import {
   stripRelayCandidates,
   type StatsEntry,
 } from '../relax';
+import { localCandidateAddresses } from '../pathAttest';
 
 /**
  * The opaque `data` payload we put inside each signaling `signal` frame. The server
@@ -358,17 +359,45 @@ export class PeerConnection {
     // DEV/TEST: stub the VERDICT only. Everything after it — the refusal, the teardown, the reason
     // the user sees — is the production path, which is the point of driving it from a test at all.
     if (this.simulateRelayedPath) return true;
+    const entries = await this.readStats();
+    if (!entries) return false; // getStats unsupported/rejected — nothing to judge on
+    return isForbiddenRemoteCandidate(true, selectedRemoteCandidate(entries), this.droppedRelayEndpoints);
+  }
+
+  /** Read `getStats()` into a plain array, or null when the API is unavailable/rejects. */
+  private async readStats(): Promise<StatsEntry[] | null> {
     const pc = this.pc;
-    if (!pc) return false;
-    let entries: StatsEntry[];
+    if (!pc) return null;
     try {
       const report = await pc.getStats();
-      entries = [];
+      const entries: StatsEntry[] = [];
       report.forEach((value: unknown) => entries.push(value as StatsEntry));
+      return entries;
     } catch {
-      return false; // getStats unsupported/rejected — nothing to judge on
+      return null;
     }
-    return isForbiddenRemoteCandidate(true, selectedRemoteCandidate(entries), this.droppedRelayEndpoints);
+  }
+
+  /**
+   * The addresses WE can be reached at, for path attestation (see `core/pathAttest.ts`). Host and
+   * server-reflexive alike — the peer may have selected either. Empty when stats are unavailable,
+   * which the peer reads as "cannot judge", never as a mismatch.
+   */
+  async localAddresses(): Promise<string[]> {
+    const entries = await this.readStats();
+    return entries ? localCandidateAddresses(entries) : [];
+  }
+
+  /**
+   * The remote address of the candidate pair ICE actually SELECTED — the thing we are really sending
+   * to. Null when nothing is selected yet or stats are unavailable.
+   */
+  async selectedRemoteAddress(): Promise<string | null> {
+    const entries = await this.readStats();
+    if (!entries) return null;
+    const remote = selectedRemoteCandidate(entries);
+    if (!remote) return null;
+    return remote.address ?? remote.ip ?? null;
   }
 
   private waitForDrain(ch: RTCDataChannel): Promise<void> {
