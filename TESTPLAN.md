@@ -104,6 +104,12 @@ Both peers on the home Wi-Fi, default **Max-privacy**. Baseline: if these fail, 
 
 The point of 6e: every fallback path on a real engine, not a polyfilled test env.
 
+> **Already pre-covered headlessly** by `tests/e2e/interop.spec.ts` (chrome ↔ firefox ↔ webkit, both
+> directions, link pairing + a hashed 200 KB transfer): cross-engine SDP/ICE/DTLS/SCTP interop and the
+> Blob receive path. So B1–B2 below are confirming on real hardware rather than discovering; **B3–B5
+> are the ones that can only be answered here** — a headless box has no camera, and Playwright's
+> WebKit on Linux is not Safari on iOS.
+
 - [ ] **B1 · FSA streaming (Chrome desktop)** — receive on MBP-A Chrome. Expected: a **save dialog
       appears on accept** (inside the click gesture), bytes stream to disk, RAM does not grow with the
       file (watch Activity Monitor on a ≈2 GB file).

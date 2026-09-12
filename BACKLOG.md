@@ -140,8 +140,23 @@ the same pass as CLAUDE.md when items land.
     `navigator.share` (ShareButton renders null when absent — Copy remains); `crypto.subtle` Ed25519
     (→ noble fallback); `indexedDB` (open rejects, treated non-fatal). No working logic rewritten —
     only the missing mediaDevices guard added.
-  - **Remaining (real devices, post-deploy):** transport + FSA→Blob caps + QR scan + camera
-    permissions on actual iOS Safari / Firefox.
+  - ✅ **Cross-ENGINE e2e — DONE (2026-09-12).** The suite drove two tabs of the SAME Chromium, which
+    proves the protocol but not that two different WebRTC stacks agree — SDP dialects, candidate
+    handling, DTLS and SCTP sizing are exactly where engines diverge, and that is what bites on a real
+    phone→laptop transfer. `tests/e2e/interop.spec.ts` now launches TWO REAL BROWSERS per test and runs
+    the link method plus a 200 KB hashed transfer across **chrome↔firefox, chrome↔webkit and
+    firefox↔webkit, in both directions** (5 pairs). All green on the box (chrome 153, firefox 151,
+    webkit 26.5). Engines that are not installed SKIP with a printed reason, so a Chrome-only machine
+    behaves as before. Required splitting `playwright.config.ts` into two projects: the runner applies
+    `use.channel`/`use.launchOptions` even to browsers a test launches itself, so a Chromium channel
+    leaked into `firefox.launch()` (`Unsupported firefox channel "chrome"`). Setup on a fresh host:
+    `sudo npx playwright install-deps firefox webkit` then `npx playwright install firefox webkit`.
+    **Not a substitute for real devices:** Playwright's WebKit is WebKitGTK on Linux, not Safari on
+    iOS; no camera, no cellular NAT, no cross-network path.
+  - **Remaining (real devices, post-deploy):** what only hardware shows — QR scan + camera permissions
+    on actual iOS Safari, the FSA→Blob cap on real hardware, everything cross-network (TESTPLAN § C),
+    and iOS background-tab suspension mid-transfer (§ F1). Engine-level transport interop is now
+    pre-covered headlessly (above).
 - ✅ **Deployment behind nginx (6f) — LIVE at hushsend.frelikh.dev (see DEPLOY.md § 0 — the
   as-realized source of truth).** First bring-up 2026-06-20 on a VPS (`frelikhmax.fvds.ru`); **the live
   instance MOVED to the owner's home server 2026-08-16** and that is what runs today (re-verified on the

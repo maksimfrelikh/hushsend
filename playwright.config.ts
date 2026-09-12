@@ -34,13 +34,31 @@ export default defineConfig({
   use: {
     baseURL: `http://localhost:${VITE_PORT}`,
     acceptDownloads: true,
-    channel: 'chrome',
-    launchOptions: {
-      // Expose raw loopback host candidates instead of mDNS .local names so two tabs in
-      // the same browser reliably connect without any STUN/TURN round-trip.
-      args: ['--disable-features=WebRtcHideLocalIpsWithMdns'],
-    },
   },
+  // Two projects, because `use.channel` / `use.launchOptions` are applied by the runner even to
+  // browsers a test launches ITSELF — a Chromium channel leaking into `firefox.launch()` fails with
+  // `Unsupported firefox channel "chrome"`. So the Chromium-only options live on the project that
+  // needs them, and the cross-engine spec runs in a project that sets none.
+  projects: [
+    {
+      name: 'chromium',
+      testIgnore: /interop\.spec\.ts/,
+      use: {
+        channel: 'chrome',
+        launchOptions: {
+          // Expose raw loopback host candidates instead of mDNS .local names so two tabs in
+          // the same browser reliably connect without any STUN/TURN round-trip.
+          args: ['--disable-features=WebRtcHideLocalIpsWithMdns'],
+        },
+      },
+    },
+    {
+      // Cross-engine interop: the spec launches its own browsers (one per side) with per-engine
+      // options, so this project must not impose a channel or Chromium flags on them.
+      name: 'interop',
+      testMatch: /interop\.spec\.ts/,
+    },
+  ],
   webServer: [
     {
       command: 'node server/signaling-server.js',

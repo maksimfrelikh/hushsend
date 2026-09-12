@@ -1049,7 +1049,10 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   so the fallback decoder never fetches from a CDN. `zxingWasm.test.ts` proves the wired `locateFile`
   resolves to `'self'`, never jsdelivr/fastly. ScanScreen consumes it.
 - 📋 Pending: step 6 — **6d DONE**; **6e no-device parts DONE** (self-hosted QR WASM +
-  feature-detection review); **6f LIVE** — deployed + externally verified at hushsend.frelikh.dev
+  feature-detection review + **cross-ENGINE e2e**: `tests/e2e/interop.spec.ts` launches two real
+  browsers per test and runs link-pairing + a hashed transfer across chrome/firefox/webkit in both
+  directions — run it with `E2E_SIGNALING_PORT=… npx playwright test`, engines absent from the host
+  skip with a printed reason); **6f LIVE** — deployed + externally verified at hushsend.frelikh.dev
   (coturn same-host `turn:`-only :3478; signaling = separate repo under systemd; see DEPLOY.md § 0);
   remaining: in-browser P2P/SAS/transfer on two devices + cross-network TURN relay (6e real-device,
   post-deploy) — the pass is planned case-by-case in **TESTPLAN.md** — plus nice-to-haves, tracked in
