@@ -107,23 +107,32 @@ function watchProgress(receiver: Page, mb: number): { stalled: Promise<never>; s
   let timer: ReturnType<typeof setInterval>;
   const stalled = new Promise<never>((_resolve, reject) => {
     timer = setInterval(() => {
+      // Decide on the CLOCK first, before touching the page. The poll below runs inside the tab we
+      // are testing, and that tab is exactly what dies when the engine runs out of room: an
+      // unresponsive page makes `evaluate` hang or throw, so a watchdog that only fires from inside
+      // the poll's success path stays silent in the one case it exists for. (Observed: a 2 GB WebKit
+      // rung pinned at a fixed percentage forever.)
+      if (Date.now() - lastChange > STALL_MS) {
+        reject(
+          new Error(
+            `stalled at ${last < 0 ? 'unknown %' : `${last.toFixed(0)}%`} for ${Math.round(STALL_MS / 1000)}s ` +
+              `(the receiving tab stopped making progress — engine limit / OOM / unresponsive)`,
+          ),
+        );
+        return;
+      }
       void receiver
         .locator('.hs-progress__fill')
         .first()
-        .evaluate((el) => parseFloat((el as HTMLElement).style.width))
+        .evaluate((el) => parseFloat((el as HTMLElement).style.width), { timeout: 10_000 })
         .then((pct) => {
-          if (!Number.isFinite(pct)) return;
-          const elapsed = Math.round((Date.now() - started) / 1000);
-          if (pct !== last) {
-            last = pct;
-            lastChange = Date.now();
-            console.log(`[ladder] ${mb} MB — ${pct.toFixed(0)}% after ${elapsed}s`);
-          } else if (Date.now() - lastChange > STALL_MS) {
-            reject(new Error(`stalled at ${last.toFixed(0)}% for ${Math.round(STALL_MS / 1000)}s`));
-          }
+          if (!Number.isFinite(pct) || pct === last) return;
+          last = pct;
+          lastChange = Date.now();
+          console.log(`[ladder] ${mb} MB — ${pct.toFixed(0)}% after ${Math.round((Date.now() - started) / 1000)}s`);
         })
         .catch(() => {
-          /* the bar is not on screen yet, or the page is gone — the phase timeouts cover that */
+          /* bar not on screen yet, or the tab is unresponsive — the clock check above covers it */
         });
     }, 15_000);
   });
