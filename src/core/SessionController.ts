@@ -971,7 +971,12 @@ export class SessionController {
     }
     // reconnect (pre-fallback): a peer dropping mid-re-auth is a hard stop (no bytes). After
     // fallback it's the plain SAS path below; failReconnect closes out SAS so failSas can't re-fire.
-    if (this.reconnect && !this.reconnect.fellBack && !this.established) {
+    // Gated by peerLeftAbortsPairing for the SAME reason as words/link/SAS: now that a settled
+    // reconnect closes its own socket, the peer observes a `peer-left` the instant WE settle — and
+    // the two sides settle independently, so a bare `!established` here would let that benign close
+    // tear down a pair whose channel is already up. After channel-open the DataChannel/ICE are the
+    // liveness authority, and a REAL abort there is caught by onChannelClose.
+    if (this.reconnect && !this.reconnect.fellBack && peerLeftAbortsPairing(this.established, this.channelOpen)) {
       this.failReconnect('reconnect aborted — peer left during re-auth');
     }
     // room + SAS: SAME gate as words and link/qr. A peer dropping before the DataChannel transport
@@ -1384,13 +1389,17 @@ export class SessionController {
    * longer aborts them (the channelOpen gate in onPeerLeft, Part A — words/link/qr AND now SAS). The
    * other peer in OUR pair likewise observes our `peer-left`, also gated away by channelOpen.
    *
-   * Reconnect is EXCLUDED — it rides on its own fresh socket (method 'room' with sas + reconnect set)
-   * and reconnect-in-lobby is deferred (see BACKLOG); keep it untouched. words/link/qr never set
-   * `this.reconnect`, so that exclusion is a no-op for them.
+   * RECONNECT IS INCLUDED (since 2026-09-12). It used to be excluded while reconnect-in-lobby was
+   * deferred, which left it as the ONE pairing that kept its socket open for the whole session — and
+   * that is itself a signal: the untrusted server could read "this pair has met before" off the
+   * behaviour alone, plus the session duration this close exists to hide. A reconnect pair is a 1:1
+   * pair like any other and its re-auth (init/proof) rides the DataChannel, so once `settleReconnect`
+   * runs the socket has no work left. The prerequisite landed with it: the reconnect `onPeerLeft`
+   * branch now uses the same `peerLeftAbortsPairing` gate, so the `peer-left` our own close provokes
+   * cannot abort the peer's side mid-settle.
    */
   private closeSignalingAfterConnect(): void {
     if (this.method !== 'words' && this.method !== 'link' && this.method !== 'qr' && this.method !== 'room') return;
-    if (this.reconnect != null) return; // reconnect: its own fresh 1:1 socket — excluded (deferred)
     this.dispatch(devActions.appendLog('signaling: P2P connected — closing signaling socket (server learns no session duration)'));
     this.signaling?.close();
   }
@@ -2462,6 +2471,9 @@ export class SessionController {
     this.dispatch(connectionActions.connectionEstablished());
     this.dispatch(devActions.setReconnect({ active: true, outcome: 'authenticated' }));
     this.dispatch(devActions.appendLog('reconnect: authenticated via pinned key — no SAS needed'));
+    // Same privacy step as every other method: signaling is done here (ICE/SDP exchanged, the
+    // re-auth rode the DataChannel), so drop the socket rather than let the server watch the session.
+    this.closeSignalingAfterConnect();
   }
 
   /**

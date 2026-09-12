@@ -119,6 +119,7 @@ function newController(): {
   internals: SCInternals;
   dispatch: ReturnType<typeof vi.fn>;
   failSas: ReturnType<typeof vi.spyOn>;
+  failReconnect: ReturnType<typeof vi.spyOn>;
   signaling: MockSignaling;
   peer: MockPeer;
 } {
@@ -130,6 +131,11 @@ function newController(): {
   const failSas = vi
     .spyOn(sc as unknown as { failSas: (reason: string) => void }, 'failSas')
     .mockImplementation(() => {});
+  // Same reasoning for the reconnect teardown: spied as a no-op so a test can assert whether the
+  // peer-left gate fired without running the teardown itself.
+  const failReconnect = vi
+    .spyOn(sc as unknown as { failReconnect: (reason: string) => void }, 'failReconnect')
+    .mockImplementation(() => {});
   const internals = sc as unknown as SCInternals;
   const signaling: MockSignaling = { close: vi.fn(), send: vi.fn(), destroyRoom: vi.fn() };
   const peer: MockPeer = { closed: false, sent: [] };
@@ -138,7 +144,7 @@ function newController(): {
   internals.peerId = 'peer-a';
   internals.peer = peer;
   internals.signaling = signaling;
-  return { sc, internals, dispatch, failSas, signaling, peer };
+  return { sc, internals, dispatch, failSas, failReconnect, signaling, peer };
 }
 
 const SAS_CONFIRM_OK = JSON.stringify({ kind: 'sas-confirm', ok: true });
@@ -202,13 +208,39 @@ describe('SessionController — SAS peer-left channelOpen gate (Part A) + room p
     expect(internals.sas!.settled).toBe(false);
   });
 
-  it('Part B exclusion: a RECONNECT session does NOT close its signaling socket on connect', () => {
+  it('Part B: a RECONNECT session closes its signaling socket too — it is not a special case', () => {
     const { internals, signaling } = newController();
     internals.sas = midComparisonSas();
-    internals.reconnect = { fellBack: false, settled: false }; // reconnect rides its own fresh socket
+    internals.reconnect = { fellBack: false, settled: false };
 
-    // closeSignalingAfterConnect is a no-op when a reconnect attempt is in play (deferred reconnect-in-lobby).
+    // Reconnect used to be excluded, which made it the ONE pairing that held its socket for the whole
+    // session — readable by the untrusted server as "these two have met before", plus the duration
+    // the close exists to hide. It closes like every other method now.
     internals.closeSignalingAfterConnect();
-    expect(signaling.close).not.toHaveBeenCalled();
+    expect(signaling.close).toHaveBeenCalled();
+  });
+
+  it('Part B prerequisite: a post-channel-open `peer-left` does NOT abort a reconnect pairing', () => {
+    const { internals, failReconnect } = newController();
+    internals.reconnect = { fellBack: false, settled: false };
+    internals.peerId = 'peer-a';
+    internals.channelOpen = true; // transport up — the DataChannel is the liveness authority now
+    internals.established = false; // ...and we have not settled yet: the race this gate closes
+
+    // Our peer settled a hair earlier and closed ITS socket, which the server reports to us as a
+    // `peer-left`. Without the gate that benign close would tear down a pair the peer considers live.
+    internals.onPeerLeft('peer-a');
+    expect(failReconnect).not.toHaveBeenCalled();
+  });
+
+  it('reconnect still fails on a peer-left BEFORE the transport is up (the gate only disarms later)', () => {
+    const { internals, failReconnect } = newController();
+    internals.reconnect = { fellBack: false, settled: false };
+    internals.peerId = 'peer-a';
+    internals.channelOpen = false;
+    internals.established = false;
+
+    internals.onPeerLeft('peer-a');
+    expect(failReconnect).toHaveBeenCalled();
   });
 });

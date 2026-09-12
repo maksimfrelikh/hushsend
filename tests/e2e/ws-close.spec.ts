@@ -1,8 +1,17 @@
-import { test, expect, type BrowserContext, type Page } from '@playwright/test';
+import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createLink, fragmentOf, createWords, pickWords } from './helpers';
+import {
+  BASE,
+  createLink,
+  createWords,
+  enrollViaSas,
+  fragmentOf,
+  pickWords,
+  resetBoth,
+  startReconnect,
+} from './helpers';
 
 /**
  * Privacy: the 1:1 methods (link / qr / words) CLOSE their own signaling socket the instant they
@@ -133,4 +142,63 @@ test('1:1 words (CPace): signaling socket closes on connect; P2P survives; trans
   await expect(sender.getByTestId('transfer-phase')).toContainText('done', { timeout: 30_000 });
   await expect(receiver.getByTestId('transfer-phase')).toContainText('done', { timeout: 30_000 });
   expect(sha256(readFileSync(out))).toBe(srcHash);
+});
+
+/** A tab with its OWN context — reconnect needs two separate keystores, not two tabs sharing one. */
+async function openIsolated(browser: Browser): Promise<Page> {
+  const context = await browser.newContext({ baseURL: BASE, acceptDownloads: true });
+  const page = await context.newPage();
+  await page.goto(`${BASE}/?forceBlob=1`);
+  return page;
+}
+
+test('reconnect: the one pairing that used to KEEP its socket now closes it too; P2P survives; transfer intact', async ({
+  browser,
+}) => {
+  // Reconnect was excluded from the per-pair close while reconnect-in-lobby was deferred, which made
+  // it the only pairing whose socket stayed open for the whole session. That is itself a signal: the
+  // untrusted server could read "these two have met before" off the behaviour alone, and got the
+  // session duration the close exists to hide. This asserts the exclusion is gone — and that closing
+  // it did not break the thing the exclusion was protecting.
+  const a = await openIsolated(browser);
+  const b = await openIsolated(browser);
+
+  await enrollViaSas(a, b); // first meeting: SAS + enrollment pins both sides
+  await resetBoth(a, b);
+  await startReconnect(a, b); // second meeting: pinned-key re-auth, no human step
+
+  await expect(a.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
+  await expect(b.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
+  await expect(a.getByTestId('auth-state')).toContainText('reconnect'); // authenticated by the pin
+
+  // BOTH sides drop their socket — this is the behaviour that used to be missing here.
+  await expect(a.getByText(CLOSE_LOG)).toBeVisible({ timeout: 15_000 });
+  await expect(b.getByText(CLOSE_LOG)).toBeVisible({ timeout: 15_000 });
+
+  // Each close makes the OTHER side observe a `peer-left`. On the reconnect path that used to be a
+  // hard stop (failReconnect), so this is the race the peerLeftAbortsPairing gate had to close:
+  // neither side may drop, and the two settle independently, so give it a moment and re-check.
+  await a.waitForTimeout(1500);
+  await expect(a.getByTestId('status')).toHaveText('connected');
+  await expect(b.getByTestId('status')).toHaveText('connected');
+
+  // And the session is genuinely alive afterwards, not merely not-failed.
+  const src = join(TMP, 'reconnect-after-close.bin');
+  const payload = randomBytes(256 * 1024);
+  writeFileSync(src, payload);
+
+  await a.getByTestId('file-input').setInputFiles(src);
+  await a.getByTestId('send-btn').click();
+  await expect(b.getByTestId('transfer-phase')).toContainText('offered');
+
+  const downloadPromise = b.waitForEvent('download', { timeout: 60_000 });
+  await b.getByTestId('accept-btn').click();
+  const download = await downloadPromise;
+  const out = join(TMP, 'reconnect-after-close.out');
+  await download.saveAs(out);
+
+  await expect(a.getByTestId('transfer-phase')).toContainText('done', { timeout: 30_000 });
+  expect(sha256(readFileSync(out)), 'bytes intact over a session whose signaling is gone').toBe(
+    sha256(payload),
+  );
 });

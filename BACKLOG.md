@@ -65,10 +65,17 @@ the same pass as CLAUDE.md when items land.
     `SessionController.sasPeerLeft.test.ts`; e2e green (`room-sas.spec.ts` / `lobby.spec.ts` /
     `ws-close.spec.ts`). See CLAUDE.md § Signaling WS lifecycle.
     - **Residuals (do NOT block per-pair close):**
-      - **(a) reconnect-in-lobby gate** — the reconnect `onPeerLeft` branch still uses `!this.established`
-        (NOT the channel-open gate) and reconnect is EXCLUDED from the per-pair close (its own fresh
-        socket). When reconnect-in-lobby lands (see above), move its peer-left branch to
-        `peerLeftAbortsPairing(...)` too and re-evaluate closing its socket on connect.
+      - ✅ **(a) reconnect now closes its socket too — DONE 2026-09-12.** This was deferred until
+        reconnect-in-lobby landed, but the audit showed waiting had a cost: reconnect was the ONE
+        pairing holding its socket for the whole session, which told the untrusted server "these two
+        have met before" AND the session duration, purely from behaviour. Both parts landed together,
+        because the close is only safe with the gate: the reconnect `onPeerLeft` branch moved from a
+        bare `!this.established` to `peerLeftAbortsPairing(established, channelOpen)` (the two sides
+        settle independently, so our own close's `peer-left` would otherwise abort a peer mid-settle),
+        and `settleReconnect` now calls `closeSignalingAfterConnect`. Unit:
+        `SessionController.sasPeerLeft.test.ts` (closes + both sides of the gate); e2e:
+        `ws-close.spec.ts` (reconnect connects, both sockets close, neither drops, and a transfer
+        started afterwards arrives intact). Independent of reconnect-in-lobby, which stays deferred.
       - **(b) "pick a leaving peer → busy vs timeout" UX nit** — a narrow stale-roster race: picking a
         peer in the instant it is closing its socket (post-connect) can leave the picker briefly waiting
         rather than getting an immediate `busy`. It still fails closed (the pre-SAS/reconnect deadlines
@@ -577,5 +584,5 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   (`closeSignalingAfterConnect`), and **reconnect is explicitly excluded** — so a reconnect pair is the
   one pair that *keeps its socket open for the whole session*. That hands the untrusted server both
   "this pair is a reconnect (they have paired before)" AND the session duration the close was designed
-  to hide. Including reconnect in the per-pair close (already listed as residual (a) under
-  § Signaling WS lifecycle) would close both at once.
+  to hide. ✅ **FIXED the same day** — reconnect was folded into the per-pair close together with the
+  `peerLeftAbortsPairing` gate it required (see residual (a) under § Signaling WS lifecycle).

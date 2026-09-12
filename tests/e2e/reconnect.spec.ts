@@ -2,7 +2,7 @@ import { test, expect, type Browser, type BrowserContext, type Page } from '@pla
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { BASE, createSasRoom, joinSasRoom, confirmSas, forwardConsole, resolveSasParties } from './helpers';
+import { BASE, enrollViaSas, forwardConsole, resetBoth, startReconnect } from './helpers';
 
 /**
  * Step-4b-ii reconnect (TOFU re-auth under pinned keys), end to end through two Chromium tabs.
@@ -54,43 +54,13 @@ test.afterEach(async () => {
 
 /** Drive A (creator) + B (joiner) through a SAS room to an authenticated connected, so enrollment
  *  pins each other's identity under a shared pairingId. Leaves both at `connected`. */
-async function enrollViaSas(a: Page, b: Page): Promise<void> {
-  const code = await createSasRoom(a);
-  await joinSasRoom(b, code);
-
-  // Asymmetric SAS: one side READS its phrase, the other is the BLIND picker. The role is fixed by
-  // the readable ids (not by who created the room), so resolve it at runtime → both confirm →
-  // authenticated connected → enrollment pins.
-  const { reader, picker } = await resolveSasParties(a, b);
-  await confirmSas(reader, picker);
-  await expect(a.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
-  await expect(b.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
-
-  // Enrollment pinned the peer on both sides (each holds the other's 32-byte key under a pairingId).
-  await expect(a.getByTestId('pinned-peer-pubkey')).toHaveText(/^[0-9a-f]{64}$/, { timeout: 30_000 });
-  await expect(b.getByTestId('pinned-peer-pubkey')).toHaveText(/^[0-9a-f]{64}$/, { timeout: 30_000 });
-}
 
 /** Dispose both sessions back to `idle` so a fresh reconnect can start. The keystore pins PERSIST
  *  in IndexedDB across dispose (only the per-session state resets), which is exactly what reconnect
  *  reads from. */
-async function resetBoth(a: Page, b: Page): Promise<void> {
-  await a.getByTestId('reset-btn').click();
-  await b.getByTestId('reset-btn').click();
-  await expect(a.getByTestId('status')).toHaveText('idle');
-  await expect(b.getByTestId('status')).toHaveText('idle');
-}
 
 /** A starts a reconnect (allocates a fresh room, announces its stored pairingId); B joins by code.
  *  Returns once B has joined. */
-async function startReconnect(a: Page, b: Page): Promise<void> {
-  await a.getByTestId('create-reconnect-btn').click();
-  await expect(a.getByTestId('status')).toHaveText('awaitingPeer', { timeout: 30_000 });
-  const code = (await a.getByTestId('room-code').textContent())?.trim() ?? '';
-  expect(code).toMatch(/^\d{4}$/);
-  await b.getByTestId('reconnect-input').fill(code);
-  await b.getByTestId('join-reconnect-btn').click();
-}
 
 test.beforeAll(() => {
   rmSync(TMP, { recursive: true, force: true });

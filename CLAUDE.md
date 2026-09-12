@@ -96,7 +96,7 @@ method used only by the words attempt-cap path).
   fingerprint comparison, not a guess counter), so gating the SAS branch on channel-open weakens
   nothing: a real pre-transport abort is still caught here, and a real abort after channel-open is
   caught by `onChannelClose`.
-- **Scope: per-pair (1:1 methods + room/SAS pairs); reconnect excluded.** Research confirmed per-pair
+- **Scope: per-pair — EVERY method, reconnect included (since 2026-09-12).** Research confirmed per-pair
   WS-close is sound for the **room** mesh LOBBY without a "seal room" step: a room is **N independent
   1:1 pairs** over a shared socket and **re-pairing on the fly is not a thing** — once two peers raise
   their 1:1 channel the socket has no further job *for them*. So a connected room/SAS pair closes its
@@ -959,7 +959,7 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   orchestration (incl. SAS + post-connect enrollment wiring + the link/qr key-confirmation-over-S
   path, step 5b; **per-pair signaling-socket close on `connected`** — 1:1 methods via
   `tryVerifyConfirmation` AND room/SAS pairs via `trySasSettle`, both through
-  `closeSignalingAfterConnect` (reconnect excluded) — with `peer-left` decoupled from P2P liveness —
+  `closeSignalingAfterConnect` (ALL methods, reconnect included) — with `peer-left` decoupled from P2P liveness —
   `livenessGate`). FSM in store (status, transitions,
   invariants enforced). The per-pairing
   transport/crypto role is fixed from the readable ids in `SessionController.beginPairing` via
@@ -1075,11 +1075,13 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   (the signature under the pinned key is what authenticates). It does **NOT** reach the relay: every
   reconnect frame rides the **DataChannel** (`sendReconnect` → `this.peer.send`, DTLS-protected) and
   `pairingId` appears in no signaling schema (`src/types/protocol.ts`). Two real residuals remain:
-  - **To the untrusted server:** a reconnect pair is the ONLY pair that keeps its signaling socket
-    open for the whole session — every other method closes it on `connected`
-    (`closeSignalingAfterConnect`, reconnect excluded). That behavioural fingerprint tells the server
-    both "these two have paired before" and how long the session ran. Folding reconnect into the
-    per-pair close (residual (a) under § Signaling WS lifecycle) closes both.
+  - ✅ **To the untrusted server — FIXED 2026-09-12.** A reconnect pair used to be the ONLY pair that
+    kept its signaling socket open for the whole session, since every other method closes it on
+    `connected`. That behavioural fingerprint told the server both "these two have paired before" and
+    how long the session ran — the exact thing the close exists to deny. `settleReconnect` now calls
+    `closeSignalingAfterConnect` like every other settle, and the reconnect `onPeerLeft` branch moved
+    to the `peerLeftAbortsPairing` gate so the `peer-left` our own close provokes cannot tear down a
+    peer that has not settled yet. (`SessionController.sasPeerLeft.test.ts`; e2e `ws-close.spec.ts`.)
   - **To a code-guesser:** a reconnect session rendezvous over a plain 4-digit code and auto-pairs with
     the first joiner, so whoever wins that race receives the `reconnect-init` and learns the raw
     `pairingId` before authenticating (it cannot forge a proof — hard stop / fallback). A blinded
@@ -1105,4 +1107,5 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   needed: a room is N independent 1:1 pairs and the close is WS-only, so the room survives + unrelated
   pairs are untouched) — so the untrusted server never learns the session duration; room presence is
   decoupled from P2P liveness — a post-connect `peer-left` is ignored (liveness = DataChannel/ICE).
-  See **§ Signaling WS lifecycle**. (**Reconnect** is excluded — its own fresh socket; deferred.)
+  See **§ Signaling WS lifecycle**. Reconnect closes its socket too (since 2026-09-12) — no method is
+  exempt any more.

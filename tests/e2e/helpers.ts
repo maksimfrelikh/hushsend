@@ -192,3 +192,40 @@ export async function confirmSas(reader: Page, picker: Page): Promise<void> {
   await reader.getByTestId('sas-reader-confirm').click();
   await picker.getByTestId('sas-confirm-btn').click();
 }
+
+// ── reconnect flow (shared: reconnect.spec + ws-close.spec) ───────────────────
+// Lifted out of reconnect.spec so a second suite can drive a reconnect session without copying a
+// twelve-line ritual — and so the two can never drift into testing subtly different flows.
+
+export async function enrollViaSas(a: Page, b: Page): Promise<void> {
+  const code = await createSasRoom(a);
+  await joinSasRoom(b, code);
+
+  // Asymmetric SAS: one side READS its phrase, the other is the BLIND picker. The role is fixed by
+  // the readable ids (not by who created the room), so resolve it at runtime → both confirm →
+  // authenticated connected → enrollment pins.
+  const { reader, picker } = await resolveSasParties(a, b);
+  await confirmSas(reader, picker);
+  await expect(a.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
+  await expect(b.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
+
+  // Enrollment pinned the peer on both sides (each holds the other's 32-byte key under a pairingId).
+  await expect(a.getByTestId('pinned-peer-pubkey')).toHaveText(/^[0-9a-f]{64}$/, { timeout: 30_000 });
+  await expect(b.getByTestId('pinned-peer-pubkey')).toHaveText(/^[0-9a-f]{64}$/, { timeout: 30_000 });
+}
+
+export async function resetBoth(a: Page, b: Page): Promise<void> {
+  await a.getByTestId('reset-btn').click();
+  await b.getByTestId('reset-btn').click();
+  await expect(a.getByTestId('status')).toHaveText('idle');
+  await expect(b.getByTestId('status')).toHaveText('idle');
+}
+
+export async function startReconnect(a: Page, b: Page): Promise<void> {
+  await a.getByTestId('create-reconnect-btn').click();
+  await expect(a.getByTestId('status')).toHaveText('awaitingPeer', { timeout: 30_000 });
+  const code = (await a.getByTestId('room-code').textContent())?.trim() ?? '';
+  expect(code).toMatch(/^\d{4}$/);
+  await b.getByTestId('reconnect-input').fill(code);
+  await b.getByTestId('join-reconnect-btn').click();
+}
