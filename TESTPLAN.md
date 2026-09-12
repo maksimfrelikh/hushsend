@@ -68,7 +68,10 @@ It must print nothing. So:
   does not — and **neither raises a catchable error**, so the desktop cap is deliberately far below.
   B2 below is what tells us whether the MOBILE cap is equally well placed; nothing else can.
 - Chunk size: the SCTP-negotiated max clamped to **[16 KiB, 256 KiB]**; backpressure via `bufferedAmount`.
-- Deadlines (all **120 s**): pre-SAS pairing, SAS confirmation, reconnect re-auth.
+- Deadlines (all **120 s**): pre-SAS pairing, SAS confirmation, reconnect re-auth, **and the 1:1
+  key-confirmation wait** (words / link / QR — added 2026-09-12; before it, that path had no client
+  deadline at all and depended on the untrusted server's room TTL to rescue it).
+- Path attestation: advisory, **15 s** to hear the peer's attestation. Never tears anything down.
 - Words: **4 secret words** + 1 rendezvous word (~41 bits of secret), **≤10 pairing attempts**;
   the words room TTL runs **from create** and is never re-armed (`WORD_ROOM_TTL_MS`, 180 s).
 - Lobby: 4-digit code, up to **8 peers** (`FILETRANSFER_MAX_PEERS`); words/link/QR rendezvous are
@@ -107,14 +110,32 @@ Both peers on the home Wi-Fi, default **Max-privacy**. Baseline: if these fail, 
       after CPace + key confirmation, no SAS screen.
 - [ ] **A4 · room / SAS** — MBP-A creates a 4-digit room, IPH joins → both land in the **lobby**, MBP-A
       presses Connect on the IPH row. Expected: **SAS screen is asymmetric** — one side shows its
-      phrase (reader), the other picks blind among 3 (real + 2 decoys); the reader is the peer with the
-      lexicographically smaller id, not the creator. Correct pick → `connected`.
+      phrase (reader), the other picks blind among 3 (real + 2 decoys). **Which side reads is not
+      predictable and must not be** (changed 2026-09-12): it is derived from the SAS material, not
+      from the creator and no longer from the id order, precisely so the untrusted server cannot make
+      BOTH peers the blind picker. Just check that **exactly one** side reads and the other picks —
+      re-pair a few times and expect the roles to land differently. Correct pick → `connected`.
+- [ ] **A4a · the SAS refusal is reachable and equal-weight** — on the picker screen confirm
+      "None of these match — stop" is a full-width button, not a faint link, and on the reader screen
+      that the warning ("only continue once you have HEARD your peer say these words back") is
+      legible on a phone. Tap the picker's refusal: expected **both** sides end in the
+      "channel may be compromised" hard stop, no transfer UI on either.
+- [ ] **A4b · the reader can still stop after confirming** — reader taps "They read it back correctly"
+      BEFORE the picker answers, then taps the abort on the waiting screen. Expected: the session
+      fails closed. (A reject is accepted even after our own approval, up to settle — a reader who
+      clicked too early must not be trapped.)
 - [ ] **A5 · transfer both ways** — over the A1 connection send a small file (≈5 MB) MBP-A → IPH, then
       IPH → MBP-A. Expected: progress advances monotonically, file arrives intact (**check the size and
       open it**), receiver's terminal plaque shows a **"New transfer"** button.
 - [ ] **A6 · WS closes on connect** — in devtools Network → WS, confirm the signaling socket **closes
-      shortly after `connected`** for all of A1–A4, while the transfer keeps working afterwards. This is
-      the per-pair privacy close: the server must not observe the session duration.
+      shortly after `connected`** for all of A1–A4 **and for reconnect (Phase E)**, while the transfer
+      keeps working afterwards. This is the per-pair privacy close: the server must not observe the
+      session duration. Reconnect was the last exemption and was folded in on 2026-09-12 — if its
+      socket stays open, that regression is the whole point of checking it here.
+- [ ] **A6a · path attestation never blocks a transfer** — it is ADVISORY. On every pair, especially
+      a Safari↔non-Safari one, confirm the transfer completes regardless of the verdict. A `mismatch`
+      here is EXPECTED between engines (see § Phase B) and must stay cosmetic; if a transfer is ever
+      refused or torn down because of it, that is a bug, not a detection.
 - [ ] **A7 · multi-file** — send 3 files at once. Expected: all arrive, progress is per-transfer, no
       stale filename from the previous send after "New transfer".
 
@@ -201,7 +222,9 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
 - [ ] **D1 · roster** — MBP-A creates a room; IPH, AND-1, AND-2 join. Expected: every member sees the
       others with a sane device label and join order; leaving a device removes its row.
 - [ ] **D2 · joiner ↔ joiner** — IPH connects to AND-1 (neither is the creator). Expected: it pairs and
-      completes SAS normally (per-pairing role by id order — the reason this case exists).
+      completes SAS normally. The TRANSPORT role (who offers) still comes from the id order, which is
+      why this case exists; the SAS reader/picker split no longer does (see A4), so check here too
+      that exactly one side reads.
 - [ ] **D3 · busy reject** — while IPH↔AND-1 are paired, MBP-A presses Connect on IPH. Expected: MBP-A
       gets a clear **busy notice and returns to the lobby** — no hang, no silent failure.
 - [ ] **D4 · two independent pairs** — pair IPH↔AND-1 and MBP-A↔AND-2 **in the same room**, then
@@ -246,6 +269,18 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       history is **empty** (in-memory only); `localStorage` holds only lang/theme/privacy prefs.
 - [ ] **F7 · second joiner on a 1:1 method** — forward the same link/QR to a second device. Expected:
       the second joiner is rejected (4002) — the one-time link reaches exactly one receiver.
+- [ ] **F8 · silent peer on the 1:1 confirm path** — open a link on the receiving device and, the
+      instant the connection starts, put that browser in a state where it cannot answer (airplane mode
+      works; force-quitting the tab does not — that raises a channel close instead, which is a
+      different path). Expected: the SENDER ends in **`failed` within ~120 s**, not an endless
+      "agreeing on keys". This deadline is new (2026-09-12); before it, this path had no client-side
+      bound at all and only the untrusted server's room TTL ended the wait — a server that simply
+      never expired the room hung the client forever. **Time it and write the number down.**
+- [ ] **F9 · slow mobile network does NOT trip the new deadlines** — the mirror of F8 and the risk it
+      carries. Repeat A3 (words) and A4 (room/SAS) on a **weak cellular** connection, not Wi-Fi. The
+      SAS nonce reveal now waits for the DTLS fingerprints to be pinned, so the handshake has more
+      serialised steps than before. Expected: still connects well inside 120 s. If a real phone on a
+      real network gets anywhere near the deadline, the deadline is wrong, not the network.
 
 ---
 
