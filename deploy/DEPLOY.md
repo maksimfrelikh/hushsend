@@ -93,9 +93,16 @@ provable across different networks).
 
 **Repeat frontend-only redeploys** (new SPA build, signaling/nginx unchanged) are wrapped in
 [`deploy-frontend.sh`](deploy-frontend.sh): `bash ~/projects/hushsend/deploy/deploy-frontend.sh`
-pulls, `npm ci`, builds with the live `VITE_*` baked in, and `sudo`-publishes `dist/` to
+pulls, `npm ci`, builds with the live `VITE_*` baked in, and publishes `dist/` to
 `/var/www/hushsend/dist`. It does NOT restart the signaling service or reload nginx (a static-asset
-swap needs neither). The numbered steps below are the full generic runbook; the live deploy followed
+swap needs neither).
+
+**No password on this host:** `/var/www/hushsend` belongs to the deploy user, so the script uses
+`sudo` only if it finds the web root unwritable (which it is not here). And it does not delete the
+live directory first — the build is staged beside it and swapped in with a rename, so nobody gets a
+404 mid-deploy, and the previous build stays as `dist.old` until the smoke check passes. Rolling back
+is therefore a rename, not a rebuild:
+`mv dist dist.bad && mv dist.old dist`. The numbered steps below are the full generic runbook; the live deploy followed
 them with the deltas above.
 
 ---

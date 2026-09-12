@@ -289,6 +289,22 @@ the same pass as CLAUDE.md when items land.
   `qr.test.ts` (token round-trip), `link.spec.ts` (link/qr e2e over token rendezvous). This is the
   SAME fix as "link/qr lobby-race resistance" above. (See CLAUDE.md § link/qr method + § Signaling server.)
 
+## Ops / housekeeping (small, no devices)
+- **The RUNNING signaling copy has drifted from its repo again.** `/var/www/hush-signaling-server`
+  (what systemd runs) predates the `DEV_ORIGINS` commit in `hush-signaling-server`. Behaviour is
+  IDENTICAL in production — the whole branch is dead unless `NODE_ENV !== 'production'` — so this is
+  housekeeping, not an incident: pull the running copy on the next touch so the two stop diverging.
+  (The same drift in the other direction is what hid the hardcoded dev origin for a whole test run.)
+- **HTTP/2 is off on the live vhost** while the committed nginx template enables it (DEPLOY.md § 0).
+  A free win, not a fix for anything — but the vhost and the template should agree.
+- **Scheduled CI expires on a quiet repo.** GitHub disables `schedule:` workflows after 60 days with
+  no commits, which would silently stop the nightly engine matrix. If the repo goes quiet, re-enable
+  it (or run the matrix from the Actions tab before a release).
+- **Two measurements were left half-finished** when the ladder ran on a Mac: WebKit's 1792 MB rung was
+  interrupted by hand before the stall watchdog could name a percentage, and Chromium's ceiling is
+  only bracketed as "2 GB OK, 3 GB fails" — the boundary between them is unmeasured. Neither blocks
+  anything; both are a single ladder run away (`E2E_LIMITS_SIZES=2304,2560,2816`).
+
 ## Nice-to-have / future
 - **coturn `turns:` (TURN over TLS on :5349)** *(deferred — agreed at deploy 2026-06-20)*. The live
   deploy runs coturn **`turn:`-only on :3478** (no TLS, `no-tls`/`no-dtls`). Strict corporate networks
