@@ -1,5 +1,5 @@
 import { test, expect, type Browser, type Page } from '@playwright/test';
-import { createWords, pickWords } from './helpers';
+import { BASE, createWords, pickWords } from './helpers';
 
 /**
  * E2E for the Max-privacy STRICT model (step 6d).
@@ -14,7 +14,6 @@ import { createWords, pickWords } from './helpers';
  * Isolated contexts (own localStorage/IndexedDB) per tab.
  */
 
-const BASE = 'http://localhost:5173';
 
 async function openTab(browser: Browser): Promise<Page> {
   const context = await browser.newContext({ baseURL: BASE });

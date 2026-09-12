@@ -1,5 +1,5 @@
 import { test, expect, type Browser, type Page } from '@playwright/test';
-import { createWords, pickWords } from './helpers';
+import { BASE, createWords, pickWords } from './helpers';
 
 /**
  * E2E for the privacy toggle + TURN relay (step 6d, client side).
@@ -19,7 +19,6 @@ import { createWords, pickWords } from './helpers';
  * doesn't bleed across tests.
  */
 
-const BASE = 'http://localhost:5173';
 
 async function openIsolatedTab(browser: Browser): Promise<Page> {
   const context = await browser.newContext({ baseURL: BASE });

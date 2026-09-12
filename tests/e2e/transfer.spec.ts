@@ -121,6 +121,34 @@ test('single large file transfers intact, progress grows (Blob path)', async ({ 
   expect(sha256File(out)).toBe(srcHash);
 });
 
+/**
+ * Unpack a zip with whatever the host actually has, no extra dependency. This used to shell out to
+ * PowerShell's Expand-Archive unconditionally, which exists only on Windows — so the assertion below
+ * could never run on Linux or macOS (`spawnSync powershell ENOENT`), regardless of the app. Tried in
+ * order: `unzip` (macOS + most Linux), `python3 -m zipfile` (anywhere Python 3 is), PowerShell
+ * (Windows). The zip CONTENT assertions are unchanged — this only gets the bytes onto disk.
+ */
+function extractZip(zipPath: string, outDir: string): void {
+  const candidates: Array<[string, string[]]> = [
+    ['unzip', ['-q', '-o', zipPath, '-d', outDir]],
+    ['python3', ['-m', 'zipfile', '-e', zipPath, outDir]],
+    [
+      'powershell',
+      ['-NoProfile', '-Command', `Expand-Archive -LiteralPath '${zipPath}' -DestinationPath '${outDir}' -Force`],
+    ],
+  ];
+  const failures: string[] = [];
+  for (const [cmd, args] of candidates) {
+    try {
+      execFileSync(cmd, args, { stdio: 'ignore' });
+      return;
+    } catch (err) {
+      failures.push(`${cmd}: ${(err as Error).message.split('\n')[0]}`);
+    }
+  }
+  throw new Error(`no zip extractor on this host (tried unzip, python3 -m zipfile, powershell):\n  ${failures.join('\n  ')}`);
+}
+
 test('multiple files arrive as one unpackable zip (Blob path)', async ({ context }) => {
   const a = join(TMP, 'alpha.txt');
   const b = join(TMP, 'beta.bin');
@@ -146,12 +174,7 @@ test('multiple files arrive as one unpackable zip (Blob path)', async ({ context
 
   const outDir = join(TMP, 'unzipped');
   rmSync(outDir, { recursive: true, force: true });
-  // Native Windows unzip — no extra dependency.
-  execFileSync('powershell', [
-    '-NoProfile',
-    '-Command',
-    `Expand-Archive -LiteralPath '${zipPath}' -DestinationPath '${outDir}' -Force`,
-  ]);
+  extractZip(zipPath, outDir);
 
   expect(readdirSync(outDir).sort()).toEqual(['alpha.txt', 'beta.bin', 'gamma.txt']);
   for (const [name, hash] of Object.entries(hashes)) {

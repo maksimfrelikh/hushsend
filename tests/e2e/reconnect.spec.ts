@@ -2,7 +2,7 @@ import { test, expect, type Browser, type Page } from '@playwright/test';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createSasRoom, joinSasRoom, confirmSas, resolveSasParties } from './helpers';
+import { BASE, createSasRoom, joinSasRoom, confirmSas, resolveSasParties } from './helpers';
 
 /**
  * Step-4b-ii reconnect (TOFU re-auth under pinned keys), end to end through two Chromium tabs.
@@ -23,7 +23,6 @@ import { createSasRoom, joinSasRoom, confirmSas, resolveSasParties } from './hel
  * the reconnect unit tests ("rejects under DIFFERENT fingerprints"), as for keyConfirmation/SAS.
  */
 
-const BASE = 'http://localhost:5173';
 const TMP = join(process.cwd(), 'e2e-tmp-reconnect');
 
 function sha256(buf: Buffer): string {

@@ -11,6 +11,19 @@ import { defineConfig } from '@playwright/test';
  *   - the Vite dev server on localhost:5173 (origin the signaling server trusts in dev).
  * The client is pointed at ws://127.0.0.1:8080 to avoid Windows localhost→::1 surprises.
  */
+// The SIGNALING port is overridable so the suite can run on a host that ALREADY serves hushsend: the
+// production signaling server owns 127.0.0.1:8080 there, and `reuseExistingServer` would silently
+// attach the tests to it (NODE_ENV=production rejects the dev origin, and the run would pollute a live
+// server). Default is the historical one, so a plain `npx playwright test` is unchanged:
+//   E2E_SIGNALING_PORT=8081 npx playwright test
+// Moving the VITE port requires telling the signaling server about it too: its dev origin allowlist
+// defaults to `http://localhost:5173` (signaling-server.js `devOrigins`), so an app served anywhere
+// else gets every socket closed with 4003 'origin not allowed'. DEV_ORIGINS below keeps the two in
+// step, so both knobs can move together:
+//   E2E_SIGNALING_PORT=8081 E2E_VITE_PORT=5175 npx playwright test
+const SIGNALING_PORT = process.env.E2E_SIGNALING_PORT ?? '8080';
+const VITE_PORT = process.env.E2E_VITE_PORT ?? '5173';
+
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: false,
@@ -19,7 +32,7 @@ export default defineConfig({
   expect: { timeout: 30_000 },
   reporter: [['list']],
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: `http://localhost:${VITE_PORT}`,
     acceptDownloads: true,
     channel: 'chrome',
     launchOptions: {
@@ -31,7 +44,7 @@ export default defineConfig({
   webServer: [
     {
       command: 'node server/signaling-server.js',
-      url: 'http://127.0.0.1:8080/health',
+      url: `http://127.0.0.1:${SIGNALING_PORT}/health`,
       reuseExistingServer: !process.env.CI,
       timeout: 30_000,
       // All Playwright tabs share the loopback IP (no TRUST_PROXY here). The per-IP-per-room anti-squat
@@ -46,18 +59,20 @@ export default defineConfig({
       env: {
         NODE_ENV: 'development',
         HOST: '127.0.0.1',
-        PORT: '8080',
+        PORT: SIGNALING_PORT,
         MAX_PER_IP_PER_ROOM: '8',
         TURN_SECRET: 'e2e-turn-shared-secret',
         TURN_URLS: 'turn:turn.example.org:3478?transport=udp',
+        // Keep the dev origin allowlist in step with wherever Vite is actually served (above).
+        DEV_ORIGINS: `http://localhost:${VITE_PORT}`,
       },
     },
     {
-      command: 'npx vite --port 5173 --strictPort',
-      url: 'http://localhost:5173',
+      command: `npx vite --port ${VITE_PORT} --strictPort`,
+      url: `http://localhost:${VITE_PORT}`,
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,
-      env: { VITE_SIGNALING_URL: 'ws://127.0.0.1:8080' },
+      env: { VITE_SIGNALING_URL: `ws://127.0.0.1:${SIGNALING_PORT}` },
     },
   ],
 });

@@ -2,7 +2,7 @@ import { test, expect, type Browser, type Page } from '@playwright/test';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createWords, pickWords, createSasRoom, joinSasRoom, confirmSas, resolveSasParties } from './helpers';
+import { BASE, createWords, pickWords, createSasRoom, joinSasRoom, confirmSas, resolveSasParties } from './helpers';
 
 /**
  * Smoke coverage for each REAL screen flow (home → method/join → connected), driven through the
@@ -12,7 +12,6 @@ import { createWords, pickWords, createSasRoom, joinSasRoom, confirmSas, resolve
  * persistence) live in the per-feature suites; this file guards the happy real-screen paths.
  */
 
-const BASE = 'http://localhost:5173';
 const TMP = join(process.cwd(), 'e2e-tmp-smoke');
 
 function sha256(buf: Buffer): string {

@@ -2,7 +2,7 @@ import { test, expect, type Browser, type Page } from '@playwright/test';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createWords, pickWords } from './helpers';
+import { BASE, createWords, pickWords } from './helpers';
 
 /**
  * Step-4b-i TOFU enrollment, end to end. Two tabs connect via the "words" method (CPace +
@@ -18,7 +18,6 @@ import { createWords, pickWords } from './helpers';
  * and is NOT tested here.
  */
 
-const BASE = 'http://localhost:5173';
 const TMP = join(process.cwd(), 'e2e-tmp-identity');
 
 function sha256(buf: Buffer): string {

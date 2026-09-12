@@ -19,6 +19,14 @@ import { expect, type Page } from '@playwright/test';
  * phrase (cross-page) and clicking the matching option on the (blind) picker.
  */
 
+/**
+ * Origin the app is served on, mirroring playwright.config's VITE_PORT (`E2E_VITE_PORT`). Tests that
+ * open their OWN browser context do NOT inherit `use.baseURL`, so they must build absolute URLs —
+ * and a hardcoded port here silently breaks every one of them the moment the port moves (which it
+ * must on a host already serving something on 5173).
+ */
+export const BASE = `http://localhost:${process.env.E2E_VITE_PORT ?? '5173'}`;
+
 const norm = (s: string | null): string => (s ?? '').trim().replace(/\s+/g, ' ');
 
 /** A creates a words session; returns the 5-word credential read from A's UI. */
