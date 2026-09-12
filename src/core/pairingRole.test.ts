@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { pairingRoleFor } from './pairingRole';
-import { sasRoleFor } from './sasRole';
 import type { ConfirmationRole } from './crypto/keyConfirmation';
 
 /**
@@ -13,7 +12,9 @@ import type { ConfirmationRole } from './crypto/keyConfirmation';
  *     responder, even when neither is the creator — the joiner↔joiner case the old rule deadlocked);
  *   - fail-closed: a missing id yields `null`, which the controller treats as a hard fail rather than
  *     defaulting a side (defaulting could land both on the same role and deadlock again);
- *   - agreement with `sasRoleFor`: the same id ordering, so the initiator is also the SAS reader.
+ *   - that it is the TRANSPORT/crypto role only: since the 2026-09-12 audit the SAS reader/picker
+ *     split no longer shares this ordering — it comes from the SAS material instead, so a server
+ *     that assigns the ids cannot make both peers the blind picker (see sasRole.test.ts).
  */
 describe('pairingRoleFor', () => {
   it('makes the lexicographically smaller readable id the initiator', () => {
@@ -48,19 +49,6 @@ describe('pairingRoleFor', () => {
       const rx = pairingRoleFor(x, y);
       const ry = pairingRoleFor(y, x);
       expect(new Set([rx, ry])).toEqual(new Set(['initiator', 'responder']));
-    }
-  });
-
-  it('agrees with sasRoleFor ordering on every pair (initiator = reader, responder = picker)', () => {
-    // The transport role and the SAS UI role share the SAME id ordering on purpose, so the side that
-    // offers/reveals-after is also the side that reads its phrase aloud.
-    for (const [x, y] of [
-      ['alpha-fox', 'zeta-owl'],
-      ['nimble-newt', 'plucky-puffin'],
-      ['swift-stoat', 'swift-stork'],
-    ] as const) {
-      expect(pairingRoleFor(x, y) === 'initiator').toBe(sasRoleFor(x, y) === 'reader');
-      expect(pairingRoleFor(y, x) === 'initiator').toBe(sasRoleFor(y, x) === 'reader');
     }
   });
 

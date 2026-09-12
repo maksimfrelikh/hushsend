@@ -6,6 +6,7 @@ import {
   relayCandidateEndpoint,
   selectedRemoteCandidate,
   shouldDropCandidate,
+  stripRelayCandidates,
   type StatsEntry,
 } from './relax';
 
@@ -164,5 +165,46 @@ describe('selectedRemoteCandidate (getStats shapes)', () => {
     ).toBeNull();
     // ...and "unknown" must not be read as a relay by the caller:
     expect(isForbiddenRemoteCandidate(true, selectedRemoteCandidate([]), DROPPED)).toBe(false);
+  });
+});
+
+describe('stripRelayCandidates — relay candidates carried inside the SDP', () => {
+  const HOST = 'a=candidate:1 1 udp 2130706431 192.168.1.19 54321 typ host';
+  const SRFLX = 'a=candidate:2 1 udp 1694498815 203.0.113.7 54321 typ srflx raddr 192.168.1.19 rport 54321';
+  const RELAY = 'a=candidate:3 1 udp 41885439 198.51.100.9 3478 typ relay raddr 203.0.113.7 rport 54321';
+
+  it('removes only the relay lines and reports their endpoints', () => {
+    const sdp = ['v=0', 'a=fingerprint:sha-256 AA:BB', HOST, RELAY, SRFLX].join('\r\n');
+    const out = stripRelayCandidates(sdp);
+    expect(out.sdp).not.toMatch(/typ relay/);
+    expect(out.sdp).toContain(HOST);
+    expect(out.sdp).toContain(SRFLX);
+    expect(out.sdp).toContain('a=fingerprint:sha-256 AA:BB'); // nothing else touched
+    expect(out.endpoints).toEqual(['198.51.100.9|3478']);
+  });
+
+  it('feeds the SAME endpoint key the trickled path records, so prflx is still caught', () => {
+    const { endpoints } = stripRelayCandidates(['v=0', RELAY].join('\r\n'));
+    // The peer-reflexive check compares against exactly this set.
+    expect(isForbiddenRemoteCandidate(true, { candidateType: 'prflx', address: '198.51.100.9', port: 3478 }, new Set(endpoints))).toBe(true);
+  });
+
+  it('is a no-op (identical string, no copy) when the SDP carries no relay candidate', () => {
+    const sdp = ['v=0', HOST, SRFLX].join('\r\n');
+    const out = stripRelayCandidates(sdp);
+    expect(out.sdp).toBe(sdp);
+    expect(out.endpoints).toEqual([]);
+  });
+
+  it('preserves the line ending the engine used', () => {
+    expect(stripRelayCandidates(['v=0', RELAY, HOST].join('\r\n')).sdp).toContain('\r\n');
+    expect(stripRelayCandidates(['v=0', RELAY, HOST].join('\n')).sdp).not.toContain('\r');
+  });
+
+  it('does not strip a candidate merely mentioning "relay" outside the typ field', () => {
+    const odd = 'a=candidate:4 1 udp 2130706431 relay.example.org 9 typ host';
+    const out = stripRelayCandidates(['v=0', odd].join('\r\n'));
+    expect(out.sdp).toContain(odd);
+    expect(out.endpoints).toEqual([]);
   });
 });

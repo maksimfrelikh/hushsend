@@ -188,7 +188,7 @@ export const STR = {
   },
   sasConfirm: { en: 'Confirm choice', ru: 'Подтвердить выбор' },
   sasPick: { en: 'Pick the phrase', ru: 'Выберите фразу' },
-  sasNone: { en: 'None of these match', ru: 'Ни одна не совпадает' },
+  sasNone: { en: 'None of these match — stop', ru: 'Ни одна не совпадает — остановить' },
   // --- SAS (reader side — creator reads its phrase aloud) ---
   sasYours: { en: 'your phrase — read it aloud', ru: 'ваша фраза — прочитайте вслух' },
   sasReaderTitle: { en: 'Read this phrase aloud', ru: 'Прочитайте фразу вслух' },
@@ -196,8 +196,17 @@ export const STR = {
     en: 'Say these three words to your peer. They will pick the matching phrase from three options on their screen.',
     ru: 'Назовите эти три слова собеседнику. Он выберет совпадающую фразу из трёх вариантов на своём экране.',
   },
-  sasReaderConfirm: { en: 'My peer found it — connect', ru: 'Собеседник нашёл — соединить' },
-  sasReaderAbort: { en: "They don't see this phrase", ru: 'Собеседник не видит эту фразу' },
+  sasReaderConfirm: {
+    en: 'They read it back correctly — connect',
+    ru: 'Собеседник повторил её верно — соединить',
+  },
+  sasReaderAbort: { en: "They don't have this phrase — stop", ru: 'У собеседника нет этой фразы — остановить' },
+  /** Said plainly, because clicking through without hearing the peer is the one way a human can
+   *  hand a MITM the session: the confirm button is the only gate on this side. */
+  sasReaderWarn: {
+    en: 'Only continue once you have HEARD your peer say these words back. Nothing on this screen can tell you whether they did.',
+    ru: 'Продолжайте только после того, как УСЛЫШАЛИ, что собеседник повторил эти слова. Ничто на этом экране не подскажет, так ли это.',
+  },
   // --- SAS fail-closed (role could not be resolved — missing id; never a functional blind picker) ---
   sasRestartEyebrow: { en: 'verification interrupted', ru: 'проверка прервана' },
   sasRestartTitle: { en: "Can't verify safely — restart", ru: 'Не удаётся проверить — начните заново' },

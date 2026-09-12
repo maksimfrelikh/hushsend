@@ -307,8 +307,22 @@ the same pass as CLAUDE.md when items land.
   origin for a whole test run. Check it with
   `git -C /var/www/hush-signaling-server rev-list --count HEAD..origin/main` (needs a `git fetch` first);
   a doc-only change needs no `systemctl restart`.
-- **HTTP/2 is off on the live vhost** while the committed nginx template enables it (DEPLOY.md § 0).
-  A free win, not a fix for anything — but the vhost and the template should agree.
+- ✅ **HTTP/2 is ON on the live vhost — CORRECTED 2026-09-12.** The earlier note (and DEPLOY.md § 0)
+  claimed it was off, read off the plain `listen 443 ssl;` line while missing the standalone
+  `http2 on;` directive below it. `curl` against the live host negotiates HTTP/2. Nothing to do.
+- **Security headers are silently dropped on `/assets/` and `.wasm`.** Verified live: the HTML gets
+  all five, the JS bundle gets only `cache-control`. nginx applies inherited `add_header` directives
+  ONLY when the current level defines none, and both of those locations define their own
+  `add_header Cache-Control`. Impact is low (the DOCUMENT's CSP is what governs script execution and
+  it is intact; CSP/HSTS/frame-ancestors on a subresource are inert), but `nosniff` goes missing and,
+  worse, the next header anyone adds at server level will vanish the same way — and
+  `nginx.conf.example:53` asserts the opposite. Repeat the five headers inside both blocks (or move
+  the caching to `expires`/`map` so neither block needs an `add_header`). **Needs root** — hand the
+  edit + `nginx -t && systemctl reload nginx` to the operator.
+- **`/ws` and `/` are logged with nginx's default `combined` format**, so every connection writes the
+  client IP, the full User-Agent and the rendezvous code (`?room=…`) to disk. That quietly undoes the
+  coarse-device-label design, which exists precisely so the server does not learn the UA. Add
+  `access_log off;` (or a stripped `log_format`) to both locations. **Needs root.**
 - **Scheduled CI expires on a quiet repo.** GitHub disables `schedule:` workflows after 60 days with
   no commits, which would silently stop the nightly engine matrix. If the repo goes quiet, re-enable
   it (or run the matrix from the Actions tab before a release).
@@ -554,7 +568,13 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   learned relay path (the direct path dies later, the relayed prflx pair takes over) is not re-checked.
   Re-running the check on `iceconnectionstatechange` would cover it, but tearing down a live transfer
   on a stats read needs its own care — left deliberate and documented rather than half-done.
-- [ ] **No client-side liveness deadline on the words / link / qr key-confirmation path.** `room`/SAS
+- [x] **No client-side liveness deadline on the words / link / qr key-confirmation path — FIXED
+  2026-09-12.** `armConfirmTimeout` / `clearConfirmTimeout` (`SessionController`) arm a 120 s deadline
+  in `runKeyConfirmation` — the moment the channel is open and our own tag has gone out — and disarm
+  it on settle, on every failure and on every teardown. Expiry routes to the existing
+  `onConfirmFailure`, so words counts the attempt and link/qr hard-stops, exactly as a bad tag does.
+  Fail-closed, liveness only: no crypto, transcript or guessing budget changes. Original text below.
+  - **(original)** `room`/SAS
   has `armSasTimeout` (pre-SAS + comparison, 120 s) and reconnect has `armReconnectTimeout` (120 s),
   but the 1:1 confirm path has **none**: a peer that opens the DataChannel and then simply goes silent
   (never sends its `confirm` tag) leaves us in `confirming` until the SERVER's from-create room TTL
@@ -575,6 +595,107 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   **Possible fix:** announce a *blinded* id instead of the raw one — e.g. `HMAC(pairingId, fp_min‖fp_max)`
   — which a peer holding the pin can recognise by recomputation while a stranger learns nothing
   correlatable across sessions. Folds naturally into the reconnect-in-lobby work.
+
+### Second pass, 2026-09-12 — a FULLY MALICIOUS server (findings + fixes)
+
+The first pass modelled a server that lies. This one modelled a server that plays: an active attacker
+that forges, drops, reorders and replays any frame, joins as a peer, and shows the two peers different
+realities. Three complete breaks and one persistent hole came out of it. **All four are fixed**, with
+regressions in `SessionController.auditFixes.test.ts` (§1–§4) and `sasRole.test.ts`.
+
+- ✅ **(1) SAS certificate grinding — COMPLETE MITM of the room method. FIXED.** The commit-reveal
+  locks the two NONCES, but the SAS transcript is `nonces ‖ fp_min ‖ fp_max` — four inputs, two
+  committed. The nonces ride SIGNALING, so the relay controlled their ordering and could finish both
+  commit-reveal exchanges while its own certificate on each leg was still unchosen; then sample ~2^16
+  certificates per leg, meet in the middle, and hand both humans the SAME three words. Reproduced
+  against the repo's own `computeSasWords`: **65536 candidates/leg, 4.25 s**, against a 120 s
+  deadline — and the certificate pool is session-independent, so it precomputes offline and the online
+  cost is a sub-second HKDF search. Both humans confirm, every byte flows through the server in
+  cleartext, and the enrollment that follows pins the ATTACKER's identity key, so the compromise
+  survives into future reconnects with no key-change warning. **Fix:**
+  `SessionController.maybeRevealSasNonce` holds every reveal until `sas.fps` is set, so the attacker's
+  certificate is inside our transcript before it learns our nonce — back to one online shot at ~2^-31.
+- ✅ **(2) The server chose the pairing roles. FIXED for the SAS split.** `pairingRoleFor` and
+  `sasRoleFor` were both `selfId < peerId` over ids the server assigns to each peer independently, and
+  the ids appear in NO transcript — so inconsistent views were undetectable by construction. It could
+  make both peers `reader` (which, with (1), meant both read the SAME grinded phrase) or both `picker`
+  (nobody reads; two humans guessing 1-in-3). The fail-closed check covered only `role === null`, not
+  the reachable "both sides same non-null role". **Fix:** the reader/picker split is now
+  `sasReaderIsFpMin` — an HKDF bit over the SAME material as the words, under its own label — resolved
+  in `trySasReady`. No id is an input, and because the nonces are revealed after the fingerprints are
+  pinned, a MITM cannot steer it either. The TRANSPORT role stays id-derived: it only picks who offers,
+  and a disagreement there now shows up as a SAS mismatch.
+- ✅ **(3) A second `welcome` flipped the role mid-handshake → key-confirmation tag reflection. FIXED.**
+  `onWelcome` had no once-guard and no phase check, though `beginPairing`'s own docstring makes de-dup
+  the caller's job and every other caller checks `this.peer || this.role`. An injected second welcome
+  rewrote `selfId` and flipped `this.role` while leaving `sessionKey`/`linkSecret`/`confirmFps`/
+  `peerConfirmTag` in place — and since the only anti-reflection defence is the role label (the
+  expected peer role is derived as the opposite of ours), flipping it after we emit our tag lets the
+  server echo our own tag back and have it verify. That MITMs **words without knowing the 4 secret
+  words** and **link/qr without knowing S**, consuming no guess from the attempt cap. **Fix:**
+  `if (this.selfId) return;` — one welcome per session.
+- ✅ **(4) TOFU enrollment ran BEFORE authentication. FIXED.** `onEnrollFrame` gated on
+  `isAuthenticatedMethod()` — a check on the METHOD, true from the first moment of every session — and
+  the fingerprints it needs exist at channel-open. Any peer reaching the open DataChannel could plant a
+  pin (its own key, verified against itself) and receive our long-term Ed25519 identity key in the ack:
+  a "known device" that reconnects with no SAS and no human step, plus the strongest cross-session
+  tracker in the system. **Fix:** gate on `this.established`; hold a frame that arrives in the settle
+  gap (`pendingEnrollFrame`) and replay it, so an honest early arrival is not lost; and refuse to
+  OVERWRITE a `pairingId` already pinned to a different key (first-write-wins) — the upsert there
+  silently erased the key-change hard stop.
+
+Also fixed in the same pass, from the same audit:
+
+- ✅ **Three DEV knobs shipped in the production bundle** (`?maxAttempts=N`, `?forceBlob=1`,
+  `__HUSHSEND_MAX_BYTES__`) — they lacked the `import.meta.env.DEV` gate their seven siblings had.
+  `?maxAttempts=` lifted the ≤10-guess bound on the ~41-bit spoken secret from a link the victim
+  opens. Verified against the SERVED bundle, not the source; TESTPLAN § 0 now carries the check.
+- ✅ **The receive side of "no bytes before authentication"** — `handleIncomingOffer` and
+  `acceptIncoming` now gate on `established` like `sendFiles` always did. An unauthenticated peer's
+  offer used to reach the store and SURVIVE a failed attempt (neither `teardownPeerOnly` nor
+  `resetPairingToLobby` cleared `pendingOffer`), so attacker-chosen text rendered under the NEXT,
+  honest pairing's verified badge — and the stale offer silently blocked `sendFiles` forever. Both
+  teardowns now clear it and reset the transfer projection.
+- ✅ **Relay candidates hidden inside the SDP** bypassed the filter entirely (`shouldDropCandidate`
+  only ever sees TRICKLED candidates), so a Max-privacy client sent STUN checks to a relay — leaking
+  its IP to the party the strict model exists to exclude — before the channel-open gate could refuse
+  the path. `stripRelayCandidates` (pure, in `relax.ts`) removes those lines and records their
+  endpoints into the same set the peer-reflexive check reads.
+- ✅ **Server-triggered renegotiation.** The offer branch applied ANY inbound offer at ANY time with no
+  state check, so the server could move the path at a moment of its choosing, after the channel-open
+  relay check had run and would not run again. A re-offer is now refused once the transport is up.
+- ✅ **The step-1 unauthenticated path is gone.** `createRoom`/`joinRoom`/`sendPing` and the ping/echo
+  handler are deleted, and the `onChannelOpen` fallthrough that set `established = true` with no
+  authentication now fails closed. It was dead in the UI but live on a shipped class, one call site
+  from a total bypass; the echo was also a pre-auth reflection/RTT oracle.
+- ✅ **Unbounded server-controlled strings** (`selfId`, `room`, `from`, `peerId`, `device`, `reason`,
+  the roster array) now carry `.max()` at the zod boundary that exists for exactly this.
+- ✅ **The human step.** Both refusals ("None of these match", "They don't have this phrase") were faint
+  text links under full-width primary confirms — the safe action was the quietest element on the
+  screen. They now carry the same weight as the confirm, the copy says what the click means, the
+  reader gets an explicit warning that nothing on screen can tell them whether the peer actually read
+  the phrase back, and a REJECT is now accepted even after our own approval (up to settle), so a
+  reader who clicked too early is no longer trapped.
+- ✅ **`stark-ui-kit` pinned to its commit** in `package.json` (it was `github:…` with no ref — the
+  only dependency of 354 without an integrity hash, injecting JS into every screen).
+- ✅ **Two `console.info` calls** logging DTLS fingerprints unconditionally are now DEV-gated.
+
+**Still open from this pass — deliberately not rushed, both are protocol work, not one-liners:**
+
+- [ ] **Path attestation over the authenticated channel.** A hostile server can put itself ON THE PATH
+  in Max privacy and no candidate filter can stop it: ICE credentials ride the SDP it relays, so it can
+  answer connectivity checks, and a client cannot tell an attacker's `typ host` from the peer's —
+  the peer's real address is only ever learned FROM the server. Confidentiality is unaffected (DTLS is
+  end-to-end; a forwarding attacker sees ciphertext), but the Max-privacy PATH promise is not
+  verifiable today. **Fix shape:** after authentication, each side sends its own candidate/address set
+  over the DataChannel — which the server cannot forge — and each verifies that the remote address it
+  actually selected appears in the peer's set. That converts "we filtered relay candidates" (an
+  unverifiable intention) into "we checked who we are talking to" (a verifiable fact), exactly as the
+  DTLS fingerprint binding already does for identity. Also covers the documented mid-session
+  re-nomination residual.
+- [ ] **`pairingId` disclosure to whoever wins the reconnect join race** — unchanged from the first
+  pass (a blinded `HMAC(pairingId, fp_min‖fp_max)` announcement). Note finding (4) made this worse
+  before it was fixed; with the enrollment gate in place it is back to linkability + nuisance.
 
 ### Doc corrections made in the same pass
 

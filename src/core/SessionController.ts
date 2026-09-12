@@ -18,7 +18,7 @@ import {
   type ConfirmationDomain,
 } from './crypto/keyConfirmation';
 import { generateLinkSecret, buildLinkUrl } from './link/link';
-import { sasRoleFor } from './sasRole';
+import { sasRoleFrom } from './sasRole';
 import { pairingRoleFor } from './pairingRole';
 import { peerLeftAbortsPairing } from './livenessGate';
 import {
@@ -30,7 +30,14 @@ import {
   type TurnCredentials,
 } from './iceServers';
 import type { PeerInfo } from '../types/protocol';
-import { generateNonce, sasCommit, verifySasCommit, computeSasWords, NONCE_BYTES } from './crypto/sas';
+import {
+  generateNonce,
+  sasCommit,
+  verifySasCommit,
+  computeSasWords,
+  sasReaderIsFpMin,
+  NONCE_BYTES,
+} from './crypto/sas';
 import {
   getOrCreateIdentity,
   generateStoredIdentity,
@@ -100,6 +107,11 @@ const CPACE_SID_BYTES = 16;
  */
 const DEFAULT_MAX_PAIRING_ATTEMPTS = 10;
 function maxPairingAttempts(): number {
+  // DEV-ONLY, like every sibling knob. Without this gate the override shipped in the production
+  // bundle, so `?maxAttempts=999999` in a link the victim opens silently lifted the ≤10-guess bound
+  // on the ~41-bit spoken secret — the one control standing between it and unlimited online
+  // guessing once an untrusted server declines to expire the room. (2026-09-12 audit.)
+  if (!import.meta.env.DEV) return DEFAULT_MAX_PAIRING_ATTEMPTS;
   try {
     const w = window as unknown as { __HUSHSEND_MAX_ATTEMPTS__?: unknown };
     if (typeof w.__HUSHSEND_MAX_ATTEMPTS__ === 'number' && w.__HUSHSEND_MAX_ATTEMPTS__ > 0) {
@@ -415,7 +427,8 @@ interface ReconnectState {
 
 /**
  * Per-session SAS state for the room method. Its presence (`this.sas != null`) is also the flag
- * that distinguishes the SAS-authenticated room path from the step-1 UNauthenticated room path
+ * that marks the SAS-authenticated room path (the only room path there is — the step-1 transport-only
+ * room was removed in the 2026-09-12 audit pass)
  * (both project `method: 'room'`) and from the words path (which uses `sessionKey`). Lives ONLY
  * in the core.
  */
@@ -555,12 +568,18 @@ export class SessionController {
   private enrollInitiated = false;
   /** One-shot: we've pinned the peer's key for this connection (both roles pin exactly once). */
   private enrollPinned = false;
+  /** An enroll frame that arrived BEFORE we reached `established`. The two peers settle at slightly
+   *  different instants (whoever's confirm/tag lands last settles later), so the earlier side's
+   *  enroll-init can legitimately arrive a beat early. We must not ACT on it before authentication
+   *  (see onEnrollFrame) but we must not drop it either, or that pair would silently never pin and
+   *  could never reconnect. Held here and replayed by startEnrollment at settle. */
+  private pendingEnrollFrame: EnrollFrame | null = null;
 
   private selfId: string | null = null;
   private peerId: string | null = null;
   private isCreator = false;
   /** Which rendezvous+auth method this session is running. Drives the welcome/peer-joined
-   *  branch and whether onChannelOpen runs real CPace key-confirmation or the step-1 no-op. */
+   *  branch and which key-confirmation onChannelOpen runs. */
   private method: 'room' | 'words' | 'link' | 'qr' | null = null;
 
   // --- link / qr method (step 5b) — high-entropy URL-fragment secret, NO PAKE, NO SAS.
@@ -576,7 +595,7 @@ export class SessionController {
   private linkSettled = false;
 
   // --- room method (step 4a) — 4-digit rendezvous + mandatory SAS. Lives ONLY in the core. ---
-  /** Non-null iff this is the SAS-authenticated room path (vs the step-1 UNauthenticated room). */
+  /** Non-null iff this is the SAS-authenticated room path. Every room path is now SAS-authenticated. */
   private sas: SasState | null = null;
 
   // --- reconnect (step 4b-ii) — TOFU re-auth under pinned keys, NO human step. Lives ONLY in the
@@ -612,6 +631,13 @@ export class SessionController {
   private peerConfirmTag: Uint8Array | null = null;
   /** Guards the one-shot confirming → connected | failed decision. */
   private confirmSettled = false;
+  /** Liveness deadline for the 1:1 key-confirmation path (words / link / qr). room+SAS has
+   *  `armSasTimeout` and reconnect has `armReconnectTimeout`; this path had NOTHING, so a peer that
+   *  opened the DataChannel and then simply went silent left us in `confirming` until the SERVER's
+   *  room TTL closed the socket. That delegated our liveness to the untrusted server — a server that
+   *  declines to expire the room hangs the client indefinitely. Fail-closed, liveness only: no
+   *  crypto, no transcript, no guessing budget is touched. (2026-09-12 audit.) */
+  private confirmTimer: ReturnType<typeof setTimeout> | null = null;
   /** A-side: our PUBLIC rendezvous word (room id), kept across retries so the same words are
    *  re-shown while the attempt counter climbs. */
   private rendezvous: string | null = null;
@@ -677,42 +703,6 @@ export class SessionController {
   // SAS) is step 3; the words/CPace path is step 2/3. See `connected` note below.
   // ===========================================================================
 
-  /** A-side: allocate a room and wait for a peer to join (then we initiate). */
-  async createRoom(): Promise<void> {
-    this.dispatch(connectionActions.createStarted({ method: 'room' }));
-    this.isCreator = true;
-    this.method = 'room';
-    try {
-      this.openSignaling();
-      await this.signaling!.connect({ create: true });
-      // `welcome` -> roomReady (shows the allocated code); `peer-joined` -> we initiate.
-    } catch (err) {
-      this.fail(err);
-    }
-  }
-
-  /** B-side: join an existing room by its allocated code (we answer the offer). */
-  async joinRoom(code: string): Promise<void> {
-    this.dispatch(connectionActions.joinStarted({ method: 'room', room: code }));
-    this.isCreator = false;
-    this.method = 'room';
-    try {
-      this.openSignaling();
-      await this.signaling!.connect({ join: code });
-      // `welcome` (peers non-empty) -> we're the responder and await the offer.
-    } catch (err) {
-      this.fail(err);
-    }
-  }
-
-  /** Step-1 transport smoke test: send a ping over the DataChannel; the peer echoes it. */
-  async sendPing(): Promise<void> {
-    if (!this.peer) return;
-    const text = `ping from ${this.selfId ?? '?'} @ ${new Date().toISOString()}`;
-    this.dispatch(devActions.appendLog(`→ ${text}`));
-    await this.peer.send(JSON.stringify({ kind: 'ping', text }));
-  }
-
   // ---- signaling wiring ----
 
   private openSignaling(): void {
@@ -731,6 +721,16 @@ export class SessionController {
   }
 
   private onWelcome(selfId: string, room: string, peers: PeerInfo[]): void {
+    // ONE welcome per session. The server is untrusted and this handler is the only entry point that
+    // used to re-enter beginPairing with no guard (onPeerJoined/onPairRequest/pickPeer all check
+    // `this.peer || this.role` first) — and beginPairing's own contract says de-dup is the caller's
+    // job. A second, injected `welcome` therefore used to rewrite selfId and FLIP `this.role`
+    // mid-handshake while leaving sessionKey/linkSecret/confirmFps/peerConfirmTag in place. Since the
+    // only anti-reflection defence in key-confirmation is the role label (the expected peer role is
+    // derived as the opposite of ours), flipping it after we emit our tag turns that defence into an
+    // oracle: the server echoes our own tag back and it verifies. That MITMs words without knowing the
+    // 4 secret words, and link/qr without knowing S. (2026-09-12 audit.)
+    if (this.selfId) return;
     this.selfId = selfId;
     this.dispatch(devActions.setSelfId(selfId));
     // Seed the roster from the existing-room peers (mesh lobby — room method). Harmless for
@@ -774,7 +774,6 @@ export class SessionController {
    *   - reconnect (create/joinReconnectSession): sas set, reconnect set → NOT a lobby (1:1 auto-pair,
    *     no human pick — reconnect-in-lobby is deferred).
    *   - words / link / qr: sas null → NOT a lobby (1:1 auto-pair with a single peer).
-   *   - step-1 transport room: sas null → NOT a lobby (legacy auto-pair, unchanged).
    */
   private isLobby(): boolean {
     return this.sas != null && this.reconnect == null;
@@ -851,6 +850,11 @@ export class SessionController {
   /** Tear down a half-started lobby pairing and re-prime a fresh SAS state, returning to the lobby
    *  (awaitingPeer) with the room + roster intact so the human can pick another peer. */
   private resetPairingToLobby(): void {
+    // A half-finished transfer belongs to the ATTEMPT, not the session: an offer left in place
+    // would be re-rendered under the next (honest) pairing's verified badge, and a stale
+    // pendingOffer silently blocks sendFiles forever. Clear both with the crypto state.
+    this.pendingOffer = null;
+    this.dispatch(transferActions.reset());
     if (this.sas?.timer != null) clearTimeout(this.sas.timer);
     this.peer?.close();
     this.peer = null;
@@ -861,6 +865,7 @@ export class SessionController {
     this.confirmFps = null;
     this.peerConfirmTag = null;
     this.confirmSettled = false;
+    this.clearConfirmTimeout();
     this.sas = newSasState(); // fresh nonce for the next pick (still a SAS-room lobby session)
     this.dispatch(connectionActions.returnToLobby());
   }
@@ -921,11 +926,11 @@ export class SessionController {
     // (`resolveSasRole`, same id ordering). The SAS RESPONDER commits FIRST (anti-grinding) — send our
     // commit now if that's us, before the initiator reveals. Arm the pre-SAS pairing deadline (the
     // 4-digit room TTL only bounds the rendezvous; without this a peer that joins then stalls the
-    // commit-reveal would hang us in `pairing` forever). All of this no-ops on the step-1 UNauthenticated
-    // room (`this.sas == null`), which just brings up the channel.
+    // commit-reveal would hang us in `pairing` forever). A no-op when `this.sas` is null (words/link/qr).
     if (this.sas) {
       this.sas.role = role; // per-pairing nonce ordering + commit-reveal (was create/join)
-      this.resolveSasRole();
+      // The reader/picker UI role is NOT resolved here any more — it now comes from the SAS material
+      // (see resolveSasRole), which does not exist until the channel is open and both nonces are out.
       if (!initiator) {
         // We are the SAS responder → COMMIT to our nonce now, before the initiator reveals theirs, so
         // we are locked to it and cannot grind it against the initiator's. The reveal waits for the
@@ -1257,7 +1262,7 @@ export class SessionController {
     if (this.sas) {
       const local = this.peer?.localFingerprint() ?? null;
       const remote = this.peer?.remoteFingerprint() ?? null;
-      console.info('[session] DTLS fingerprints — local:', local, '| remote:', remote);
+      if (import.meta.env.DEV) console.debug('[session] DTLS fingerprints — local:', local, '| remote:', remote);
       this.dispatch(devActions.setFingerprints({ local, remote }));
       // SAS commit-reveal runs in parallel; computing the SAS words is held back while a reconnect
       // attempt is pending (trySasReady), so a successful reconnect never flashes the SAS UI.
@@ -1271,7 +1276,7 @@ export class SessionController {
     this.dispatch(connectionActions.confirmStarted());
     const local = this.peer?.localFingerprint() ?? null;
     const remote = this.peer?.remoteFingerprint() ?? null;
-    console.info('[session] DTLS fingerprints — local:', local, '| remote:', remote);
+    if (import.meta.env.DEV) console.debug('[session] DTLS fingerprints — local:', local, '| remote:', remote);
     this.dispatch(devActions.setFingerprints({ local, remote }));
 
     if (this.sessionKey) {
@@ -1291,13 +1296,13 @@ export class SessionController {
       return;
     }
 
-    // ⚠️ step-1 "room" transport path: NO authentication. This `connected` is UNAUTHENTICATED
-    // (anyone who reached the rendezvous is trusted). It exists only to prove the DataChannel
-    // comes up; the real room method (4-digit + mandatory SAS) is a later step. The words
-    // method above is the authenticated path. The no-file-bytes-before-connected invariant
-    // holds regardless.
-    this.established = true;
-    this.dispatch(connectionActions.connectionEstablished());
+    // Every reachable method is handled above: room/SAS returns early, words has a sessionKey,
+    // link/qr a linkSecret. Falling through used to mean the step-1 transport-only room, which set
+    // `established` with NO authentication whatsoever — dead in the UI but a live method on a shipped
+    // class, one call site away from a total bypass of the gate (2026-09-12 audit). The step-1 entry
+    // points are gone; reaching here now means a wiring bug, so FAIL CLOSED rather than trust a peer
+    // nothing authenticated.
+    this.fail(new Error('no authentication path for this session — refusing to connect'));
   }
 
   /** The shared secret the key-confirmation MACs the DTLS fingerprints under: the CPace ISK for
@@ -1328,6 +1333,9 @@ export class SessionController {
       return;
     }
     this.confirmFps = { local, remote };
+    // Bound the wait for the peer's tag from HERE. A peer that opens the channel and then goes
+    // silent must not leave us in `confirming` until the untrusted server's room TTL rescues us.
+    this.armConfirmTimeout();
     const tag = makeConfirmation(secret, local, remote, this.role, this.confirmDomain());
     void this.peer
       ?.send(JSON.stringify({ kind: 'confirm', role: this.role, tag: bytesToHex(tag) }))
@@ -1352,6 +1360,7 @@ export class SessionController {
       this.confirmDomain(),
     );
     this.confirmSettled = true;
+    this.clearConfirmTimeout();
     if (ok) {
       this.attemptResolved = true; // success — no later signal should count as a failure (words)
       this.linkSettled = true; // success — link/qr teardown guards are now closed
@@ -1464,6 +1473,11 @@ export class SessionController {
   /** Close the current pairing's live objects and clear per-attempt crypto state, KEEPING the
    *  words credential + signaling so A (creator) can accept the next joiner on a retry. */
   private teardownPeerOnly(): void {
+    // A half-finished transfer belongs to the ATTEMPT, not the session: an offer left in place
+    // would be re-rendered under the next (honest) pairing's verified badge, and a stale
+    // pendingOffer silently blocks sendFiles forever. Clear both with the crypto state.
+    this.pendingOffer = null;
+    this.dispatch(transferActions.reset());
     this.peer?.close();
     this.peer = null;
     this.clearPendingPeerSignals(); // a fresh joiner's offer must not see a stale one from this attempt
@@ -1475,6 +1489,7 @@ export class SessionController {
     this.confirmFps = null;
     this.peerConfirmTag = null;
     this.confirmSettled = false;
+    this.clearConfirmTimeout();
   }
 
   /**
@@ -1519,7 +1534,7 @@ export class SessionController {
   }
 
   /** Stash the peer's confirmation tag and try to settle (order-independent with our own). Used by
-   *  both confirmation paths (words = CPace ISK, link/qr = URL-fragment S); the SAS/step-1 paths
+   *  both confirmation paths (words = CPace ISK, link/qr = URL-fragment S); the SAS path
    *  hold no confirmation secret, so tryVerifyConfirmation no-ops for them. */
   private onConfirmMessage(tagHex: string): void {
     if (this.confirmSettled || !this.confirmSecret()) return;
@@ -1613,14 +1628,9 @@ export class SessionController {
       return;
     }
 
-    // Otherwise it's the step-1 ping/echo harness (keyed by `kind`).
-    const m = msg as { kind?: unknown; text?: unknown };
-    if (m.kind === 'ping' && typeof m.text === 'string') {
-      this.dispatch(devActions.appendLog(`← ping: ${m.text}`));
-      void this.peer?.send(JSON.stringify({ kind: 'echo', text: m.text })); // echo back
-    } else if (m.kind === 'echo' && typeof m.text === 'string') {
-      this.dispatch(devActions.appendLog(`← echo: ${m.text}`));
-    }
+    // Anything else is unknown and is DROPPED. There used to be a step-1 ping/echo harness here that
+    // reflected an unauthenticated peer's own string back over the DataChannel with no length bound —
+    // a free liveness/RTT oracle before authentication, and dead weight besides.
   }
 
   // ---- file transfer (step 2) ----
@@ -1652,7 +1662,7 @@ export class SessionController {
   /** Accept the pending inbound offer. MUST be called from a user gesture (FSA save picker). */
   async acceptIncoming(): Promise<void> {
     const offer = this.pendingOffer;
-    if (!offer || this.receiver) return;
+    if (!offer || this.receiver || !this.established) return;
     try {
       const recv = await openReceive(this.wire(), offer, offer.canStream, offer.maxBytes, (e) =>
         this.onReceiveEvent(e),
@@ -1705,12 +1715,24 @@ export class SessionController {
   }
 
   private handleIncomingOffer(offer: { name: string; size: number; isZip: boolean }): void {
+    // Same gate as sendFiles. The invariant is "no file bytes before the connection is
+    // AUTHENTICATED" and it was enforced one-sidedly: an unauthenticated peer's offer used to be
+    // dispatched into the store, where it survived a failed attempt (pendingOffer is not cleared by
+    // teardownPeerOnly/resetPairingToLobby) and was then rendered under the verified badge of the
+    // NEXT, honest pairing — attacker-chosen text inside a trusted frame, plus a silent send-DoS.
+    if (!this.established) return;
     if (this.sender || this.receiver || this.pendingOffer) return; // busy — ignore
     const canStream = canStreamToDisk();
     const maxBytes = receiveMaxBytes(canStream);
     // Surface the offer for display either way; auto-reject oversize on the RAM-bound path.
     this.dispatch(transferActions.offered({ direction: 'receive', fileName: offer.name, totalBytes: offer.size }));
     if (offer.size > maxBytes) {
+      // The cap is derived from the receiving browser + UA (canStreamToDisk + isMobileUA), so the
+      // audit flagged echoing it back as a device-class oracle. That was only ever reachable BEFORE
+      // authentication, and the `established` gate at the top of this method closes it: a peer that
+      // gets here has already passed SAS / CPace / the link secret. For an authenticated peer the
+      // exact reason is what lets the SENDER act ("send it from a desktop Chrome instead"), so it
+      // stays — withholding it here would buy nothing and cost the one person who needs it.
       const reason = `This file is ${formatBytes(offer.size)} — larger than the ${formatBytes(
         maxBytes,
       )} this browser can save. Open hushsend in Chrome on desktop to receive it.`;
@@ -1908,7 +1930,6 @@ export class SessionController {
   /**
    * A-side: start a SAS-authenticated room. Allocate a 4-digit code, show it, wait. On
    * `peer-joined` we initiate WebRTC; the SAS commit-reveal runs in parallel over signaling.
-   * (The step-1 `createRoom()` above is the UNauthenticated transport-only path — left intact.)
    */
   async createRoomSession(): Promise<void> {
     this.dispatch(connectionActions.createStarted({ method: 'room' }));
@@ -2015,18 +2036,28 @@ export class SessionController {
   }
 
   /**
-   * Compute + project the per-pairing SAS UI role (reader/picker) for THIS 1:1 channel from the two
-   * readable ids: the lexicographically smaller id reads its phrase, the other is the blind picker
-   * (`sasRoleFor`). Both peers compute it identically (ids are unique in the room) → opposite roles,
-   * for ANY pair — including joiner↔joiner, where the old create/join rule made BOTH pickers. Called
-   * at pairing start (both ids known) on the room+SAS path ONLY (`this.sas` set, incl. the reconnect
-   * fallback); a no-op elsewhere (words/link/qr have no SAS). The role is a UI-only signal — it does
-   * NOT touch `this.sas.role`, which stays initiator/responder for the nonce-ordering crypto. If an
-   * id is missing nothing is dispatched, so the projection stays null and the SAS screen fails closed.
+   * Compute + project the per-pairing SAS UI role (reader/picker) for THIS 1:1 channel.
+   *
+   * Derived from the SAS MATERIAL (`sasReaderIsFpMin` over both nonces + both fingerprints), NOT
+   * from the readable signaling ids. The ids come from the untrusted server, which hands each peer
+   * its own — so the old id-ordering let a malicious server tell BOTH peers they were the smaller
+   * one and make both the blind picker, leaving nobody to read (2026-09-12 audit). The material is
+   * not the server's to choose, and because the nonces are revealed only after the fingerprints are
+   * pinned, a MITM has already fixed its certificate before the bit is decided.
+   *
+   * Called from `trySasReady` — the first moment both nonces AND both fingerprints exist — on the
+   * room+SAS path ONLY (`this.sas` set, incl. the reconnect fallback). UI-only: it does NOT touch
+   * `this.sas.role`, which stays initiator/responder for the nonce-ordering crypto. If the
+   * fingerprints are missing nothing is dispatched, so the projection stays null and the SAS screen
+   * fails closed on the restart view rather than rendering a picker with no reader.
    */
   private resolveSasRole(): void {
-    if (!this.sas) return; // SAS-authenticated room path only
-    const role = sasRoleFor(this.selfId, this.peerId);
+    const sas = this.sas;
+    if (!sas || !sas.fps || !sas.peerNonce) return; // material incomplete — stay null (fail closed)
+    const nonceInitiator = sas.role === 'initiator' ? sas.myNonce : sas.peerNonce;
+    const nonceResponder = sas.role === 'initiator' ? sas.peerNonce : sas.myNonce;
+    const readerIsFpMin = sasReaderIsFpMin(nonceInitiator, nonceResponder, sas.fps.local, sas.fps.remote);
+    const role = sasRoleFrom(sas.fps.local, sas.fps.remote, readerIsFpMin);
     if (role) this.dispatch(connectionActions.sasRoleResolved({ role }));
   }
 
@@ -2057,15 +2088,15 @@ export class SessionController {
     if (!sas || sas.settled) return;
 
     if (frame.kind === 'sas-commit') {
-      // Only the initiator (A) consumes a commit, and only once. Store it, then reveal nonceA.
+      // Only the initiator (A) consumes a commit, and only once. Store it; the reveal is attempted
+      // through maybeRevealSasNonce, which holds it back until our fingerprints are pinned.
       if (sas.role !== 'initiator' || sas.peerCommit) return;
       try {
         sas.peerCommit = hexToBytes(frame.c);
       } catch {
         return; // not valid hex — drop (a malformed relay frame, not a real commit)
       }
-      sas.revealedMine = true;
-      this.sendSas({ kind: 'sas-nonce', nonce: bytesToHex(sas.myNonce) });
+      this.maybeRevealSasNonce();
       return;
     }
 
@@ -2085,14 +2116,41 @@ export class SessionController {
       }
       sas.peerNonce = peerNonce;
     } else {
-      // B was LOCKED behind its commit; only now that A's nonce is out does B reveal nonceB.
+      // B was LOCKED behind its commit; only now that A's nonce is out does B reveal nonceB — and
+      // only once B's own fingerprints are pinned (maybeRevealSasNonce).
       sas.peerNonce = peerNonce;
-      if (!sas.revealedMine) {
-        sas.revealedMine = true;
-        this.sendSas({ kind: 'sas-nonce', nonce: bytesToHex(sas.myNonce) });
-      }
+      this.maybeRevealSasNonce();
     }
     this.trySasReady();
+  }
+
+  /**
+   * Reveal our SAS nonce — but NEVER before the DTLS fingerprints are pinned.
+   *
+   * This is the second half of the anti-grinding argument, and it was MISSING until the 2026-09-12
+   * audit. The commit-reveal locks the two NONCES, but the SAS transcript has four inputs: both
+   * nonces AND both fingerprints. The nonces ride signaling, so a malicious relay controls their
+   * delivery order; it used to be able to finish both commit-reveal exchanges while its own DTLS
+   * certificate on each leg was still unchosen. That left it a free, adaptively-chosen input into a
+   * 31-bit target: sample ~2^16 certificates per leg, meet in the middle, and both humans read the
+   * SAME three words. Measured at ~4 s against a 120 s deadline, with the certificate pool
+   * precomputable offline — i.e. a silent, complete MITM of the room method.
+   *
+   * Holding the reveal until `sas.fps` is set inverts the order: by the time the attacker learns our
+   * nonce, the certificate it presented to US is already fixed inside our transcript, so it cannot
+   * be chosen as a function of the nonce. That restores the intended ONE online shot at ~2^-31.
+   *
+   * Ordering within the commit-reveal is unchanged: A reveals once B's commitment is in, B reveals
+   * once A's nonce is out. One reveal per side (`revealedMine`). The pre-SAS deadline still bounds
+   * the wait, so a peer that never opens its channel fails closed instead of hanging.
+   */
+  private maybeRevealSasNonce(): void {
+    const sas = this.sas;
+    if (!sas || sas.settled || sas.revealedMine) return;
+    if (!sas.fps) return; // fingerprints not pinned yet — defer (re-tried from onSasFingerprints)
+    if (sas.role === 'initiator' ? !sas.peerCommit : !sas.peerNonce) return; // not our turn yet
+    sas.revealedMine = true;
+    this.sendSas({ kind: 'sas-nonce', nonce: bytesToHex(sas.myNonce) });
   }
 
   /** Capture the DTLS fingerprints at channel-open, then try to compute the SAS. */
@@ -2104,6 +2162,8 @@ export class SessionController {
       return;
     }
     sas.fps = { local, remote };
+    // The fingerprints are now pinned, so a deferred nonce reveal may go out (see maybeRevealSasNonce).
+    this.maybeRevealSasNonce();
     this.trySasReady();
   }
 
@@ -2114,6 +2174,22 @@ export class SessionController {
    * deadline off to the (shorter, DEV-overridable) comparison deadline without leaking a timer.
    * No-op once the SAS has settled. The live handle lives on `sas` (core-only, never in the store).
    */
+  /** Arm the 1:1 key-confirmation liveness deadline (see `confirmTimer`). Same 120 s default as the
+   *  SAS and reconnect deadlines, read through the same DEV-only override so e2e can drive it. */
+  private armConfirmTimeout(): void {
+    if (this.confirmSettled || this.confirmTimer != null) return;
+    this.confirmTimer = setTimeout(() => {
+      if (this.confirmSettled) return;
+      this.onConfirmFailure('peer did not complete key confirmation in time');
+    }, preSasTimeoutMs());
+  }
+
+  /** Disarm it — on settle, on any failure, and on every teardown. */
+  private clearConfirmTimeout(): void {
+    if (this.confirmTimer != null) clearTimeout(this.confirmTimer);
+    this.confirmTimer = null;
+  }
+
   private armSasTimeout(reason: string, ms: number): void {
     const sas = this.sas;
     if (!sas || sas.settled) return;
@@ -2158,6 +2234,8 @@ export class SessionController {
       const nonceInitiator = sas.role === 'initiator' ? sas.myNonce : sas.peerNonce;
       const nonceResponder = sas.role === 'initiator' ? sas.peerNonce : sas.myNonce;
       sas.words = computeSasWords(nonceInitiator, nonceResponder, sas.fps.local, sas.fps.remote);
+      // Same material, separate label: who reads and who picks (server cannot choose it).
+      this.resolveSasRole();
     }
     if (this.reconnect && !this.reconnect.fellBack) return; // hold SAS until reconnect resolves
     this.surfaceSas();
@@ -2188,7 +2266,12 @@ export class SessionController {
    */
   confirmSas(ok: boolean): void {
     const sas = this.sas;
-    if (!sas || sas.settled || !sas.words || sas.localApproved) return;
+    if (!sas || sas.settled || !sas.words) return;
+    // A REJECT is accepted even after our own approval, right up until the pair settles. The reader's
+    // confirm used to be irreversible the instant it was clicked — and the waiting screen offered no
+    // way back — so a reader who clicked before hearing their peer had no way to stop. Fail-closed
+    // always wins over an earlier "yes"; an approval, by contrast, is still one-shot.
+    if (ok && sas.localApproved) return;
     if (!ok) {
       void this.peer?.send(JSON.stringify({ kind: 'sas-confirm', ok: false }));
       this.failSas('SAS rejected — words did not match');
@@ -2544,8 +2627,8 @@ export class SessionController {
   }
 
   /** True on the AUTHENTICATED methods (words / link / qr key-confirmation, or SAS room) — i.e.
-   *  everywhere TOFU enrollment may run. The step-1 UNauthenticated transport-only room is the
-   *  sole `connected` that is not authenticated, so it never enrolls. */
+   *  everywhere TOFU enrollment may run. Since the 2026-09-12 audit this is a necessary but NOT a
+   *  sufficient check — `onEnrollFrame`/`runEnrollment` also require `established`. */
   private isAuthenticatedMethod(): boolean {
     return this.method === 'words' || this.method === 'link' || this.method === 'qr' || this.sas != null;
   }
@@ -2565,10 +2648,16 @@ export class SessionController {
   /**
    * Kick off enrollment on entering an AUTHENTICATED `connected`. The initiator sends its
    * signed identity immediately (it owns the pairingId); the responder waits for that frame.
-   * No-op off the authenticated paths (the step-1 unauthenticated room never enrolls).
+   * No-op off the authenticated paths.
    */
   private startEnrollment(): void {
     if (!this.isAuthenticatedMethod()) return; // authenticated paths only
+    // Replay an enroll frame that arrived in the gap before we settled (see pendingEnrollFrame).
+    const held = this.pendingEnrollFrame;
+    this.pendingEnrollFrame = null;
+    if (held) {
+      void this.onEnrollFrame(held).catch((err) => this.dispatch(devActions.appendLog(`enroll: ${errText(err)}`)));
+    }
     void this.runEnrollment().catch((err) => this.dispatch(devActions.appendLog(`enroll: ${errText(err)}`)));
   }
 
@@ -2603,6 +2692,18 @@ export class SessionController {
    * we skip the pin and log a non-fatal warning. Pins exactly once per connection.
    */
   private async onEnrollFrame(frame: EnrollFrame): Promise<void> {
+    // AUTHENTICATED paths only — and `authenticated` is a STATE, not a method. `isAuthenticatedMethod`
+    // is true from the first moment of every real session, and the fingerprints it needs are captured
+    // at CHANNEL-OPEN, so until the 2026-09-12 audit this handler ran before any authentication: any
+    // peer that reached the open DataChannel (which an untrusted server can arrange with no user
+    // action at all) could send `enroll-init`, have its own key verified against ITSELF — pure TOFU —
+    // and written into the keystore as a pin, then receive our long-term identity key in the ack. That
+    // is a planted "known device" that reconnects with no SAS and no human step, plus the strongest
+    // cross-session tracker in the system handed to a stranger. Gate on `established`.
+    if (!this.established) {
+      this.pendingEnrollFrame = frame; // hold until settle, then replay (startEnrollment)
+      return;
+    }
     if (!this.isAuthenticatedMethod()) return; // authenticated paths only
     if (this.enrollPinned) return; // one pin per connection
     const fps = this.authFingerprints();
@@ -2615,6 +2716,15 @@ export class SessionController {
       const ok = await verifyEnrollment(peerPub, pairingId, fps.local, fps.remote, 'initiator', sig);
       if (!ok) {
         this.dispatch(devActions.appendLog('enroll: initiator signature INVALID — not pinning'));
+        return;
+      }
+      // FIRST-WRITE-WINS. `putPin` is an upsert and the pairingId comes straight off the peer's
+      // frame, so an authenticated peer could name a pairingId we ALREADY hold and silently replace
+      // the pinned key for that pair — which is precisely the SSH-style key-change hard stop this
+      // pin exists to trigger. Refuse to overwrite; a genuine re-enrollment mints a fresh id.
+      const existing = await this.keystore.getPin(frame.pairingId);
+      if (existing && existing.peerPublicKey !== frame.pubKey) {
+        this.dispatch(devActions.appendLog('enroll: pairingId already pinned to a DIFFERENT key — refusing to overwrite'));
         return;
       }
       this.enrollPinned = true;
@@ -2656,6 +2766,7 @@ export class SessionController {
     this.pairingId = null;
     this.enrollInitiated = false;
     this.enrollPinned = false;
+    this.pendingEnrollFrame = null;
     this.dispatch(devActions.setPinnedPeer(null));
     await this.publishIdentity(); // generate + show a fresh identity
   }
@@ -2706,6 +2817,7 @@ export class SessionController {
     this.confirmFps = null;
     this.peerConfirmTag = null;
     this.confirmSettled = false;
+    this.clearConfirmTimeout();
     this.rendezvous = null;
     this.attemptCount = 0;
     this.attemptResolved = false;
@@ -2713,6 +2825,7 @@ export class SessionController {
     this.pairingId = null;
     this.enrollInitiated = false;
     this.enrollPinned = false;
+    this.pendingEnrollFrame = null;
     this.dispatch(connectionActions.reset());
     this.dispatch(transferActions.reset());
     this.dispatch(devActions.reset());

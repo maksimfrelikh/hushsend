@@ -21,7 +21,10 @@
  * download (Safari/iOS, Firefox → capped). The capability + size guard runs BEFORE accept,
  * so an oversize file on the Blob path is rejected without a single byte crossing.
  *
- * INVARIANT: nothing here runs unless the connection status === 'connected'. This module
+ * INVARIANT: nothing here runs unless the connection is AUTHENTICATED. Both directions are gated in
+ * the core on `SessionController.established` — sendFiles always was, and handleIncomingOffer /
+ * acceptIncoming were added in the 2026-09-12 audit pass, where this line was an assumption rather
+ * than a check and an unauthenticated peer's offer could reach the UI. This module
  * is pure (no React, no store); SessionController drives it and projects events to the UI.
  */
 import { z } from 'zod';
@@ -71,6 +74,10 @@ export function parseControl(value: unknown): ControlMessage | null {
 // ── capability / limits ───────────────────────────────────────────────────────
 /** Dev/test hook: force the in-memory Blob path even on Chromium (`?forceBlob=1` or a global). */
 function forceBlobFallback(): boolean {
+  // DEV-ONLY: shipped live until the 2026-09-12 audit, so `?forceBlob=1` in a crafted link forced a
+  // receiver onto the in-memory path instead of streaming to disk — a tab-memory DoS chosen by
+  // whoever sends you the link.
+  if (!import.meta.env.DEV) return false;
   try {
     if (typeof window === 'undefined') return false;
     if ((window as unknown as { __HUSHSEND_FORCE_BLOB__?: unknown }).__HUSHSEND_FORCE_BLOB__ === true) return true;
@@ -82,6 +89,7 @@ function forceBlobFallback(): boolean {
 
 /** Dev/test hook: override the Blob-path byte cap so the limit branch is testable cheaply. */
 function blobMaxOverride(): number | null {
+  if (!import.meta.env.DEV) return null; // DEV-ONLY — never let a page-global relax the receive cap
   try {
     const v = (window as unknown as { __HUSHSEND_MAX_BYTES__?: unknown }).__HUSHSEND_MAX_BYTES__;
     return typeof v === 'number' && Number.isFinite(v) ? v : null;

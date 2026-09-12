@@ -6,13 +6,23 @@
  * a short string out-of-band (voice). So the SAS must be unforgeable by a server that sits
  * between the two DTLS legs. We follow the ZRTP / Vaudenay SAS pattern:
  *
- *   1. COMMIT–REVEAL of nonces (kills grinding). The responder (B) commits to its nonce
+ *   1. COMMIT–REVEAL of nonces (kills nonce grinding). The responder (B) commits to its nonce
  *      first — commit = SHA-256("hushsend/sas/commit" || nonceB) — before the initiator (A)
  *      reveals nonceA. Only after A reveals does B reveal nonceB; A then checks the reveal
  *      against the commit. Because B is locked to nonceB before learning nonceA (and A reveals
  *      nonceA while nonceB is still hidden behind the commit), NEITHER side can choose its
- *      nonce as a function of the other's to steer the SAS — an attacker gets one ONLINE shot,
- *      not an offline search.
+ *      nonce as a function of the other's to steer the SAS.
+ *   1b. NO REVEAL BEFORE THE FINGERPRINTS ARE PINNED (kills certificate grinding). This half was
+ *      MISSING until the 2026-09-12 audit and the commit-reveal alone did not cover it: the SAS
+ *      has FOUR inputs, and a commitment over only the two nonces leaves the two fingerprints
+ *      free. The nonces ride signaling, so a malicious relay controlled their ordering and could
+ *      finish both commit-reveal exchanges while its own DTLS certificate on each leg was still
+ *      unchosen — then sample ~2^16 certificates per leg and meet in the middle so BOTH humans
+ *      read the SAME phrase. Measured at ~4 s against a 120 s deadline, with the certificate pool
+ *      precomputable offline. `SessionController.maybeRevealSasNonce` now holds every reveal until
+ *      `sas.fps` is set, so by the time the attacker learns a nonce its certificate is already
+ *      inside that side's transcript. Together, 1 and 1b give an attacker one ONLINE shot at
+ *      ~2^-31, not an offline search.
  *   2. SAS = HKDF-SHA512(IKM = lv(nonceA) || lv(nonceB) || lv(fp_min) || lv(fp_max),
  *      salt = ∅, info = "hushsend/sas") where fp_min/fp_max are the two DTLS fingerprints in
  *      canonical (lexicographic) order. Same KDF as the words key-confirmation (HKDF-SHA512 with
@@ -50,6 +60,9 @@ const INDEX_BYTES = 8;
 const COMMIT_DOMAIN = utf8ToBytes('hushsend/sas/commit');
 /** Domain separation for the SAS derivation. */
 const SAS_DOMAIN = utf8ToBytes('hushsend/sas');
+/** Domain separation for the reader/picker split — a DIFFERENT label over the same IKM, so the
+ *  role bit cannot interact with the word derivation. */
+const ROLE_DOMAIN = utf8ToBytes('hushsend/sas/role');
 
 /** Length-value prefix (1-byte-granular LEB128) for an unambiguous transcript — as in keyConfirmation. */
 function lv(data: Uint8Array): Uint8Array {
@@ -133,6 +146,30 @@ function indexFromBytes(buf: Uint8Array, o: number): number {
  * @param localFingerprint  Our own DTLS fingerprint (from our local SDP).
  * @param remoteFingerprint The peer's DTLS fingerprint (parsed from the RECEIVED SDP).
  */
+/**
+ * Which of the two peers READS its phrase aloud, expressed as "the peer holding fp_min reads".
+ *
+ * Derived from the SAME material as the SAS itself (both nonces + both fingerprints), under a
+ * separate HKDF label. That is the whole point: the split used to come from the readable signaling
+ * ids, which the UNTRUSTED SERVER assigns — so the server could hand both peers the "smaller" id
+ * and make BOTH of them the blind picker, leaving nobody to read and degrading the ceremony to two
+ * independent 1-in-3 guesses. Here the bit depends on the revealed nonces, which are revealed only
+ * AFTER the fingerprints are pinned (see SessionController.maybeRevealSasNonce), so a MITM choosing
+ * its certificate cannot steer it either — it is fixed before the attacker learns the inputs.
+ *
+ * Both peers compute the identical bit from identical material; each then compares it against
+ * whether its OWN fingerprint is fp_min, so the two roles are always opposite. See sasRole.ts.
+ */
+export function sasReaderIsFpMin(
+  nonceInitiator: Uint8Array,
+  nonceResponder: Uint8Array,
+  localFingerprint: string,
+  remoteFingerprint: string,
+): boolean {
+  const ikm = sasIkm(nonceInitiator, nonceResponder, localFingerprint, remoteFingerprint);
+  return (hkdf(sha512, ikm, undefined, ROLE_DOMAIN, 1)[0] & 1) === 1;
+}
+
 export function computeSasWords(
   nonceInitiator: Uint8Array,
   nonceResponder: Uint8Array,

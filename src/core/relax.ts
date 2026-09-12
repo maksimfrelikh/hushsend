@@ -45,6 +45,39 @@ export function shouldDropCandidate(
   return filtering && isRelayCandidate(candidate);
 }
 
+/**
+ * Strip `typ relay` candidate lines out of an inbound SDP, returning the cleaned SDP and the
+ * endpoints removed.
+ *
+ * `shouldDropCandidate` only ever sees TRICKLED candidates — the ones that arrive as their own
+ * signaling frames and pass through `addIce`. Candidates embedded in the SDP itself (non-trickle,
+ * and anything a malicious relay chooses to inline) go straight to `setRemoteDescription` and are
+ * added by the ICE agent with no filter in between. Until the 2026-09-12 audit that meant a
+ * Max-privacy client would send STUN connectivity checks to a TURN relay — leaking its IP to the
+ * very party the strict model exists to keep away — even though the channel-open gate would later
+ * refuse the path. Removing the lines here closes the leak; recording their endpoints feeds the
+ * same peer-reflexive check that `addIce` feeds, so a relayed address learned as `prflx` is still
+ * refused.
+ *
+ * Only the candidate attribute lines go; everything else (m-lines, fingerprints, ICE credentials)
+ * is untouched, so a mixed Max↔Reliable pair still has its host/srflx candidates to work with.
+ */
+export function stripRelayCandidates(sdp: string): { sdp: string; endpoints: string[] } {
+  if (!/\btyp\s+relay\b/i.test(sdp)) return { sdp, endpoints: [] };
+  const endpoints: string[] = [];
+  const kept: string[] = [];
+  for (const line of sdp.split(/\r?\n/)) {
+    if (/^a=candidate:/i.test(line) && /\btyp\s+relay\b/i.test(line)) {
+      const endpoint = relayCandidateEndpoint({ candidate: line });
+      if (endpoint) endpoints.push(endpoint);
+      continue; // drop the line
+    }
+    kept.push(line);
+  }
+  // Preserve the original line ending; SDP is CRLF by spec but engines emit both.
+  return { sdp: kept.join(sdp.includes('\r\n') ? '\r\n' : '\n'), endpoints };
+}
+
 // ── mechanism 3: verify the path we actually got ──────────────────────────────
 
 /** A remote ICE candidate as reported by `getStats()` — only the fields we judge on. Firefox has

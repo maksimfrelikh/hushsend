@@ -47,10 +47,19 @@ Pinned specifics (ssh-verified 2026-09-12):
 | Server env | `HOST=127.0.0.1` · `PORT=8080` · **`TRUST_PROXY=1`** · `TURN_URLS=turn:turn.hushsend.frelikh.dev:3478` · `TURN_CRED_TTL_S=3600` · `FILETRANSFER_MAX_PEERS=8` · `IP_RL_MAX=60` |
 | DNS | `hushsend.frelikh.dev` → the box · `turn.hushsend.frelikh.dev` → the same box (coturn) |
 
-- **HTTP/2 is currently OFF on this vhost** — the deployed config uses a plain `listen 443 ssl;`. The
-  old template caveat (`http2 on;` is nginx ≥1.25.1, and the first host ran 1.24, so it was rewritten
-  to `listen … ssl http2;`) **no longer applies here**: nginx is 1.28, both forms work. Turning HTTP/2
-  on is a free win, not a fix for anything.
+- **HTTP/2 is ON** — corrected 2026-09-12. The earlier note here said it was off, read off the plain
+  `listen 443 ssl;` line while missing the standalone `http2 on;` directive on the next line; `curl`
+  against the live host negotiates HTTP/2. (The old template caveat — `http2 on;` needs nginx ≥1.25.1
+  and the first host ran 1.24 — no longer applies: nginx is 1.28 and both forms work.)
+- **Security headers do NOT reach `/assets/` or `.wasm`.** Verified 2026-09-12: the HTML carries all
+  five (CSP, HSTS, nosniff, Referrer-Policy, X-Frame-Options), the JS bundle carries only
+  `cache-control`. nginx applies inherited `add_header` directives only when the current level defines
+  none, and both of those locations define their own `add_header Cache-Control`. Low impact — the
+  DOCUMENT's CSP is what governs script execution and it is intact — but `nosniff` is lost there and
+  the next server-level header anyone adds will vanish the same way. See BACKLOG § Ops.
+- **`/ws` and `/` use nginx's default `combined` access log**, which writes the client IP, the full
+  User-Agent and the rendezvous code for every connection. That works against the coarse-device-label
+  design; `access_log off;` (or a stripped `log_format`) on both locations closes it. See BACKLOG § Ops.
 - **Ops source of truth for the box itself** — network, firewall, the other services sharing it,
   secrets, deploy history — lives OUTSIDE this repo, in the owner's `laptop-server/` notes. This file
   covers only what hushsend needs.

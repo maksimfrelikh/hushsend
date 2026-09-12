@@ -133,8 +133,9 @@ peers rendezvous + authenticate.
 `this.role` (the transport/crypto initiator|responder) is fixed **PER-PAIRING from the two readable
 ids** — the lexicographically **smaller id is the `initiator`**, the larger the `responder`
 (`src/core/pairingRole.ts` `pairingRoleFor`, unit-tested in `pairingRole.test.ts`) — **NOT** from
-create/join. This is the SAME id ordering as the SAS reader/picker split (`sasRoleFor`: smaller id =
-reader), so on any pair the initiator is also the reader. **Why:** the room is a mesh lobby, so a 1:1
+create/join. **Since the 2026-09-12 audit this is the TRANSPORT/crypto role only** — the SAS
+reader/picker split no longer shares it (see below: it comes from the SAS material, because the ids
+come from the untrusted server). **Why:** the room is a mesh lobby, so a 1:1
 pair can be creator↔joiner OR joiner↔joiner; under the old "creator = initiator" rule two joiners were
 **both `responder`** → nobody sent the WebRTC offer and the SAS commit-reveal (responder commits
 first) deadlocked. Fixing the role from the ids guarantees exactly one initiator + one responder for
@@ -278,6 +279,16 @@ nonces:
   the right primitive for a binding commitment). Then render SAS as **3 words from EFF short #2**
   (≈31 bits, readable aloud); each word index is a bias-free 8-byte reduction of the HKDF output.
   Both sides must derive the same triple.
+- **NO NONCE REVEAL BEFORE THE FINGERPRINTS ARE PINNED** (`SessionController.maybeRevealSasNonce`) —
+  **added 2026-09-12, and it is load-bearing.** The commitment covers the two NONCES; the IKM above
+  has FOUR inputs. The fingerprints used to be free at reveal time, and the nonces ride SIGNALING, so
+  an untrusted relay controlling delivery order could finish both commit-reveal exchanges while its
+  own certificate on each leg was still unchosen — then grind ~2^16 certificates per leg, meet in the
+  middle, and make BOTH humans read the SAME phrase. Reproduced against `computeSasWords` in ~4 s,
+  against a 120 s deadline, with the certificate pool precomputable offline: a silent, complete MITM
+  of the room method that also pinned the attacker's identity key via the enrollment that follows.
+  Every reveal is now held until `sas.fps` is set, so the attacker's certificate is inside our
+  transcript before it learns our nonce. Regression: `SessionController.auditFixes.test.ts` §1.
 - **Exchange over DataChannel**: each side sends `{kind:'sas-confirm', ok: <bool>}` after the
   human either confirms (both SAS match) or denies (mismatch). Both must confirm → `connected`;
   any deny/timeout/abort → `failed`. This is not a cryptographic boundary (SAS already
@@ -299,20 +310,24 @@ nonces:
   phrase (the reader confirms its peer found it). Entropy is preserved (full phrase vs full phrase);
   the decoys are pure UI. The decoy build + pick scoring is isolated in `sasOptions.ts` and
   unit-tested (`sasOptions.test.ts`).
-  - **SAS role is PER-PAIRING, by readable-id order (NOT create/join)**: since the room is a mesh
-    lobby, a pair can be creator↔joiner OR joiner↔joiner — "creator reads" would make two joiners both
-    pickers (no reader). Instead each 1:1 pair fixes the role from the two readable ids: the
-    lexicographically **smaller id is the reader**, the other the picker (`src/core/sasRole.ts`
-    `sasRoleFor`, unit-tested in `sasRole.test.ts`). Both peers compute it identically (ids are unique
-    in a room) → opposite roles, for ANY pair. The core computes it at pairing start (both ids known)
-    and projects it as `connection.sasRole`; `SasScreen` reads it. The readable id is a LABEL (not
-    identity) used ONLY to split the asymmetric UI roles — the SAS crypto is what authenticates. **Fail
-    closed**: if the role is unresolved (`null` — a missing id), `SasScreen` renders the "restart
-    verification" screen, NEVER a functional blind picker (this closes the BACKLOG fail-closed item).
-    The reader/picker split is a UI-only signal, but it shares the SAME id ordering as the
-    transport/crypto role (`sas.role`, see **Per-pairing role** above): the smaller id is both the
-    initiator (reveals after the commit) AND the reader. So reader↔initiator and picker↔responder line
-    up on every pair, by construction.
+  - **SAS role is PER-PAIRING, from the SAS MATERIAL (was: readable-id order) — changed 2026-09-12.**
+    Since the room is a mesh lobby, a pair can be creator↔joiner OR joiner↔joiner, so "creator reads"
+    would make two joiners both pickers (no reader). The split used to come from the two readable ids
+    (smaller id reads). **The audit broke that:** the ids are assigned by the UNTRUSTED SERVER,
+    independently to each peer, so a malicious server could tell BOTH peers they held the smaller id
+    → both blind pickers, nobody reads, and the ceremony degrades from ~2^-31 to two humans each
+    guessing 1-in-3. (The mirror case, both readers, is caught by the humans hearing two different
+    phrases; both-pickers is silent.) The split is now `sasReaderIsFpMin` (`crypto/sas.ts`): one HKDF
+    bit over the SAME IKM as the words — both nonces + both fingerprints — under its own
+    `hushsend/sas/role` label, turned into our own role by `sasRoleFrom` (`src/core/sasRole.ts`,
+    unit-tested in `sasRole.test.ts`). Each peer asks whether its OWN fingerprint is fp_min and
+    compares that to the bit, so the two roles are always opposite. The server cannot choose it (no id
+    is an input) and a MITM cannot steer it either: the nonces are revealed only AFTER the
+    fingerprints are pinned, so the bit is decided after the attacker has committed to its
+    certificate. Computed in `trySasReady` — the first moment both nonces and both fingerprints exist
+    — and projected as `connection.sasRole`; `SasScreen` reads it. **Fail closed**: an unresolved role
+    (`null` — missing/degenerate fingerprints) renders the "restart verification" screen, NEVER a
+    functional blind picker. Note the consequence: reader↔initiator no longer line up, by design.
 - **Timeouts**: one reused timer bounds the coordination phases, default **120000 ms** (~2 min).
   It arms at pairing-start (`beginPairing`) to bound the pre-SAS pairing window (peer sent commit but
   withheld its nonce → no longer hangs), then re-arms at SAS-display to bound the comparison + confirm
@@ -418,7 +433,18 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
   unconditionally (Ed25519 is RFC 8032, signature format is canonical).
 - **Identity enrollment (TOFU, done)**: runs ONLY after `connected` — i.e. over the already
   SAS/words-authenticated channel, where the MITM is already defeated, so exchanging public keys
-  is trustworthy (this is the trust-on-first-use moment). It is an action on `connected`, NOT an
+  is trustworthy (this is the trust-on-first-use moment). **Both directions are gated on
+  `this.established`, and that gate is new (2026-09-12).** It used to hold only for the SEND path:
+  the RECEIVE path (`onEnrollFrame`) checked `isAuthenticatedMethod()` — a check on the METHOD, true
+  from the first moment of every real session — so any peer that reached an open DataChannel could
+  send `enroll-init`, have its key verified against ITSELF (pure TOFU), written into the keystore as
+  a pin, and receive our long-term identity key in the ack: a planted "known device" that later
+  reconnects with no SAS and no human step, plus the strongest cross-session tracker in the system
+  handed to a stranger. A frame that arrives in the short window before WE settle is HELD
+  (`pendingEnrollFrame`) and replayed by `startEnrollment`, so an honest early arrival is not lost.
+  A `pairingId` we already hold under a DIFFERENT key is refused rather than overwritten
+  (first-write-wins) — an upsert there would silently erase the key-change hard stop.
+  Regression: `SessionController.auditFixes.test.ts` §3. It is an action on `connected`, NOT an
   FSM state, and does NOT gate `connected` or transfer; a bad enrollment signature only skips the
   pin + warns, never tears down the human/PAKE-authenticated session. The initiator (the
   **per-pairing role** — the smaller readable id, NOT necessarily the creator) generates a
@@ -1073,6 +1099,24 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   remaining: in-browser P2P/SAS/transfer on two devices + cross-network TURN relay (6e real-device,
   post-deploy) — the pass is planned case-by-case in **TESTPLAN.md** — plus nice-to-haves, tracked in
   **BACKLOG.md**.
+- 🔒 **SECOND audit pass, 2026-09-12 — fully malicious server. Three complete breaks found and
+  FIXED**, plus a persistent pre-auth hole: (1) SAS **certificate grinding** — the commit covered only
+  the nonces, so a relay could grind its own certificates after both nonce exchanges and make both
+  humans read the SAME phrase (reproduced in 4.25 s); fixed by holding every nonce reveal until the
+  fingerprints are pinned (`maybeRevealSasNonce`). (2) **Server-chosen roles** — both `pairingRoleFor`
+  and `sasRoleFor` ordered server-assigned ids that appear in no transcript, so the server could make
+  both peers the blind picker; the SAS split now comes from the SAS material (`sasReaderIsFpMin`).
+  (3) **Re-entrant `welcome`** flipped `this.role` mid-handshake, turning key-confirmation's role label
+  into a tag-reflection oracle (words without the words, link/qr without S); `onWelcome` is now
+  once-only. (4) **Enrollment ran pre-auth**, planting pins and leaking the long-term identity key;
+  now gated on `established` with a held-and-replayed frame and first-write-wins pinning. Also: three
+  DEV knobs that shipped live are gated, the RECEIVE side of the no-bytes gate is closed, SDP-embedded
+  relay candidates are stripped, renegotiation after channel-open is refused, the step-1
+  unauthenticated path is deleted, protocol strings are length-bounded, the 1:1 confirm path got its
+  own liveness deadline, and the SAS refusals carry the same weight as the confirms. Regressions in
+  `SessionController.auditFixes.test.ts` + `sasRole.test.ts` + `relax.test.ts`. Full write-up and the
+  two items left open (path attestation; blinded `pairingId`) in **BACKLOG.md § Security audit /
+  Second pass**.
 - 🔍 **Internal security-audit pass done 2026-09-12** (reasoning + code review, no devices): the
   reconnect create/join role and the `peerLeftAbortsPairing` narrowing both hold (with sharper
   arguments now recorded); the **Max-privacy strict relay claim did NOT** — a peer-reflexive candidate

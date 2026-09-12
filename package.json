@@ -22,7 +22,7 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-redux": "^9.2.0",
-    "stark-ui-kit": "github:maksimfrelikh/stark-ui-kit",
+    "stark-ui-kit": "github:maksimfrelikh/stark-ui-kit#b23a2e53e10efa1569b2c21fdd1ed767e169ff30",
     "zod": "^3.24.0",
     "zxing-wasm": "3.1.0"
   },

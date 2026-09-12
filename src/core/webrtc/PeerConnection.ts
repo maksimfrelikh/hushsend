@@ -4,6 +4,7 @@ import {
   relayCandidateEndpoint,
   selectedRemoteCandidate,
   shouldDropCandidate,
+  stripRelayCandidates,
   type StatsEntry,
 } from '../relax';
 
@@ -194,13 +195,23 @@ export class PeerConnection {
     const payload = parsed.data;
 
     if (payload.kind === 'offer') {
-      await pc.setRemoteDescription(payload.description as RTCSessionDescriptionInit);
+      // ONE offer per connection. hushsend never renegotiates (`createOffer` is called exactly once),
+      // so a second inbound offer is not a feature we have — but this handler used to apply ANY offer
+      // at ANY time with no state check, which handed the untrusted server a renegotiation primitive:
+      // inject a re-offer with fresh ICE credentials and the path moves, at a moment the attacker
+      // picks, AFTER the channel-open relay check has already run and will not run again. (2026-09-12
+      // audit.) Refuse once the transport is up.
+      if (this.channel && this.channel.readyState !== 'connecting') {
+        if (import.meta.env.DEV) console.warn('[webrtc] refused a re-offer after the channel came up');
+        return;
+      }
+      await pc.setRemoteDescription(this.sanitizeDescription(payload.description));
       await this.flushIce();
       await pc.setLocalDescription(await pc.createAnswer());
       const d = pc.localDescription;
       if (d) this.handlers.onSignal?.({ kind: 'answer', description: { type: d.type, sdp: d.sdp } });
     } else if (payload.kind === 'answer') {
-      await pc.setRemoteDescription(payload.description as RTCSessionDescriptionInit);
+      await pc.setRemoteDescription(this.sanitizeDescription(payload.description));
       await this.flushIce();
     } else {
       const candidate = payload.candidate as RTCIceCandidateInit | null;
@@ -278,6 +289,23 @@ export class PeerConnection {
       const c = this.pendingIce.shift();
       if (c) await this.addIce(pc, c);
     }
+  }
+
+  /**
+   * Max-privacy only: remove `typ relay` candidate lines carried INSIDE an inbound SDP, recording
+   * their endpoints so the selected-path check still recognises the same address if ICE learns it as
+   * peer-reflexive. `shouldDropCandidate` covers trickled candidates; this covers the ones that never
+   * pass through it. Off (Reliable) the description is handed through untouched.
+   */
+  private sanitizeDescription(description: unknown): RTCSessionDescriptionInit {
+    const d = description as RTCSessionDescriptionInit;
+    if (!this.filterRelay || typeof d?.sdp !== 'string') return d;
+    const { sdp, endpoints } = stripRelayCandidates(d.sdp);
+    for (const endpoint of endpoints) this.droppedRelayEndpoints.add(endpoint);
+    if (endpoints.length && import.meta.env.DEV) {
+      console.debug(`[webrtc] stripped ${endpoints.length} relay candidate(s) from inbound SDP (Max-privacy)`);
+    }
+    return { ...d, sdp };
   }
 
   private async addIce(pc: RTCPeerConnection, candidate: RTCIceCandidateInit): Promise<void> {

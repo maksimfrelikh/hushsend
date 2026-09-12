@@ -924,3 +924,12 @@ button.hs-device:hover:not(:disabled) {
   align-items: center;
   gap: 16px;
 }
+
+/* SAS reader warning — the one instruction that decides whether a human hands a MITM the session,
+   so it is not allowed to read as fine print. */
+.hs-sas__warn {
+  border-left: 2px solid var(--fg);
+  padding-left: var(--s-3, 12px);
+  text-align: left;
+  margin-block: var(--s-4, 16px);
+}

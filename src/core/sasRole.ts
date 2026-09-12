@@ -1,26 +1,42 @@
 /**
- * Per-pairing SAS reader/picker role, derived PURELY from the two readable signaling ids.
+ * Per-pairing SAS reader/picker role.
  *
  * The room method is a mesh LOBBY: several peers can be in the same 4-digit room and any pair may
  * raise a 1:1 channel — INCLUDING joiner↔joiner. The SAS screen is asymmetric (one side READS its
- * phrase aloud, the other is the BLIND PICKER), so the role can no longer be "creator = reader /
- * joiner = picker" — two joiners would both be pickers and the comparison would degenerate (nobody
- * reads). Instead each 1:1 pair fixes the role from the two ids: the lexicographically SMALLER id is
- * the reader, the other the picker. Both peers compute this identically (ids are unique within a
- * room) → the roles are always opposite, for ANY pair.
+ * phrase aloud, the other is the BLIND PICKER), so the role cannot be "creator = reader / joiner =
+ * picker" — two joiners would both be pickers and the comparison would degenerate (nobody reads).
  *
- * `null` means the role cannot be determined (an id is missing, or — impossibly — the two ids are
- * equal). The UI must FAIL CLOSED on null: render the "restart verification" screen, NEVER a
- * functional blind picker (a picker with no reader could false-accept a MITM ~1/9). This closes the
- * BACKLOG "SAS fail-closed on unset role" item.
+ * It used to be derived from the two readable signaling ids (smaller id reads). **That was a hole,
+ * found in the 2026-09-12 audit:** the ids are assigned by the UNTRUSTED SERVER, independently to
+ * each peer, so a malicious server could tell BOTH peers they held the smaller id and make both the
+ * blind picker. Nobody reads, and two humans each guessing 1-in-3 is a far cheaper MITM than the
+ * ~2^-31 the SAS is supposed to cost. The mirror case (both readers) is caught by the humans hearing
+ * two different phrases, but both-pickers is silent.
  *
- * The readable id is a LABEL, not identity — it authenticates nothing on its own. It is used here
- * ONLY to deterministically split the asymmetric UI roles; the SAS crypto (sas.ts) is unchanged and
- * is what actually defeats a MITM.
+ * So the split is now derived from the SAS material itself — `sasReaderIsFpMin` in crypto/sas.ts,
+ * an HKDF bit over both nonces and both DTLS fingerprints under its own label. The server cannot
+ * choose it (it is not a function of the ids), and a MITM cannot steer it either: the nonces are
+ * revealed only after the fingerprints are pinned, so the bit is decided after the attacker has
+ * already committed to its certificate.
+ *
+ * `null` means the role cannot be determined (a fingerprint is missing, or — impossibly, since a
+ * certificate is fresh per PeerConnection — the two are equal). The UI must FAIL CLOSED on null:
+ * render the "restart verification" screen, NEVER a functional blind picker.
  */
 export type SasUiRole = 'reader' | 'picker';
 
-export function sasRoleFor(selfId: string | null | undefined, peerId: string | null | undefined): SasUiRole | null {
-  if (!selfId || !peerId || selfId === peerId) return null;
-  return selfId < peerId ? 'reader' : 'picker';
+/**
+ * Resolve OUR role from the two DTLS fingerprints plus the derived "fp_min reads" bit.
+ *
+ * Both peers hold the same unordered fingerprint pair and the same bit, and each asks whether its
+ * OWN fingerprint is the lexicographically smaller one — so exactly one side resolves to `reader`.
+ */
+export function sasRoleFrom(
+  localFingerprint: string | null | undefined,
+  remoteFingerprint: string | null | undefined,
+  readerIsFpMin: boolean,
+): SasUiRole | null {
+  if (!localFingerprint || !remoteFingerprint || localFingerprint === remoteFingerprint) return null;
+  const localIsMin = localFingerprint < remoteFingerprint;
+  return localIsMin === readerIsFpMin ? 'reader' : 'picker';
 }

@@ -9,7 +9,12 @@ the two humans, not by an account.
 ## The threat model in one paragraph
 
 The signaling server is **untrusted**. It does rendezvous only: it relays opaque SDP/ICE between two
-browsers and never sees a file byte, a secret word, or a link secret. Confidentiality and
+browsers and never sees a file byte, a secret word, or a link secret. Two limits stated up front,
+because they bound everything below. First, **the app is delivered by the same origin** that runs the
+signaling server: an operator who tampers with the bundle defeats any protocol, so "untrusted server"
+means untrusted *as a relay*, not untrusted as a publisher — a pre-delivered client (extension,
+desktop build, verified reproducible bundle) is what would close that. Second, a hostile server can
+put itself on the network **path**; it still reads nothing, but it learns who talks to whom. Confidentiality and
 authenticity are established **client-side** — a PAKE (CPace) or a short authentication string
 compared by the two humans, MAC'd over the negotiated **DTLS fingerprints** (channel binding), with
 TOFU key pinning for later reconnects. A server that lies, a relay that re-terminates DTLS, or a
@@ -44,23 +49,30 @@ pairing is an SSH-style hard stop, never a dismissable toast.
 - **Reliable** — adds a TURN relay (short-lived HMAC credentials minted per session; the shared
   secret never leaves the server) so a pair behind hostile NATs still connects.
 
-> **Honest caveat.** An internal audit (2026-09-12) found that filtering the relay candidates a peer
-> *signals* was not enough: ICE can also **learn** a peer's relay address as a peer-reflexive
-> candidate, so in a **mixed** pair (Max ↔ Reliable) with the direct path down, a relayed path could
-> complete. Confidentiality was never affected (DTLS + PAKE/SAS untouched) — the privacy promise was.
-> **Fixed the same day:** the path actually selected is re-checked against `getStats()` before the
-> DataChannel opens, and a relayed one fails closed with the switch-to-Reliable hint. Two things stay
-> open and are tracked in [BACKLOG.md](BACKLOG.md) § Security audit / Findings: the check runs at
-> channel-open only (a mid-session re-nomination onto a relay is not re-checked), and the fix is still
-> to be confirmed on real devices ([TESTPLAN.md](TESTPLAN.md) § C4).
+> **Honest caveat — what Max privacy does and does not promise.** Confidentiality against the network
+> path is solid: DTLS is end-to-end between the two real peers and the fingerprint binding defeats any
+> MITM that terminates it, so nothing on the path reads a byte. The *path* promise is weaker than the
+> wording used to suggest. An untrusted signaling server relays the SDP, which carries the ICE
+> credentials — so it can always answer connectivity checks and attract the path to itself, and a
+> candidate filter cannot tell its `typ host` from a real peer's. Relay candidates are dropped and the
+> selected path is re-checked at channel-open (including ones hidden inside the SDP), which stops an
+> honest peer's relay; it does not stop a hostile server from being on the path and seeing both IPs
+> and traffic volume. Making that verifiable — attesting the selected path over the already
+> authenticated DataChannel — is the open item in [BACKLOG.md](BACKLOG.md) § Security audit.
 
 ## Status
 
 **Feature-complete and deployed.** All four methods, reconnect, the mesh lobby, TURN, i18n (EN/RU),
-light/dark, and the deployment are built and live. **206 vitest tests** (181 unit + 25 integration)
+light/dark, and the deployment are built and live. **219 vitest tests** (194 unit + 25 integration)
 and a Playwright e2e suite — **32 per engine** across chromium / firefox / webkit, plus a phone
 profile and 5 cross-engine pairs — cover the protocol paths. Counts verified 2026-09-12; refresh them
 here whenever the suite grows.
+
+A second internal audit on **2026-09-12** (modelling a fully malicious signaling server, not just a
+passive one) found and fixed three complete breaks — SAS certificate grinding, server-chosen pairing
+roles, and a re-entrant `welcome` that flipped the key-confirmation role mid-handshake — plus a
+pre-authentication enrollment hole. All are closed with regression tests; the findings and what
+remains are in [BACKLOG.md](BACKLOG.md) § Security audit.
 
 Before a public launch, two things remain and neither is code:
 

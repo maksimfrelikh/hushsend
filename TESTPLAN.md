@@ -14,7 +14,17 @@ what remains is **behaviour on real browsers, real networks, and real NAT**.
 
 **The production build has no in-app diagnostics.** `Diagnostics` is `import.meta.env.DEV`-gated and
 the DEV query knobs (`?forceIceFail=1`, `?stallSasNonce=1`, `?preSasTimeoutMs=N`,
-`?reconnectTimeoutMs=N`, `?stallReconnect=1`, `__HUSHSEND_*__` globals) are tree-shaken out. So:
+`?reconnectTimeoutMs=N`, `?stallReconnect=1`, `?maxAttempts=N`, `?forceBlob=1`, `__HUSHSEND_*__`
+globals) are tree-shaken out. **Verify this rather than assume it** — the 2026-09-12 audit found
+three of them (`maxAttempts`, `forceBlob`, `__HUSHSEND_MAX_BYTES__`) shipping live in the deployed
+bundle because they lacked the gate their siblings had, and this very paragraph asserted otherwise.
+The check is one command against the SERVED bundle, not the source:
+
+```bash
+grep -roE 'maxAttempts|forceBlob|__HUSHSEND_[A-Z_]+__|forceIceFail|stall[A-Z][a-zA-Z]*' /var/www/hushsend/dist/assets/ | sort -u
+```
+
+It must print nothing. So:
 
 - **Failure injection is NOT available on prod** — those paths are covered by e2e. This pass observes
   *real* behaviour only. If a fault path needs driving deliberately, do it against `npm run dev`

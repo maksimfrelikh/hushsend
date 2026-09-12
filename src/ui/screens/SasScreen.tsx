@@ -82,6 +82,8 @@ function ReaderView(): ReactElement {
         {real}
       </p>
 
+      <p className="hs-sub hs-sas__warn">{t('sasReaderWarn')}</p>
+
       <button
         type="button"
         className="hs-btn hs-btn--primary hs-btn--block"
@@ -90,9 +92,12 @@ function ReaderView(): ReactElement {
       >
         {t('sasReaderConfirm')}
       </button>
+      {/* The refusal carries the SAME weight as the confirm. It used to be a faint text link, which
+          made the safe action the quietest element on the screen of a ceremony whose entire purpose
+          is for a human to refuse. (2026-09-12 audit.) */}
       <button
         type="button"
-        className="hs-textlink"
+        className="hs-btn hs-btn--ghost hs-btn--block"
         data-testid="sas-reader-abort"
         onClick={() => session.confirmSas(false)}
       >
@@ -151,7 +156,12 @@ function PickerView(): ReactElement {
       >
         {selected === null ? t('sasPick') : t('sasConfirm')}
       </button>
-      <button type="button" className="hs-textlink" data-testid="sas-nomatch-btn" onClick={() => session.confirmSas(false)}>
+      <button
+        type="button"
+        className="hs-btn hs-btn--ghost hs-btn--block"
+        data-testid="sas-nomatch-btn"
+        onClick={() => session.confirmSas(false)}
+      >
         {t('sasNone')}
       </button>
     </Screen>
