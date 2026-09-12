@@ -53,7 +53,8 @@ the same pass as CLAUDE.md when items land.
     pairs** over a shared lobby socket and **re-pairing on the fly is not a thing**, so once two peers
     raise their 1:1 channel the socket has no further job *for them* — a connected room/SAS pair just
     closes its OWN socket like the 1:1 methods (`closeSignalingAfterConnect` now fires from
-    `trySasSettle`; the room exclusion in its guard was lifted, reconnect stays excluded). The close is a
+    `trySasSettle`; the room exclusion in its guard was lifted — and reconnect's went the same way on
+    2026-09-12, so no method is exempt now). The close is a
     **WS close ONLY** — no room-destroy / leave frame — so the server runs `peers.delete(self)` +
     broadcasts a benign `peer-left` to the remaining members (`signaling-server.js:422-436`): the room
     **survives** (deleted only when empty), and **unrelated pairs are untouched** (their liveness is
@@ -275,7 +276,8 @@ the same pass as CLAUDE.md when items land.
   actual guess is counted by the confirmation-mismatch / channel-close paths; `peer-left` is the sole
   counter only pre-transport, which the gate still catches; SAS has no guess budget at all. Unit:
   `livenessGate.test.ts` (arm/disarm boundary) + `SessionController.sasPeerLeft.test.ts` (SAS branch gate
-  + room per-pair close + reconnect exclusion). e2e: `tests/e2e/ws-close.spec.ts` (link + words —
+  + room per-pair close + reconnect, included since 2026-09-12). e2e: `tests/e2e/ws-close.spec.ts`
+  (link + words + reconnect —
   supersedes the old `words-ttl.spec.ts`), with `room-sas.spec.ts` / `lobby.spec.ts` confirming room/SAS
   + lobby behaviour under the per-pair close. See CLAUDE.md § Signaling WS lifecycle.
 - ✅ **SAS fail-closed on unset role — DONE** (folded into the mesh-lobby fix). The SAS role is no

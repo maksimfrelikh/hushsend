@@ -110,7 +110,7 @@ method used only by the words attempt-cap path).
   `closeSignalingAfterConnect` (reconnect-in-lobby is deferred — see BACKLOG). **Failure paths**
   (`failDirect`, `failLink`, `failSas`, `failReconnect`, words retry) are untouched: the close is gated
   on the `connected` success branch only. Unit: `SessionController.sasPeerLeft.test.ts` (the
-  channel-open race fix + the room per-pair close + the reconnect exclusion). e2e:
+  channel-open race fix + the room per-pair close + reconnect, included since 2026-09-12). e2e:
   `tests/e2e/ws-close.spec.ts` (link + words: connect → socket closes → peer-left doesn't drop P2P /
   count a guess → transfer AFTER close intact); room/SAS + lobby behaviour stays green in
   `room-sas.spec.ts` / `lobby.spec.ts`.
@@ -954,7 +954,8 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   transport is up. Backs the per-pair close-signaling-on-`connected` privacy feature
   (`SessionController.closeSignalingAfterConnect` + `this.channelOpen`) — applied to the `words`,
   `link/qr` AND `room/SAS` `onPeerLeft` branches (`SessionController.sasPeerLeft.test.ts` covers the
-  SAS branch + the room per-pair close + reconnect exclusion) — see **§ Signaling WS lifecycle**.
+  SAS branch + the room per-pair close + reconnect's own close and peer-left gate) — see
+  **§ Signaling WS lifecycle**.
 - ✅ `src/core/` — transport (SignalingClient, PeerConnection), file transfer, SessionController
   orchestration (incl. SAS + post-connect enrollment wiring + the link/qr key-confirmation-over-S
   path, step 5b; **per-pair signaling-socket close on `connected`** — 1:1 methods via

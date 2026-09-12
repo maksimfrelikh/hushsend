@@ -16,8 +16,9 @@ import { connectionActions } from '../store/connectionSlice';
  * channel-open still tears the channel down and is caught by onChannelClose.
  *
  * Part B — a connected room/SAS pair closes its own signaling socket on `established` (in trySasSettle),
- * via the same closeSignalingAfterConnect as the 1:1 methods, now that the room exclusion is lifted
- * (reconnect stays excluded). The close is a WS close ONLY — no room-destroy / leave frame.
+ * via the same closeSignalingAfterConnect as the 1:1 methods, now that the room exclusion is lifted —
+ * and reconnect's too (2026-09-12), so no method is exempt: the tests below cover its close and both
+ * sides of its peer-left gate. The close is a WS close ONLY — no room-destroy / leave frame.
  *
  * Driven deterministically at the SessionController level with a mock PeerConnection (the real one needs
  * RTCPeerConnection, absent under Node) and the controller's private hooks reached through a typed cast.
