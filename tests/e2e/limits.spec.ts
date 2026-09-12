@@ -72,6 +72,25 @@ interface Rung {
   detail: string;
 }
 
+/** First line of an error, trimmed — enough to identify it, short enough for a table row. */
+function firstLine(err: unknown): string {
+  return (err instanceof Error ? err.message : String(err)).split('\n')[0].trim().slice(0, 120);
+}
+
+/**
+ * Run one phase with a NAME attached to any failure. Without this the ladder reports things like
+ * "expect(locator).toHaveText(expected) failed", which cannot distinguish "the two tabs never
+ * paired" from "the bytes never arrived" — and those have completely different causes (ICE/mDNS vs
+ * an actual engine size limit). The label is the whole point of the table.
+ */
+async function step<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    throw new Error(`${label} — ${firstLine(err)}`);
+  }
+}
+
 /** One rung: pair two tabs, push an `mb`-sized file, verify the received bytes. Throws on failure. */
 async function runRung(context: BrowserContext, mb: number): Promise<number> {
   const src = join(TMP, `src-${mb}.bin`);
@@ -84,16 +103,23 @@ async function runRung(context: BrowserContext, mb: number): Promise<number> {
   try {
     sender = await context.newPage();
     await sender.goto('/?forceBlob=1');
-    const link = await createLink(sender, 'link');
+    const link = await step('could not create the invite', () => createLink(sender!, 'link'));
 
     receiver = await context.newPage();
     await receiver.goto(`/?forceBlob=1${fragmentOf(link)}`);
-    await expect(sender.getByTestId('status')).toHaveText('connected', { timeout: 90_000 });
-    await expect(receiver.getByTestId('status')).toHaveText('connected', { timeout: 90_000 });
+    // Pairing has nothing to do with SIZE — if it fails, the ladder is measuring the stand, not the
+    // engine's limit (WebKit with no mDNS responder and no STUN is the usual culprit: it only offers
+    // `<uuid>.local` host candidates. Pass E2E_STUN_URLS).
+    await step('never reached connected — pairing/ICE, not a size limit', async () => {
+      await expect(sender!.getByTestId('status')).toHaveText('connected', { timeout: 90_000 });
+      await expect(receiver!.getByTestId('status')).toHaveText('connected', { timeout: 90_000 });
+    });
 
     await sender.getByTestId('file-input').setInputFiles(src);
     await sender.getByTestId('send-btn').click();
-    await expect(receiver.getByTestId('transfer-phase')).toContainText('offered', { timeout: 60_000 });
+    await step('the offer never reached the receiver', () =>
+      expect(receiver!.getByTestId('transfer-phase')).toContainText('offered', { timeout: 60_000 }),
+    );
 
     // A big transfer needs a window proportional to its size, not a fixed one.
     const windowMs = Math.max(120_000, mb * 4_000);
@@ -103,13 +129,19 @@ async function runRung(context: BrowserContext, mb: number): Promise<number> {
     // for comparing engines.
     const wireStart = Date.now();
     await receiver.getByTestId('accept-btn').click();
-    const download = await downloadPromise;
-    await expect(sender.getByTestId('transfer-phase')).toContainText('done', { timeout: windowMs });
+    // THIS is the rung's real question: does the engine survive holding and delivering `mb` MB?
+    const download = await step('transfer never completed (engine limit / OOM / stall)', async () => {
+      const d = await downloadPromise;
+      await expect(sender!.getByTestId('transfer-phase')).toContainText('done', { timeout: windowMs });
+      return d;
+    });
     wireSeconds = (Date.now() - wireStart) / 1000;
-    await download.saveAs(out);
+    await step('the download could not be saved', () => download.saveAs(out));
 
-    expect(statSync(out).size, 'received byte count').toBe(mb * 1024 * 1024);
-    expect(await sha256File(out), 'received bytes match what was sent').toBe(srcHash);
+    await step('the received bytes were wrong', async () => {
+      expect(statSync(out).size, 'received byte count').toBe(mb * 1024 * 1024);
+      expect(await sha256File(out), 'received bytes match what was sent').toBe(srcHash);
+    });
     return wireSeconds;
   } finally {
     await receiver?.close();
@@ -145,7 +177,7 @@ test.describe('engine size-limit ladder', () => {
           const mbps = (mb / seconds).toFixed(1);
           rungs.push({ mb, ok: true, seconds, detail: `${mbps} MB/s` });
         } catch (err) {
-          rungs.push({ mb, ok: false, seconds: 0, detail: (err as Error).message.split('\n')[0] });
+          rungs.push({ mb, ok: false, seconds: 0, detail: firstLine(err) });
           break; // the ceiling is found; bigger rungs would only cost RAM
         }
       }
