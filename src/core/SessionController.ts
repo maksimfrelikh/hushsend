@@ -348,6 +348,23 @@ function forgeReconnectKeyEnabled(): boolean {
  * `forgeReconnectKeyEnabled` (`?forceIceFail=1` / `window.__HUSHSEND_FORCE_ICE_FAIL__`): gated behind
  * `import.meta.env.DEV` so it is dead-code-eliminated from production builds.
  */
+/**
+ * DEV-only: pretend the selected ICE path terminates on a relay, so the Max-privacy channel-open
+ * gate refuses it. Reproducing that for real needs a peer that relays AND a direct path that fails —
+ * a cross-network setup no loopback test can build — yet the branch it drives is the one that keeps
+ * a Max-privacy promise. Tree-shaken in production, like every knob here.
+ */
+function forceRelayPathEnabled(): boolean {
+  if (!import.meta.env.DEV) return false;
+  try {
+    const w = window as unknown as { __HUSHSEND_FORCE_RELAY_PATH__?: unknown };
+    if (w.__HUSHSEND_FORCE_RELAY_PATH__ === true) return true;
+    return new URLSearchParams(window.location.search).get('forceRelayPath') === '1';
+  } catch {
+    return false; // no window (non-browser) — never force
+  }
+}
+
 function forceIceFailEnabled(): boolean {
   if (!import.meta.env.DEV) return false;
   try {
@@ -998,6 +1015,7 @@ export class SessionController {
         // failure then fails terminally (onIceFailed) with a hint to switch to Reliable.
         filterRelay: this.privacyMode === 'max',
         forceIceFail: forceIceFailEnabled(),
+        forceRelayedPath: forceRelayPathEnabled(),
       },
     );
     this.peer.start(initiator);

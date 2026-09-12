@@ -527,8 +527,14 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   so **no byte crosses a relayed path**. Deliberately NOT blanket-rejecting `prflx` (legitimate NAT
   mappings produce it on direct paths), and unavailable/empty stats read as "unknown", never "relay" —
   a missing API must not tear down a working connection. 15 unit tests in `relax.test.ts` cover both
-  pure halves (including the IPv6 and Firefox-`ip` shapes); the e2e suite covers the glue by virtue of
-  every test needing a channel to open under Max-privacy.
+  pure halves (including the IPv6 and Firefox-`ip` shapes). **The REFUSAL branch now has direct e2e
+  coverage too (2026-09-12):** `?forceRelayPath=1` (DEV-only, tree-shaken) stubs the gate's VERDICT and
+  nothing else, so the refusal, teardown and the reason the user sees are all production code —
+  reproducing it for real would need a relaying peer AND a failed direct path, which no loopback test
+  can build. `tests/e2e/relax.spec.ts` asserts the refusing side reaches the terminal `failed` with the
+  switch-to-Reliable hint, that the peer does not hang, and that NO transfer UI ever renders (no byte
+  crossed) — beside a CONTROL case where the same pairing without the knob still authenticates, since
+  a gate that refused everything would pass the first test.
   **Still to confirm on real devices (TESTPLAN § C4):** Max ↔ Reliable with the direct path forced to
   fail — the Max side must now land on `failed` + the hint, and `chrome://webrtc-internals` must show
   no relayed selected pair.

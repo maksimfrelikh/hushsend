@@ -1,5 +1,5 @@
 import { test, expect, type Browser, type Page } from '@playwright/test';
-import { BASE, createWords, pickWords } from './helpers';
+import { BASE, createLink, createWords, fragmentOf, pickWords } from './helpers';
 
 /**
  * E2E for the Max-privacy STRICT model (step 6d).
@@ -50,4 +50,68 @@ test('max-privacy · a direct ICE failure fails terminally with a switch-to-Reli
   // The relay-escalation UI no longer exists (strict model — no consent-gated relay).
   await expect(sender.getByTestId('relax-offer')).toHaveCount(0);
   await expect(sender.getByTestId('relax-accept')).toHaveCount(0);
+});
+
+/**
+ * The REFUSAL branch of the Max-privacy relay gate (audit 2026-09-12).
+ *
+ * Dropping the peer's signalled `typ relay` candidates is not enough on its own: ICE also LEARNS
+ * candidates from incoming connectivity checks, so a peer relaying through TURN can have us pair
+ * with its relayed address as a PEER-REFLEXIVE candidate. The gate therefore verifies the path we
+ * actually got, at channel-open, BEFORE `onOpen` reaches the SessionController — so a relayed path
+ * is refused with no byte crossing it.
+ *
+ * Reproducing that for real needs a relaying peer AND a failed direct path — a cross-network setup
+ * no loopback test can build — so `?forceRelayPath=1` stubs the VERDICT and nothing else: the
+ * refusal, the teardown and the reason the user sees are all the production path.
+ */
+/**
+ * One tab, ONE navigation. Navigating again to the same path+query with only a different #fragment is
+ * a same-document navigation — the page does not reload, so the link-fragment join handler never
+ * re-runs and the joiner silently never joins. Pass the final URL, fragment included.
+ */
+async function openRelayGatedTab(browser: Browser, url: string): Promise<Page> {
+  const context = await browser.newContext({ baseURL: BASE });
+  const page = await context.newPage();
+  await page.goto(`${BASE}${url}`);
+  return page;
+}
+
+test('max-privacy · a relayed path is refused at channel-open — terminal, with the switch-to-Reliable hint', async ({
+  browser,
+}) => {
+  // Only the RECEIVER treats its path as relayed; the sender's gate passes normally. That asymmetry
+  // is deliberate — it is what a mixed-privacy pair looks like when the relay belongs to the peer.
+  const sender = await openRelayGatedTab(browser, '/?forceBlob=1');
+  await expectMaxPrivacy(sender);
+
+  const link = await createLink(sender, 'link');
+  const receiver = await openRelayGatedTab(browser, `/?forceBlob=1&forceRelayPath=1${fragmentOf(link)}`);
+
+  // The refusing side lands in the EXISTING terminal state with the hint that names the way out.
+  await expect(receiver.getByTestId('status')).toHaveText('failed', { timeout: 60_000 });
+  await expect(receiver.getByTestId('direct-fail-hint')).toBeVisible();
+
+  // The other side does not hang waiting for a peer that tore itself down.
+  await expect(sender.getByTestId('status')).toHaveText('failed', { timeout: 60_000 });
+
+  // NOT ONE BYTE crossed: the transfer UI renders only at `connected`, so its absence is structural.
+  for (const page of [sender, receiver]) {
+    await expect(page.getByTestId('file-input')).toHaveCount(0);
+    await expect(page.getByTestId('transfer-phase')).toHaveCount(0);
+  }
+});
+
+test('max-privacy · a NON-relayed path is not refused (the gate does not break honest connections)', async ({
+  browser,
+}) => {
+  // The control for the test above. A gate that refused everything would pass that test too, so the
+  // same pairing without the knob must still reach an authenticated connection.
+  const sender = await openRelayGatedTab(browser, '/?forceBlob=1');
+  const link = await createLink(sender, 'link');
+  const receiver = await openRelayGatedTab(browser, `/?forceBlob=1${fragmentOf(link)}`);
+
+  await expect(sender.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
+  await expect(receiver.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
+  await expect(receiver.getByTestId('auth-state')).toContainText('authenticated');
 });

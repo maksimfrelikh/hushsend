@@ -58,6 +58,13 @@ export interface PeerConfig {
    * `onIceFailure` decision as a real failure. Set by SessionController from the `?forceIceFail=1` knob.
    */
   forceIceFail?: boolean;
+  /**
+   * DEV/TEST only: make the channel-open gate treat the SELECTED path as relayed, driving the
+   * Max-privacy refusal without a real TURN relay and a real NAT failure to force one. The refusal
+   * that follows is the production one — same `onIceFailure` → `onIceFailed` → `failDirect` path —
+   * only the verdict is stubbed. Set by SessionController from `?forceRelayPath=1`.
+   */
+  forceRelayedPath?: boolean;
 }
 
 // Inbound signal payloads come from an UNTRUSTED relay — validate before touching the PC.
@@ -94,6 +101,8 @@ export class PeerConnection {
   private readonly filterRelay: boolean;
   /** DEV/TEST: simulate an ICE failure + suppress our own candidates so no real path forms. */
   private readonly simulateIceFail: boolean;
+  /** DEV/TEST: answer the channel-open gate as if the selected path terminated on a relay. */
+  private readonly simulateRelayedPath: boolean;
   /** one-shot guard so the Max-privacy ICE-failure is reported (onIceFailed) at most once. */
   private iceFailureReported = false;
   /** Endpoints (`address|port`) of every relay candidate the filter dropped. ICE can still LEARN one
@@ -109,6 +118,7 @@ export class PeerConnection {
   ) {
     this.filterRelay = config.filterRelay ?? false;
     this.simulateIceFail = config.forceIceFail ?? false;
+    this.simulateRelayedPath = config.forceRelayedPath ?? false;
   }
 
   /**
@@ -317,6 +327,9 @@ export class PeerConnection {
    *  dropped as one (the peer-reflexive bypass)? False when stats are unavailable or nothing is
    *  selected yet: absence of evidence, not evidence of a relay. */
   private async selectedPathIsRelayed(): Promise<boolean> {
+    // DEV/TEST: stub the VERDICT only. Everything after it — the refusal, the teardown, the reason
+    // the user sees — is the production path, which is the point of driving it from a test at all.
+    if (this.simulateRelayedPath) return true;
     const pc = this.pc;
     if (!pc) return false;
     let entries: StatsEntry[];
