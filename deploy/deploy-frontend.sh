@@ -46,16 +46,36 @@ VITE_STUN_URLS="$VITE_STUN_URLS" \
 
 [ -f dist/index.html ] || { echo "✗ dist/index.html missing — build produced nothing, aborting"; exit 1; }
 
-# 4. Publish to the nginx root (root-owned → needs sudo). Wipe first so old
-#    fingerprinted assets don't accumulate.
-log "publish → $DEPLOY_DIR  (sudo)"
-sudo rm -rf "$DEPLOY_DIR"
-sudo mkdir -p "$DEPLOY_DIR"
-sudo cp -a dist/. "$DEPLOY_DIR"
+# 4. Publish to the nginx root. Two improvements over the original wipe-then-copy:
+#
+#    - sudo ONLY when it is actually needed. On the live host the web root belongs to the deploy
+#      user, so `sudo` just prompted for a password that bought nothing. Hosts where the directory
+#      IS root-owned still work — the check decides, not an assumption.
+#    - stage beside the live directory and SWAP, instead of deleting the live one first. `rm -rf`
+#      followed by a copy leaves a window — seconds on a slow disk — where nginx serves 404s to
+#      whoever is on the site. A rename is instant, and the previous build is kept as .old until the
+#      smoke check passes, so a rollback is one `mv` away.
+STAGING="$DEPLOY_DIR.new"
+PREVIOUS="$DEPLOY_DIR.old"
+if [ -w "$(dirname "$DEPLOY_DIR")" ] && { [ ! -e "$DEPLOY_DIR" ] || [ -w "$DEPLOY_DIR" ]; }; then
+  SUDO=""
+  log "publish → $DEPLOY_DIR"
+else
+  SUDO="sudo"
+  log "publish → $DEPLOY_DIR  (sudo — the web root is not writable by $(id -un))"
+fi
+$SUDO rm -rf "$STAGING" "$PREVIOUS"
+$SUDO cp -a dist "$STAGING"
+[ -e "$DEPLOY_DIR" ] && $SUDO mv "$DEPLOY_DIR" "$PREVIOUS"
+$SUDO mv "$STAGING" "$DEPLOY_DIR"
 
 # 5. Smoke. nginx serves static straight from disk — no reload needed.
 log "smoke"
 if curl -sf "$HEALTH_URL" >/dev/null; then echo "  health   : ok"; else echo "  health   : FAILED ($HEALTH_URL)"; fi
 echo "  homepage : HTTP $(curl -s -o /dev/null -w '%{http_code}' "$SITE_URL/")"
+
+# 6. Only now drop the previous build. Until this line a rollback is one rename:
+#      mv "$DEPLOY_DIR" "$DEPLOY_DIR.bad" && mv "$PREVIOUS" "$DEPLOY_DIR"
+$SUDO rm -rf "$PREVIOUS"
 
 log "done — hard-refresh the page (Ctrl+Shift+R) to confirm the new build"
