@@ -1,0 +1,105 @@
+name: CI
+
+# Everything here ran only by hand until now — on one developer's machine, when someone remembered.
+# Split by cost: the cheap checks gate every push, the full engine matrix runs nightly, because
+# chromium alone is ~3 minutes while all four projects are ~12 and nobody waits that long per commit.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '17 3 * * *' # nightly, off-peak UTC
+  workflow_dispatch: # so the matrix can be run on demand before a release
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22' # matches the deploy host (Node v22 via /usr/bin/node)
+
+jobs:
+  checks:
+    name: typecheck · lint · unit + integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      # `server/` is its own package (it depends on `ws`) and the root install does not touch it.
+      # The integration suite spawns that server directly, so unlike the e2e harness it cannot
+      # self-heal — install it explicitly.
+      - run: npm ci --prefix server --omit=dev
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npx vitest run
+
+  e2e:
+    name: e2e (chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      # Empty (not unset) so the config drops `channel: 'chrome'` and uses Playwright's own
+      # Chromium — a runner has no Google Chrome, and a missing channel fails at launch.
+      - run: npx playwright test --project=chromium
+        env:
+          E2E_CHROME_CHANNEL: ''
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-chromium
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+
+  e2e-engines:
+    name: e2e (firefox · webkit · interop · phone profile)
+    # Only where the wall-clock is affordable: nightly, or asked for explicitly.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium firefox webkit
+      # WebKit is the reason this step exists. It has no switch to disable mDNS obfuscation of host
+      # ICE candidates (Chromium has a flag, Firefox a pref), so it only ever offers `<uuid>.local` —
+      # and a CI runner has no mDNS responder, so two WebKit tabs never pair and every connecting
+      # test times out. One local STUN server gives it a usable srflx candidate instead. Local on
+      # purpose: pointing CI at the production coturn would make a home server's uptime a CI
+      # dependency.
+      - name: Start a local STUN server for WebKit
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y coturn
+          turnserver -n --listening-port=3478 --no-auth --no-tls --no-dtls --log-file=stdout &
+          for i in $(seq 1 10); do ss -lun | grep -q ':3478' && break; sleep 1; done
+          ss -lun | grep ':3478' || { echo 'STUN did not come up'; exit 1; }
+      - run: npx playwright test --project=firefox --project=webkit --project=mobile-webkit --project=interop
+        env:
+          E2E_CHROME_CHANNEL: ''
+          E2E_STUN_URLS: stun:127.0.0.1:3478
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-engines
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

@@ -74,6 +74,11 @@ npm run test:e2e   # playwright (drives two real browser tabs through a live Dat
 npm run build      # typecheck + vite build
 ```
 
+CI runs the cheap checks (typecheck, lint, unit + integration) on every push and the Chromium e2e
+alongside them; the full engine matrix — Firefox, WebKit, the phone profile and the cross-engine
+pairs — runs nightly or on demand, because it takes ~12 minutes.
+See [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+
 The signaling server for local work lives in [`server/`](server/signaling-server.js)
 (`node server/signaling-server.js`). Production uses the separate, multi-app
 [`hush-signaling-server`](https://github.com/maksimfrelikh/hush-signaling-server) repo.
