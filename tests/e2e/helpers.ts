@@ -35,6 +35,18 @@ export const BASE = `http://localhost:${process.env.E2E_VITE_PORT ?? '5173'}`;
  *   E2E_CHROME_CHANNEL=               → empty: Playwright's own bundled Chromium
  * A path wins over a channel, because the two cannot be combined.
  */
+/**
+ * Forward a page's console to the test output when E2E_PAGE_LOGS=1. Off by default (the app is
+ * chatty in dev), but without it a failure that lives INSIDE the page — a handshake that never
+ * completes, an exception in a callback — is invisible: Playwright only shows the assertion that
+ * timed out. Label it so two tabs can be told apart.
+ */
+export function forwardConsole(page: Page, label: string): void {
+  if (process.env.E2E_PAGE_LOGS !== '1') return;
+  page.on('console', (m) => console.log(`[${label}] ${m.type()}: ${m.text()}`));
+  page.on('pageerror', (e) => console.log(`[${label}] pageerror: ${e.message}`));
+}
+
 export const CHROME_PATH = process.env.E2E_CHROME_PATH ?? '';
 export const CHROME_CHANNEL = CHROME_PATH ? '' : (process.env.E2E_CHROME_CHANNEL ?? 'chrome');
 

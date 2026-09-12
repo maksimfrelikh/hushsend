@@ -1,8 +1,8 @@
-import { test, expect, type Browser, type Page } from '@playwright/test';
+import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { BASE, createSasRoom, joinSasRoom, confirmSas, resolveSasParties } from './helpers';
+import { BASE, createSasRoom, joinSasRoom, confirmSas, forwardConsole, resolveSasParties } from './helpers';
 
 /**
  * Step-4b-ii reconnect (TOFU re-auth under pinned keys), end to end through two Chromium tabs.
@@ -31,12 +31,26 @@ function sha256(buf: Buffer): string {
 
 /** Open one isolated context+page (own IndexedDB → its own identity), forcing the Blob receive
  *  path. `extraQuery` enables a DEV knob on this tab (e.g. `forgeReconnectKey=1`). */
+let tabSeq = 0;
+/** Contexts opened by the current test, closed after it — see the afterEach below. */
+const openContexts: BrowserContext[] = [];
+
 async function openTab(browser: Browser, extraQuery = ''): Promise<Page> {
   const context = await browser.newContext({ baseURL: BASE, acceptDownloads: true });
+  openContexts.push(context);
   const page = await context.newPage();
+  forwardConsole(page, `tab${++tabSeq}${extraQuery ? ` ${extraQuery}` : ''}`);
   await page.goto(`${BASE}/?forceBlob=1${extraQuery ? `&${extraQuery}` : ''}`);
   return page;
 }
+
+// Each test here opens two tabs and every one of them holds a live WebRTC connection and a signaling
+// socket. Without this they all stayed open until the FILE finished, so by the third test six tabs
+// were competing — which is how a 3-second test turned into a 60-second timeout on a loaded machine.
+// Close what the test opened.
+test.afterEach(async () => {
+  await Promise.all(openContexts.splice(0).map((c) => c.close().catch(() => {})));
+});
 
 /** Drive A (creator) + B (joiner) through a SAS room to an authenticated connected, so enrollment
  *  pins each other's identity under a shared pairingId. Leaves both at `connected`. */
@@ -134,8 +148,12 @@ test('reconnect liveness deadline FIRES: a peer that never completes re-auth →
   //   - ?reconnectTimeoutMs=N — shrink the reconnect deadline so its firing is observable in seconds,
   //     NOT a real 120 s wait (SEPARATE from the SAS knobs, so it can't pre-empt SAS state).
   // The knobs are INERT during the initial plain-SAS enrollment below (no reconnect state there).
+  // ASYMMETRIC deadlines on purpose. Both sides arm this timer, so giving them the same 6 s made the
+  // outcome a race: whichever fired first decided the reason, and on Gecko it was B's teardown, so A
+  // failed with "channel closed during re-auth" instead of the timeout under test. A short deadline
+  // on A and a long one on B makes A's timer win on every engine — the firing direction is the point.
   const a = await openTab(browser, 'reconnectTimeoutMs=6000');
-  const b = await openTab(browser, 'reconnectTimeoutMs=6000&stallReconnect=1');
+  const b = await openTab(browser, 'reconnectTimeoutMs=60000&stallReconnect=1');
 
   await enrollViaSas(a, b); // both pin each other (a fresh SAS pairing — reconnect knobs do nothing here)
   await resetBoth(a, b);
