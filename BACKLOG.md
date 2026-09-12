@@ -691,6 +691,20 @@ Also fixed in the same pass, from the same audit:
   to the address it was reached on. Removing the gate: 9/9 interop and 96/96 engine tests pass. Since
   that is exactly what real Safari/iOS does, failing closed there would break honest transfers on a
   primary target platform — worse than the leak it closes.
+  **Enforcement was RE-TESTED after the "wait for ICE to select a pair" fix and still fails.** The
+  first removal happened before that fix, so the obvious theory was that the failure had been a race.
+  It is not: with the gate back on, `interop · firefox → webkit` failed **intermittently — one run in
+  two**, while advisory mode passed 3/3. Intermittent is worse than consistent here: a spurious
+  "someone is in between" destroys an honest transfer at a random moment AND teaches the user to
+  dismiss the one warning that matters. Root cause is structural, not a race: a peer behind NAT does
+  not reliably know the address its peer reaches it on (mDNS host candidates, peer-reflexive
+  learning), so "the address I selected is not one you named" is not by itself evidence of an
+  attacker. **Do not flip this on from a loopback run.**
+  **Also note what enforcement would NOT buy even if it were stable:** the srflx address a peer
+  attests to comes from the STUN server's reply. In the current deployment STUN and signaling are the
+  SAME host, so one operator can both inject a candidate and tell the peer to attest the attacker's
+  address — the check passes. Enforcement is only worth something once STUN is not the signaling
+  operator (ideally 2+ independent STUN servers cross-checked, so a single lying one is caught).
   **Next step, and the reason the verdict is now projected:** the real-device pass should record
   `path-verdict` / `path-selected` / `path-peer-addrs` on each engine, which is the input needed to
   choose between (a) inverting the check — each side attests the address it SELECTED, and the peer

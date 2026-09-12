@@ -2785,9 +2785,17 @@ export class SessionController {
     if (pa.timer != null) clearTimeout(pa.timer);
     pa.timer = null;
     if (verdict === 'mismatch') {
-      // ADVISORY (see startPathAttestation): recorded loudly, but NOT a teardown. An honest peer
-      // behind mDNS-obfuscated host candidates — i.e. any Safari — cannot attest to the address it
-      // was reached on, so a mismatch here is not yet evidence of an attacker.
+      // STILL ADVISORY, and this was RE-TESTED rather than assumed. Enforcement was switched back on
+      // once the "wait for ICE to select a pair" fix landed, on the theory that the earlier failure
+      // had been a race. It is not: `interop · firefox → webkit` then failed INTERMITTENTLY — one run
+      // in two — which is worse than a clean failure, because an occasional spurious "someone is in
+      // between" on an honest connection both destroys a transfer at a random moment and teaches the
+      // user to dismiss the warning that matters. The cause is structural: a peer behind NAT does not
+      // reliably know the address its peer reaches it on (mDNS host candidates, peer-reflexive
+      // learning), so "the address I selected is not one you named" is not, on its own, evidence of an
+      // attacker. Whether that disagreement survives on REAL networks with a real STUN server is
+      // exactly what TESTPLAN § Phase B is now collecting; flipping this to fatal is a decision for
+      // that data, not for a loopback run.
       this.dispatch(
         devActions.appendLog(
           `path: MISMATCH — we selected ${selected}, peer attested [${(pa.peerAddrs ?? []).join(', ')}] (advisory)`,
