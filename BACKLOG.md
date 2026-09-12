@@ -732,6 +732,20 @@ Also fixed in the same pass, from the same audit:
   own view of its addresses, which for srflx comes from STUN — the same operator. An operator that
   both lies over STUN *and* sits on the path can still make the two sides agree; removing that means
   not being the STUN provider. Unit: `pathAttest.test.ts`. (See CLAUDE.md § Path attestation.)
+- [ ] **Separate the STUN server from signaling — STARTED 2026-09-12.** The attestation above is
+  defeated by one adversary holding BOTH, so this is the precondition for it ever becoming a control.
+  The deployment lives in its own repo,
+  [`hushsend-stun-server`](https://github.com/maksimfrelikh/hushsend-stun-server) (config + runbook +
+  `verify.sh`; no server code — it is coturn). Relaying is refused structurally there by defining NO
+  authentication, since a TURN allocation must be authenticated and a STUN binding request must not.
+  **Not yet wired in:** `VITE_STUN_URLS` still points at the existing coturn on the app host, and
+  during development all three services share one machine — which buys no separation at all, one
+  operator. The property only starts to exist when STUN runs under a DIFFERENT party.
+- [ ] **Cross-check several independent STUN servers in the client.** The stronger form of the above,
+  and the one that needs no single operator to be trustworthy: `VITE_STUN_URLS` is already a list, so
+  the browser gathers a reflexive candidate from each. If two independent servers agree on our public
+  address and a third disagrees, the liar is visible — and it still works when one of them is ours.
+  Needs a comparison in `localCandidateAddresses`/`iceServers` plus a way to surface the disagreement.
 - [ ] **`pairingId` disclosure to whoever wins the reconnect join race** — unchanged from the first
   pass (a blinded `HMAC(pairingId, fp_min‖fp_max)` announcement). Note finding (4) made this worse
   before it was fixed; with the enrollment gate in place it is back to linkability + nuisance.
