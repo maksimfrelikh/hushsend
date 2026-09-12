@@ -18,9 +18,10 @@ export interface PeerConnectionHandlers {
   /** DataChannel or peer connection closed/failed. */
   onClose?: () => void;
   /**
-   * ICE could NOT establish connectivity in the Max-privacy STRICT model (we drop the peer's relay
-   * candidates and never request local TURN, so no relay path could ever form). The owner treats this
-   * as a terminal failure with a hint to switch to Reliable. Only fired while `filterRelay` is on
+   * ICE could NOT establish connectivity in the Max-privacy STRICT model (we drop the peer's SIGNALLED
+   * relay candidates and never request local TURN, so no relay path was offered — a peer-reflexive one
+   * can still be LEARNED; known gap, see core/relax.ts + BACKLOG § Security audit). The owner treats
+   * this as a terminal failure with a hint to switch to Reliable. Only fired while `filterRelay` is on
    * (Max-privacy); in Reliable an ICE failure goes through `onClose` (a genuine close — relay was
    * available and still couldn't save it).
    */
@@ -145,7 +146,7 @@ export class PeerConnection {
 
   /**
    * ICE could not establish connectivity. In the Max-privacy strict model (`filterRelay` on) we drop
-   * the peer's relay candidates and never request local TURN, so no relay path could ever have formed —
+   * the peer's signalled relay candidates and never request local TURN, so no relay path was offered —
    * report this as a terminal Max-privacy failure (onIceFailed; the owner fails with a switch-to-Reliable
    * hint). Otherwise (Reliable) a relay was available and still couldn't save it, so it's a genuine
    * close (onClose). One-shot.

@@ -384,26 +384,109 @@ Surface area for an independent security audit before the public launch — poin
 security-sensitive decisions already made, gathered in one place (not a restatement; each links to
 where the design + rationale live).
 
-- [ ] **(a) Reconnect role create/join → id-order (deferred).** The reconnect PROTOCOL role stays
-  create/join, which fixes the **verifier-first ordering** the two-check **key-changed-vs-MITM** verify
-  depends on (a key change is caught before a forger can settle). Before any move to id-order,
-  re-verify the **key-changed-before-settle** property still holds under id-roles.
-  (→ § Reconnect UX / "Deferred (post-audit)" above + CLAUDE.md § Per-pairing role + § Crypto / Reconnect.)
-- [ ] **(b) Guess-narrowing of `peerLeftAbortsPairing` (WS-close).** Confirm the narrowing — a
-  `peer-left` aborts a 1:1 pairing ONLY pre-transport (`!established && !channelOpen`); a
-  post-channel-open `peer-left` is ignored — does NOT weaken the words anti-bruteforce bound. The
-  argument: the authoritative guess counter is confirmation-mismatch (`onConfirmFailure`) /
-  channel-close (both untouched); `peer-left` was the sole counter only before the channel ever opened.
+**First internal pass done 2026-09-12** (code review + reasoning, no devices): (a) and (b) hold as
+designed — with a sharper argument than the docs carried; **(c) does NOT hold as claimed** — see the
+finding below. Three actionable items came out of the pass and are listed after the three checks.
+An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
+
+- [x] **(a) Reconnect role create/join → id-order (deferred) — REVIEWED 2026-09-12: keep create/join.**
+  The safety property itself is role-INDEPENDENT: both branches of `onReconnectProof` run the
+  two-check verify BEFORE `settleReconnect`, so no side can reach `established` under an unpinned key
+  whatever the roles are. What create/join actually buys is **disclosure ordering**: the initiator
+  verifies first and only then sends its own proof, while the responder proves FIRST (it reveals its
+  long-term Ed25519 public key + a channel-bound signature before it has verified anything — gated
+  only on holding a pin for the announced `pairingId`). Create/join pins the *creator* — the side that
+  opened the reconnect room — to the verifier-first seat, so a stranger who reaches the channel never
+  extracts the creator's identity key. Under id-order the seat is decided by **server-assigned ids**,
+  so ~half the time the creator would prove first to whoever won the join race.
+  **The concrete blocker for a move, though, is not crypto but plumbing:** the reconnect initiator is
+  also *the side that knows WHICH `pairingId` to reconnect under* (chosen in the UI —
+  `createReconnectSession(pairingId?)` reads it from the recent-devices row; the joiner only types a
+  code). `pairingRoleFor` would hand the initiator seat to whichever id sorts smaller, which may be
+  the side that has no pairingId to announce. So a lobby-pick reconnect needs an **announcer role
+  separate from the transcript role**, not a reuse of `pairingRoleFor`. Recorded here so the next
+  attempt does not rediscover it.
+  (→ § Reconnect UX / "Deferred (post-audit)" + CLAUDE.md § Per-pairing role + § Crypto / Reconnect.)
+- [x] **(b) Guess-narrowing of `peerLeftAbortsPairing` (WS-close) — REVIEWED 2026-09-12: CONFIRMED, the
+  bound is intact.** The docs' argument (the authoritative counters are confirmation-mismatch and
+  channel-close, both untouched) is correct but not the load-bearing one. The bound actually rests on
+  a structural invariant that is stronger and easier to check: **the creator returns to "accept another
+  joiner" ONLY through `onWordsPairingFailure`, which increments the counter** (one-shot per attempt via
+  `attemptResolved`), **and `onPeerJoined` refuses to engage a newcomer while `this.peer || this.role`
+  is set**. So an attacker cannot park an unresolved attempt (channel open, signaling socket closed —
+  the `peer-left` the narrowing now ignores) and start a second one beside it: the creator is simply
+  not accepting anyone until the current attempt resolves, and every resolution counts. Independently,
+  the words room TTL is armed from CREATE and never re-armed (`WORD_ROOM_TTL_MS`, 180 s) → `closeRoom`
+  → 4010 → `onSignalingClose` fails the client, so wall-clock bounds the attempt count too. Every
+  *informative* guess needs the DataChannel (the confirmation tag rides it), and both of its outcomes —
+  tag mismatch, or channel close before `established` — are counted regardless of signaling presence.
   (→ § Signaling WS lifecycle.)
-- [ ] **(c) Strict relay filter.** Confirm `isRelayCandidate` / `shouldDropCandidate` (Max-privacy
-  ALWAYS drops the peer's `typ relay` candidates AND never requests TURN) genuinely prevents a relay
-  path from completing on our side. (→ CLAUDE.md § Privacy mode + ICE / Max-privacy strict model.)
-- [ ] **(d) Crypto / protocol core.** CPace (draft-irtf-cfrg-cpace-21, ristretto255), SAS
-  commit-before-reveal + DTLS-fingerprint binding, key-confirmation channel binding (HMAC over the
-  lexicographically sorted DTLS fingerprints), TOFU enrollment, reconnect two-check verify, and the
-  `lv`-canonicalization + per-method domain separation. (→ CLAUDE.md § Crypto.)
-- [ ] **(e) Known residuals.** `pairingId` relay-linkability across reconnects; dual-pin accumulation
-  after a keystore wipe. (→ CLAUDE.md § Known residuals / deferred + § Caveats above.)
-- [ ] **(f) Deploy footgun.** `X-Real-IP` / `TRUST_PROXY` pairing (`clientIp()` → per-IP caps + the
-  4011 anti-enumeration limiter); shared-NAT `IP_RL_MAX` tuning. (→ CLAUDE.md § Deployment /
-  configuration + Step 6 / 6f above.)
+- [ ] **(c) Strict relay filter — REVIEWED 2026-09-12: does NOT hold as claimed. See the finding
+  below** ("Max-privacy can still be relayed via a peer-reflexive candidate"). The filter is correct
+  for what it does — it drops every SIGNALLED `typ relay` candidate and never requests TURN — but that
+  is not the same as "no relay path can complete on our side", because ICE also learns candidates it
+  was never told about. (→ CLAUDE.md § Privacy mode + ICE / Max-privacy strict model.)
+
+### Findings from the 2026-09-12 pass (actionable)
+
+- [ ] **Max-privacy can still be relayed via a PEER-REFLEXIVE candidate (breaks the STRICT claim).**
+  `shouldDropCandidate` filters candidates we ADD (`PeerConnection.addIce`); it cannot filter the ones
+  ICE **learns**. Per RFC 8445 §7.3.1.3 an agent that receives a STUN binding request from a transport
+  address matching no known remote candidate creates a **peer-reflexive remote candidate** and runs a
+  triggered check against it. A **Reliable** peer relaying through coturn sends its checks FROM the
+  relayed address (its TURN permission covers our signalled host/srflx), so our Max-privacy side
+  learns that relayed address as `prflx`, pairs with it, and can nominate it — **after** we dropped the
+  very same address as `typ relay`. When the direct path works this is harmless (the direct pair has
+  higher priority); it bites exactly in the case the strict model exists for — **direct fails, so the
+  relayed prflx pair is the only valid one → we connect through the relay instead of failing closed.**
+  Reachable in the supported **mixed-privacy** configuration (Max ↔ Reliable); a Max ↔ Max pair has no
+  relay anywhere and is unaffected. **Impact is the privacy promise, not confidentiality** — DTLS +
+  SAS/PAKE are untouched and no MITM is enabled; what breaks is "Max privacy ⇒ your traffic never
+  transits a relay", since the relay (our own coturn, which the threat model treats as UNTRUSTED) then
+  sees both IPs, timing and volume, and the user was told that could not happen.
+  **Fix (cheap, precise):** remember the address of every candidate dropped by the filter, then once
+  the transport is up inspect `pc.getStats()` for the selected candidate pair and fail terminally
+  (the existing `failDirect` / `DIRECT_FAIL_REASON` path) when the selected remote address is one of
+  them — or when `remoteCandidateType === 'relay'`. Check at **channel-open, before `established`**, so
+  no file byte can cross a relayed path. Do NOT blanket-reject `prflx`: legitimate NAT mappings
+  produce it on genuinely direct paths. There is currently **no `getStats` call anywhere in `src/`** —
+  the selected pair is never inspected.
+  **Confirm on real devices (TESTPLAN § C4):** Max ↔ Reliable, force the direct path to fail, then read
+  the Max side's selected pair in `chrome://webrtc-internals`. `relay`/`prflx`-to-the-relay ⇒ confirmed.
+- [ ] **No client-side liveness deadline on the words / link / qr key-confirmation path.** `room`/SAS
+  has `armSasTimeout` (pre-SAS + comparison, 120 s) and reconnect has `armReconnectTimeout` (120 s),
+  but the 1:1 confirm path has **none**: a peer that opens the DataChannel and then simply goes silent
+  (never sends its `confirm` tag) leaves us in `confirming` until the SERVER's from-create room TTL
+  (`WORD_ROOM_TTL_MS` / `TOKEN_ROOM_TTL_MS`, 180 s) closes the socket and `onSignalingClose` fails us.
+  So liveness on this path is **delegated to the untrusted server** — a server that simply never
+  expires the room hangs the client indefinitely, which is precisely the failure mode the reconnect
+  deadline was added to remove. Same shape, same fix: arm a 120 s deadline at pairing start on the
+  words/link/qr path, cleared on settle/failure. Fail-closed, liveness only — no crypto change.
+  (Note this does NOT affect the guessing bound above: it is the *creator* who hangs, and a hung
+  creator accepts no further attempts.)
+- [ ] **`pairingId` disclosure to whoever wins the reconnect join race.** A reconnect session rendezvous
+  over the plain **4-digit** room (`createReconnectSession` → `connect({create:true})`, no codeType), is
+  NOT a lobby (`isLobby()` false — sas set AND reconnect set) and therefore **auto-pairs with the first
+  peer that joins**. A 4-digit code is enumerable (10⁴, bounded only by `IP_RL_MAX` 60/min/IP), so a
+  code-guesser that wins the race and completes the channel receives the initiator's `reconnect-init`
+  and learns its **`pairingId`** — a stable per-pair identifier — before any authentication. It cannot
+  forge a proof (hard stop / fallback), so this is **linkability + nuisance, not an auth break**.
+  **Possible fix:** announce a *blinded* id instead of the raw one — e.g. `HMAC(pairingId, fp_min‖fp_max)`
+  — which a peer holding the pin can recognise by recomputation while a stranger learns nothing
+  correlatable across sessions. Folds naturally into the reconnect-in-lobby work.
+
+### Doc corrections made in the same pass
+
+- **CLAUDE.md § Known residuals overstated the `pairingId` leak.** It said reconnect "announces it over
+  signaling-routed setup, so the untrusted relay can observe 'these two have paired before'". It does
+  not: every reconnect frame rides the **DataChannel** (`sendReconnect` → `this.peer.send`), which is
+  DTLS-protected, and `pairingId` appears in **no** signaling schema (`src/types/protocol.ts`). The
+  relay never sees it. The linkability residual is real but arrives by a **different** route — see the
+  next item — and the text has been corrected to say so.
+- **The actual reconnect fingerprint the relay CAN see: the post-connect socket close.** Every other
+  method closes its own signaling socket the instant it reaches `connected`
+  (`closeSignalingAfterConnect`), and **reconnect is explicitly excluded** — so a reconnect pair is the
+  one pair that *keeps its socket open for the whole session*. That hands the untrusted server both
+  "this pair is a reconnect (they have paired before)" AND the session duration the close was designed
+  to hide. Including reconnect in the per-pair close (already listed as residual (a) under
+  § Signaling WS lifecycle) would close both at once.

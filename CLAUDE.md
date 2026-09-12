@@ -570,9 +570,18 @@ enforce it in Max-privacy, then a direct failure is **terminal**:
   (`ensureTurnReady` is a no-op off Reliable).
 - **Strict relay-candidate filter** — the PeerConnection **DROPS the peer's incoming `typ relay` ICE
   candidates** (`PeerConnection.addIce` → `shouldDropCandidate` / `isRelayCandidate`, the only thing
-  left in **`src/core/relax.ts`**), so even if the peer added TURN no relay path can complete on our
-  side. The filter is **fixed at construction** (`filterRelay = privacyMode === 'max'`) — Max-privacy
-  never flips it. In Reliable the filter is off (relay allowed).
+  left in **`src/core/relax.ts`**), so a relay candidate the peer SIGNALS is never added on our side.
+  The filter is **fixed at construction** (`filterRelay = privacyMode === 'max'`) — Max-privacy never
+  flips it. In Reliable the filter is off (relay allowed).
+- ⚠️ **KNOWN GAP (audit 2026-09-12) — the filter covers candidates we ADD, not the ones ICE LEARNS.**
+  A peer relaying through coturn sends its connectivity checks FROM the relayed address, and RFC 8445
+  §7.3.1.3 has our agent learn that address as a **peer-reflexive** remote candidate and pair with it —
+  the same address we just dropped as `typ relay`. It only bites when the direct path fails (otherwise
+  the direct pair wins on priority), i.e. exactly the case this model exists for, and only in a
+  **mixed-privacy** pair (Max ↔ Reliable; Max ↔ Max has no relay anywhere). Confidentiality is
+  unaffected (DTLS + SAS/PAKE); the **privacy promise** is what breaks. Until the fix lands, read
+  "Max-privacy never relays" as "never *offers or accepts a signalled* relay". Fix + the real-device
+  confirmation are tracked in **BACKLOG.md § Security audit / Findings**.
 - **ICE-fail → terminal `failed` + hint**: an ICE failure (`iceconnectionstatechange` /
   `connectionstatechange` → `failed`) while filtering routes to `onIceFailed` (one-shot), which calls
   `failDirect(DIRECT_FAIL_REASON)` → close + `fail()` → the **existing `failed` state** (no new FSM
@@ -1028,14 +1037,31 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   feature-detection review); **6f LIVE** — deployed + externally verified at hushsend.frelikh.dev
   (coturn same-host `turn:`-only :3478; signaling = separate repo under systemd; see DEPLOY.md § 0);
   remaining: in-browser P2P/SAS/transfer on two devices + cross-network TURN relay (6e real-device,
-  post-deploy), plus nice-to-haves — tracked in **BACKLOG.md**.
+  post-deploy) — the pass is planned case-by-case in **TESTPLAN.md** — plus nice-to-haves, tracked in
+  **BACKLOG.md**.
+- 🔍 **Internal security-audit pass done 2026-09-12** (reasoning + code review, no devices): the
+  reconnect create/join role and the `peerLeftAbortsPairing` narrowing both hold (with sharper
+  arguments now recorded); the **Max-privacy strict relay claim does NOT** — a peer-reflexive
+  candidate can still complete a relayed path in a mixed-privacy pair. Verdicts, three actionable
+  findings, and the doc corrections they forced are in **BACKLOG.md § Security audit**. An INDEPENDENT
+  audit is still wanted before a public launch.
 
 ## Known residuals / deferred
-- **`pairingId` is a metadata leak to the relay** (reconnect). It is an identifier, not a secret,
-  and reconnect announces it over signaling-routed setup, so the untrusted relay can observe "these
-  two have paired before" (linkability across reconnects). It carries no key material and does not
-  weaken the auth (the signature under the pinned key is what authenticates); it is a privacy /
-  traffic-analysis residual, not a confidentiality one.
+- **`pairingId` linkability** (reconnect) — **restated after the 2026-09-12 audit; the earlier text
+  named the wrong mechanism.** The id is an identifier, not a secret, and it carries no key material
+  (the signature under the pinned key is what authenticates). It does **NOT** reach the relay: every
+  reconnect frame rides the **DataChannel** (`sendReconnect` → `this.peer.send`, DTLS-protected) and
+  `pairingId` appears in no signaling schema (`src/types/protocol.ts`). Two real residuals remain:
+  - **To the untrusted server:** a reconnect pair is the ONLY pair that keeps its signaling socket
+    open for the whole session — every other method closes it on `connected`
+    (`closeSignalingAfterConnect`, reconnect excluded). That behavioural fingerprint tells the server
+    both "these two have paired before" and how long the session ran. Folding reconnect into the
+    per-pair close (residual (a) under § Signaling WS lifecycle) closes both.
+  - **To a code-guesser:** a reconnect session rendezvous over a plain 4-digit code and auto-pairs with
+    the first joiner, so whoever wins that race receives the `reconnect-init` and learns the raw
+    `pairingId` before authenticating (it cannot forge a proof — hard stop / fallback). A blinded
+    announcement (`HMAC(pairingId, fp_min‖fp_max)`) would fix it. Both tracked in
+    **BACKLOG.md § Security audit / Findings**.
 - **Dual-pin under different pairingIds if one side loses its keystore** (reconnect). If a peer
   clears storage (or the keystore is wiped) it no longer holds the pin, so the next connect falls
   back to SAS + a FRESH enrollment → a NEW pairingId. The other side keeps the stale pin AND gains
