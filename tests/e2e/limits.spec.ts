@@ -91,11 +91,52 @@ async function step<T>(label: string, fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/** No progress for this long ⇒ the rung is stuck, not slow. Overridable for a very slow machine. */
+const STALL_MS = Number(process.env.E2E_LIMITS_STALL_MS) || 180_000;
+
+/**
+ * Watch the receiver's progress bar: log it as it moves, and REJECT when it stops moving. A big rung
+ * can legitimately run for many minutes, and without this the run is a black box — you cannot tell a
+ * slow transfer from a dead one, so the only options are waiting forever or killing it and learning
+ * nothing. (Observed: a 15-minute silent WebKit rung that had to be interrupted by hand.)
+ */
+function watchProgress(receiver: Page, mb: number): { stalled: Promise<never>; stop: () => void } {
+  let last = -1;
+  let lastChange = Date.now();
+  const started = Date.now();
+  let timer: ReturnType<typeof setInterval>;
+  const stalled = new Promise<never>((_resolve, reject) => {
+    timer = setInterval(() => {
+      void receiver
+        .locator('.hs-progress__fill')
+        .first()
+        .evaluate((el) => parseFloat((el as HTMLElement).style.width))
+        .then((pct) => {
+          if (!Number.isFinite(pct)) return;
+          const elapsed = Math.round((Date.now() - started) / 1000);
+          if (pct !== last) {
+            last = pct;
+            lastChange = Date.now();
+            console.log(`[ladder] ${mb} MB — ${pct.toFixed(0)}% after ${elapsed}s`);
+          } else if (Date.now() - lastChange > STALL_MS) {
+            reject(new Error(`stalled at ${last.toFixed(0)}% for ${Math.round(STALL_MS / 1000)}s`));
+          }
+        })
+        .catch(() => {
+          /* the bar is not on screen yet, or the page is gone — the phase timeouts cover that */
+        });
+    }, 15_000);
+  });
+  return { stalled, stop: () => clearInterval(timer) };
+}
+
 /** One rung: pair two tabs, push an `mb`-sized file, verify the received bytes. Throws on failure. */
 async function runRung(context: BrowserContext, mb: number): Promise<number> {
   const src = join(TMP, `src-${mb}.bin`);
   const out = join(TMP, `out-${mb}.bin`);
+  console.log(`[ladder] ${mb} MB — generating the source file…`);
   const srcHash = await makeFile(src, mb);
+  console.log(`[ladder] ${mb} MB — pairing…`);
 
   let sender: Page | null = null;
   let receiver: Page | null = null;
@@ -128,13 +169,27 @@ async function runRung(context: BrowserContext, mb: number): Promise<number> {
     // below are real cost but constant-ish, and folding them in makes the MB/s figure meaningless
     // for comparing engines.
     const wireStart = Date.now();
+    console.log(`[ladder] ${mb} MB — accepted, transferring…`);
     await receiver.getByTestId('accept-btn').click();
     // THIS is the rung's real question: does the engine survive holding and delivering `mb` MB?
-    const download = await step('transfer never completed (engine limit / OOM / stall)', async () => {
-      const d = await downloadPromise;
-      await expect(sender!.getByTestId('transfer-phase')).toContainText('done', { timeout: windowMs });
-      return d;
-    });
+    // Raced against the stall watchdog so a dead transfer reports as dead instead of running out
+    // the (deliberately generous) size-proportional timeout in silence.
+    const watch = watchProgress(receiver, mb);
+    let download;
+    try {
+      download = await step('transfer never completed (engine limit / OOM / stall)', () =>
+        Promise.race([
+          (async () => {
+            const d = await downloadPromise;
+            await expect(sender!.getByTestId('transfer-phase')).toContainText('done', { timeout: windowMs });
+            return d;
+          })(),
+          watch.stalled,
+        ]),
+      );
+    } finally {
+      watch.stop();
+    }
     wireSeconds = (Date.now() - wireStart) / 1000;
     await step('the download could not be saved', () => download.saveAs(out));
 
