@@ -179,6 +179,20 @@ the same pass as CLAUDE.md when items land.
     This VALIDATES `MAX_BYTES_DESKTOP_BLOB = 1 GiB` as conservative-on-purpose (see the constant's
     comment): raising it would swap a clear pre-accept refusal for a dead tab. The MOBILE cap
     (512 MiB) remains unmeasured — only a real iOS device can answer that (TESTPLAN § B2).
+  - ✅ **Phone-profile e2e — DONE (2026-09-12).** `tests/e2e/mobile.spec.ts` under a new
+    `mobile-webkit` project (WebKit + the iPhone 13 device descriptor: iOS UA, 390 px viewport,
+    touch). This exists because the receive ceiling is chosen from the **User-Agent**
+    (`isMobileUA()` → `MAX_BYTES_MOBILE_BLOB` 512 MB vs the desktop 1 GiB) and that decision had **no
+    coverage at any level** — a regex nothing exercised, guarding the one cap we cannot measure on
+    hardware yet. Four cases, all green: the phone UA picks the 512 MB ceiling and an oversize file is
+    refused **before any byte** with the PHONE cap quoted (a `1.0 GB` there would mean the desktop
+    ceiling leaked onto a phone); a normal transfer completes over the Blob path (WebKit has no FSA,
+    so nothing needs forcing); nothing overflows 390 px on home / picker / the five-word credential;
+    and QR falls back to pasting the link when the camera is unusable. Paired with the first unit
+    tests `fileTransfer.ts` has ever had (`fileTransfer.test.ts`, 9 cases: cap by device class, the
+    no-navigator fallback, the exact refusal wording `512 MB` / `1.0 GB`, chunk clamping).
+    **Not a handset:** Playwright's WebKit is WebKitGTK wearing an iPhone UA — real iOS memory
+    pressure, background-tab suspension, camera permissions and cellular NAT stay unproven.
   - **Remaining (real devices, post-deploy):** what only hardware shows — QR scan + camera permissions
     on actual iOS Safari, the FSA→Blob cap on real hardware, everything cross-network (TESTPLAN § C),
     and iOS background-tab suspension mid-transfer (§ F1). Engine-level transport interop is now

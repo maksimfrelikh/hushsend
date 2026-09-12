@@ -1,4 +1,4 @@
-import { defineConfig } from '@playwright/test';
+import { defineConfig, devices } from '@playwright/test';
 import { CHROME_CHANNEL, CHROME_PATH } from './tests/e2e/helpers';
 
 /**
@@ -43,7 +43,7 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      testIgnore: /interop\.spec\.ts/,
+      testIgnore: [/interop\.spec\.ts/, /mobile\.spec\.ts/],
       use: {
         // Chrome by default; E2E_CHROME_PATH / E2E_CHROME_CHANNEL redirect it (see helpers).
         ...(CHROME_CHANNEL ? { channel: CHROME_CHANNEL } : {}),
@@ -60,7 +60,7 @@ export default defineConfig({
       // WebRTC stack, IndexedDB/Web Locks under another engine, and whichever half of the
       // WebCrypto-Ed25519-vs-noble fork this engine takes (src/core/crypto/identity.ts).
       name: 'firefox',
-      testIgnore: /interop\.spec\.ts/,
+      testIgnore: [/interop\.spec\.ts/, /mobile\.spec\.ts/],
       use: {
         browserName: 'firefox',
         launchOptions: {
@@ -74,8 +74,17 @@ export default defineConfig({
       // The same suite under WebKit. The closest proxy available off-device for Safari — NOT the
       // same thing (WebKitGTK on Linux), but it catches engine-level breakage before a phone does.
       name: 'webkit',
-      testIgnore: /interop\.spec\.ts/,
+      testIgnore: [/interop\.spec\.ts/, /mobile\.spec\.ts/],
       use: { browserName: 'webkit' },
+    },
+    {
+      // The PHONE profile: WebKit wearing an iPhone's User-Agent, viewport and touch. That UA is what
+      // selects the mobile receive ceiling (512 MB) over the desktop gigabyte, so this is the only
+      // project where that branch runs at all. Needs E2E_STUN_URLS on a host without mDNS, like the
+      // plain webkit project.
+      name: 'mobile-webkit',
+      testMatch: /mobile\.spec\.ts/,
+      use: { ...devices['iPhone 13'], browserName: 'webkit' },
     },
     {
       // Cross-engine interop: the spec launches its own browsers (one per side) with per-engine

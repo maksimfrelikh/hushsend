@@ -109,6 +109,12 @@ Both peers on the home Wi-Fi, default **Max-privacy**. Baseline: if these fail, 
 
 The point of 6e: every fallback path on a real engine, not a polyfilled test env.
 
+> **The phone-shaped half is pre-covered too** by `tests/e2e/mobile.spec.ts` (WebKit + an iPhone
+> device descriptor): the 512 MB cap is genuinely selected by the phone UA and quoted in the refusal,
+> the Blob path completes, the layout holds at 390 px, and the QR paste fallback works. So on a real
+> handset those are re-confirmations; what only the handset can answer is **memory pressure at the
+> cap, background-tab suspension (§ F1), camera permissions (B4) and cellular NAT (§ C)**.
+>
 > **Already pre-covered headlessly** by `tests/e2e/interop.spec.ts` (chrome ↔ firefox ↔ webkit, both
 > directions, link pairing + a hashed 200 KB transfer): cross-engine SDP/ICE/DTLS/SCTP interop and the
 > Blob receive path. So B1–B2 below are confirming on real hardware rather than discovering; **B3–B5

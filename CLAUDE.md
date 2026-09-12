@@ -1055,7 +1055,8 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   skip with a printed reason; the WHOLE suite also runs per engine as its own project —
   chromium/firefox/**webkit** 28/28 each — where **webkit needs `E2E_STUN_URLS` on a headless host**:
   it cannot disable mDNS obfuscation, so without a STUN server its only host candidate is
-  `<uuid>.local` and two of its tabs never pair. Plus an opt-in size ladder, `tests/e2e/limits.spec.ts`); **6f LIVE** — deployed + externally verified at hushsend.frelikh.dev
+  `<uuid>.local` and two of its tabs never pair. plus a `mobile-webkit` project (WebKit + the iPhone device descriptor) that is the ONLY place the
+  UA-selected mobile receive cap runs, and an opt-in size ladder, `tests/e2e/limits.spec.ts`); **6f LIVE** — deployed + externally verified at hushsend.frelikh.dev
   (coturn same-host `turn:`-only :3478; signaling = separate repo under systemd; see DEPLOY.md § 0);
   remaining: in-browser P2P/SAS/transfer on two devices + cross-network TURN relay (6e real-device,
   post-deploy) — the pass is planned case-by-case in **TESTPLAN.md** — plus nice-to-haves, tracked in
