@@ -17,6 +17,9 @@ work. So whenever a change alters the app's actual state, update this file in th
 - adding / removing / renaming a core module → update the file lists in **Current state**;
 - changing a protocol, constant, or invariant → update the relevant **Crypto** / method section;
 - deferring something → note it under **Known residuals / deferred**.
+- **THREATMODEL.md** answers "what is protected, from whom, and is this ready for at-risk users".
+  It is the file to check when a claim about safety is about to be made or changed — and the one to
+  correct in the same pass when a defence lands or is found wanting.
 - forward-looking / deferred work (step 6, follow-ups, nice-to-haves) lives in **BACKLOG.md** —
   read it when picking the next task, and update it in the SAME pass as this file when items land.
 - **recorded numbers are claims too** — test counts (README § Status, BACKLOG's per-engine matrix),
