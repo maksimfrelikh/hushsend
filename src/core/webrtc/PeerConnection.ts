@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { shouldDropCandidate } from '../relax';
+import {
+  isForbiddenRemoteCandidate,
+  relayCandidateEndpoint,
+  selectedRemoteCandidate,
+  shouldDropCandidate,
+  type StatsEntry,
+} from '../relax';
 
 /**
  * The opaque `data` payload we put inside each signaling `signal` frame. The server
@@ -90,6 +96,10 @@ export class PeerConnection {
   private readonly simulateIceFail: boolean;
   /** one-shot guard so the Max-privacy ICE-failure is reported (onIceFailed) at most once. */
   private iceFailureReported = false;
+  /** Endpoints (`address|port`) of every relay candidate the filter dropped. ICE can still LEARN one
+   *  of these as a peer-reflexive candidate (RFC 8445 §7.3.1.3) — the channel-open gate matches the
+   *  selected pair against this set so a relayed path we never accepted cannot be used anyway. */
+  private readonly droppedRelayEndpoints = new Set<string>();
 
   constructor(
     private readonly handlers: PeerConnectionHandlers = {},
@@ -244,7 +254,7 @@ export class PeerConnection {
     channel.binaryType = 'arraybuffer';
     channel.bufferedAmountLowThreshold = this.highWaterMark / 2;
     this.channel = channel;
-    channel.onopen = () => this.handlers.onOpen?.();
+    channel.onopen = () => void this.openChannelUnlessRelayed();
     channel.onclose = () => {
       if (!this.closed) this.handlers.onClose?.();
     };
@@ -264,6 +274,10 @@ export class PeerConnection {
     // STRICT model: in Max-privacy drop the peer's TURN-relay candidates, so we are never relayed —
     // not locally (no TURN requested) and not via the peer's relay.
     if (shouldDropCandidate(this.filterRelay, candidate)) {
+      // Remember WHERE it would have pointed: the same endpoint can come back as a peer-reflexive
+      // candidate learned from the peer's connectivity checks, which addIce never sees.
+      const endpoint = relayCandidateEndpoint(candidate);
+      if (endpoint) this.droppedRelayEndpoints.add(endpoint);
       if (import.meta.env.DEV) console.debug('[webrtc] dropped peer relay candidate (Max-privacy)');
       return;
     }
@@ -272,6 +286,48 @@ export class PeerConnection {
     } catch (err) {
       if (import.meta.env.DEV) console.warn('[webrtc] addIceCandidate failed', err);
     }
+  }
+
+  /**
+   * Max-privacy STRICT gate, run at channel-open and BEFORE `onOpen` reaches the owner: verify the
+   * path ICE actually selected is not relayed, then hand the channel over. Dropping the peer's
+   * signalled `typ relay` candidates is not enough on its own — ICE also LEARNS candidates from
+   * incoming connectivity checks, so a peer relaying through TURN can have us pair with its relayed
+   * address as a PEER-REFLEXIVE candidate (RFC 8445 §7.3.1.3). That only wins when the direct path
+   * failed — exactly the case the strict model promises to fail on — so we check rather than assume.
+   *
+   * A refusal goes through the SAME terminal path as a direct ICE failure (`onIceFailure` →
+   * `onIceFailed` → the owner's `failDirect`, with the switch-to-Reliable hint), and `onOpen` never
+   * fires, so the owner never reaches an authenticated state and NOT ONE BYTE crosses a relayed path.
+   * Off in Reliable (relay allowed), and a stats read that fails or reports nothing selected is
+   * treated as "no evidence of a relay" — we do not tear down a working connection over a missing API.
+   */
+  private async openChannelUnlessRelayed(): Promise<void> {
+    if (this.closed) return;
+    if (this.filterRelay && (await this.selectedPathIsRelayed())) {
+      if (import.meta.env.DEV) console.warn('[webrtc] selected path is relayed (Max-privacy) — refusing');
+      this.onIceFailure();
+      return;
+    }
+    if (this.closed) return; // the await above yields — the owner may have torn us down meanwhile
+    this.handlers.onOpen?.();
+  }
+
+  /** Does the SELECTED candidate pair terminate on a relay — either typed `relay`, or an endpoint we
+   *  dropped as one (the peer-reflexive bypass)? False when stats are unavailable or nothing is
+   *  selected yet: absence of evidence, not evidence of a relay. */
+  private async selectedPathIsRelayed(): Promise<boolean> {
+    const pc = this.pc;
+    if (!pc) return false;
+    let entries: StatsEntry[];
+    try {
+      const report = await pc.getStats();
+      entries = [];
+      report.forEach((value: unknown) => entries.push(value as StatsEntry));
+    } catch {
+      return false; // getStats unsupported/rejected — nothing to judge on
+    }
+    return isForbiddenRemoteCandidate(true, selectedRemoteCandidate(entries), this.droppedRelayEndpoints);
   }
 
   private waitForDrain(ch: RTCDataChannel): Promise<void> {

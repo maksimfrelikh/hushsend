@@ -421,15 +421,16 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   *informative* guess needs the DataChannel (the confirmation tag rides it), and both of its outcomes —
   tag mismatch, or channel close before `established` — are counted regardless of signaling presence.
   (→ § Signaling WS lifecycle.)
-- [ ] **(c) Strict relay filter — REVIEWED 2026-09-12: does NOT hold as claimed. See the finding
-  below** ("Max-privacy can still be relayed via a peer-reflexive candidate"). The filter is correct
-  for what it does — it drops every SIGNALLED `typ relay` candidate and never requests TURN — but that
-  is not the same as "no relay path can complete on our side", because ICE also learns candidates it
-  was never told about. (→ CLAUDE.md § Privacy mode + ICE / Max-privacy strict model.)
+- [x] **(c) Strict relay filter — REVIEWED 2026-09-12: did NOT hold as claimed → FIXED the same day.**
+  The filter is correct for what it does — it drops every SIGNALLED `typ relay` candidate and never
+  requests TURN — but that is not the same as "no relay path can complete on our side", because ICE
+  also learns candidates it was never told about. Closed by verifying the path we actually got (see
+  the finding below, now DONE). (→ CLAUDE.md § Privacy mode + ICE / Max-privacy strict model.)
 
 ### Findings from the 2026-09-12 pass (actionable)
 
-- [ ] **Max-privacy can still be relayed via a PEER-REFLEXIVE candidate (breaks the STRICT claim).**
+- ✅ **Max-privacy can still be relayed via a PEER-REFLEXIVE candidate (broke the STRICT claim) —
+  FIXED 2026-09-12.**
   `shouldDropCandidate` filters candidates we ADD (`PeerConnection.addIce`); it cannot filter the ones
   ICE **learns**. Per RFC 8445 §7.3.1.3 an agent that receives a STUN binding request from a transport
   address matching no known remote candidate creates a **peer-reflexive remote candidate** and runs a
@@ -444,15 +445,26 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   SAS/PAKE are untouched and no MITM is enabled; what breaks is "Max privacy ⇒ your traffic never
   transits a relay", since the relay (our own coturn, which the threat model treats as UNTRUSTED) then
   sees both IPs, timing and volume, and the user was told that could not happen.
-  **Fix (cheap, precise):** remember the address of every candidate dropped by the filter, then once
-  the transport is up inspect `pc.getStats()` for the selected candidate pair and fail terminally
-  (the existing `failDirect` / `DIRECT_FAIL_REASON` path) when the selected remote address is one of
-  them — or when `remoteCandidateType === 'relay'`. Check at **channel-open, before `established`**, so
-  no file byte can cross a relayed path. Do NOT blanket-reject `prflx`: legitimate NAT mappings
-  produce it on genuinely direct paths. There is currently **no `getStats` call anywhere in `src/`** —
-  the selected pair is never inspected.
-  **Confirm on real devices (TESTPLAN § C4):** Max ↔ Reliable, force the direct path to fail, then read
-  the Max side's selected pair in `chrome://webrtc-internals`. `relay`/`prflx`-to-the-relay ⇒ confirmed.
+  **Fix as built:** `PeerConnection.addIce` now records the endpoint of every candidate the filter
+  drops (`relayCandidateEndpoint` → `endpointKey`, `address|port` — `|` because IPv6 is full of
+  colons), and `openChannelUnlessRelayed` runs at DataChannel open **before `onOpen` reaches the
+  SessionController**: it reads `pc.getStats()`, resolves the selected pair with
+  `selectedRemoteCandidate` (transport `selectedCandidatePairId` → Firefox `selected` →
+  nominated+succeeded → succeeded) and refuses via `isForbiddenRemoteCandidate` when the remote is
+  typed `relay` OR sits on a dropped endpoint. A refusal reuses the terminal direct-failure path
+  (`onIceFailure` → `onIceFailed` → `failDirect` + switch-to-Reliable hint) and `onOpen` never fires,
+  so **no byte crosses a relayed path**. Deliberately NOT blanket-rejecting `prflx` (legitimate NAT
+  mappings produce it on direct paths), and unavailable/empty stats read as "unknown", never "relay" —
+  a missing API must not tear down a working connection. 15 unit tests in `relax.test.ts` cover both
+  pure halves (including the IPv6 and Firefox-`ip` shapes); the e2e suite covers the glue by virtue of
+  every test needing a channel to open under Max-privacy.
+  **Still to confirm on real devices (TESTPLAN § C4):** Max ↔ Reliable with the direct path forced to
+  fail — the Max side must now land on `failed` + the hint, and `chrome://webrtc-internals` must show
+  no relayed selected pair.
+  **Residual (open):** the check runs at channel-open only. A mid-session ICE **re-nomination** onto a
+  learned relay path (the direct path dies later, the relayed prflx pair takes over) is not re-checked.
+  Re-running the check on `iceconnectionstatechange` would cover it, but tearing down a live transfer
+  on a stats read needs its own care — left deliberate and documented rather than half-done.
 - [ ] **No client-side liveness deadline on the words / link / qr key-confirmation path.** `room`/SAS
   has `armSasTimeout` (pre-SAS + comparison, 120 s) and reconnect has `armReconnectTimeout` (120 s),
   but the 1:1 confirm path has **none**: a peer that opens the DataChannel and then simply goes silent

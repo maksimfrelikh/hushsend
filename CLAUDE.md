@@ -573,15 +573,26 @@ enforce it in Max-privacy, then a direct failure is **terminal**:
   left in **`src/core/relax.ts`**), so a relay candidate the peer SIGNALS is never added on our side.
   The filter is **fixed at construction** (`filterRelay = privacyMode === 'max'`) — Max-privacy never
   flips it. In Reliable the filter is off (relay allowed).
-- ⚠️ **KNOWN GAP (audit 2026-09-12) — the filter covers candidates we ADD, not the ones ICE LEARNS.**
-  A peer relaying through coturn sends its connectivity checks FROM the relayed address, and RFC 8445
-  §7.3.1.3 has our agent learn that address as a **peer-reflexive** remote candidate and pair with it —
-  the same address we just dropped as `typ relay`. It only bites when the direct path fails (otherwise
-  the direct pair wins on priority), i.e. exactly the case this model exists for, and only in a
-  **mixed-privacy** pair (Max ↔ Reliable; Max ↔ Max has no relay anywhere). Confidentiality is
-  unaffected (DTLS + SAS/PAKE); the **privacy promise** is what breaks. Until the fix lands, read
-  "Max-privacy never relays" as "never *offers or accepts a signalled* relay". Fix + the real-device
-  confirmation are tracked in **BACKLOG.md § Security audit / Findings**.
+- **Selected-path check at channel-open (added 2026-09-12 — closes the audit finding).** Mechanisms 1+2
+  are NOT sufficient alone: they cover candidates we ADD, not the ones ICE **learns**. A peer relaying
+  through coturn sends its connectivity checks FROM the relayed address, and RFC 8445 §7.3.1.3 has our
+  agent learn that address as a **peer-reflexive** candidate and pair with it — the same address we
+  just dropped as `typ relay`. It bites only when the direct path fails (otherwise the direct pair wins
+  on priority), i.e. exactly the case this model exists for, and only in a **mixed-privacy** pair
+  (Max ↔ Reliable; Max ↔ Max has no relay anywhere). So the PeerConnection now **verifies the path it
+  actually got**: every dropped relay candidate's endpoint is remembered (`relayCandidateEndpoint` →
+  `droppedRelayEndpoints`), and at DataChannel open — **BEFORE `onOpen` reaches the SessionController**
+  — `openChannelUnlessRelayed` reads `pc.getStats()`, resolves the selected pair
+  (`selectedRemoteCandidate`, engine-agnostic: transport `selectedCandidatePairId` → Firefox
+  `selected` → nominated+succeeded → succeeded) and refuses via `isForbiddenRemoteCandidate` when the
+  remote is typed `relay` OR sits on a dropped endpoint. A refusal takes the SAME terminal path as a
+  direct ICE failure (`onIceFailure` → `onIceFailed` → `failDirect` + hint) and `onOpen` never fires,
+  so **no byte can cross a relayed path**. A `prflx` remote we never dropped is ALLOWED — legitimate
+  NAT mappings produce those on genuinely direct paths. Unavailable/empty stats ⇒ "unknown", not
+  "relay": we never tear down a working connection over a missing API. `relax.test.ts` covers both pure
+  halves; the browser-side confirmation is **TESTPLAN § C4**.
+  - **Residual:** the check runs at channel-open. A mid-session ICE **re-nomination** onto a learned
+    relay path (e.g. the direct path dies later) is not re-checked — noted in BACKLOG § Security audit.
 - **ICE-fail → terminal `failed` + hint**: an ICE failure (`iceconnectionstatechange` /
   `connectionstatechange` → `failed`) while filtering routes to `onIceFailed` (one-shot), which calls
   `failDirect(DIRECT_FAIL_REASON)` → close + `fail()` → the **existing `failed` state** (no new FSM
@@ -960,11 +971,15 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   `pendingPeerSignals` and replayed by `flushPendingPeerSignals` after the PC is built, then cleared on
   every teardown — the **mixed-privacy / link-qr deadlock fix** (`SessionController.pendingPeerSignals.test.ts`;
   see **Privacy mode + ICE** §).
-- ✅ `src/core/relax.ts` — Max-privacy STRICT relay filter (step 6d, pure + `relax.test.ts`): just the
-  relay-candidate predicate (`isRelayCandidate`/`shouldDropCandidate` — Max-privacy ALWAYS drops the
-  peer's `typ relay` candidates, off in Reliable). The live wiring (filter in `PeerConnection.addIce`;
-  `onIceFailed` → `failDirect` → the existing `failed` state with a switch-to-Reliable hint) is in
-  PeerConnection + SessionController. **Max-privacy never relays** — the relax-offer / `connection.relax`
+- ✅ `src/core/relax.ts` — Max-privacy STRICT relay enforcement (step 6d + the 2026-09-12 audit fix;
+  pure + `relax.test.ts`): the relay-candidate predicate (`isRelayCandidate`/`shouldDropCandidate` —
+  Max-privacy ALWAYS drops the peer's `typ relay` candidates, off in Reliable) AND the
+  selected-path check that closes the peer-reflexive bypass (`relayCandidateEndpoint`/`endpointKey`
+  record what was dropped; `selectedRemoteCandidate` reads the selected pair out of a `getStats()`
+  report across engine shapes; `isForbiddenRemoteCandidate` is the verdict). The live wiring (filter +
+  endpoint recording in `PeerConnection.addIce`; `openChannelUnlessRelayed` gating `onOpen` at
+  channel-open; `onIceFailed` → `failDirect` → the existing `failed` state with a switch-to-Reliable
+  hint) is in PeerConnection + SessionController. **Max-privacy never relays** — the relax-offer / `connection.relax`
   / `relax` signaling frame / `relaxConnection`/`declineRelax` / `restartIce`-over-relay machinery was
   removed (strict model, this pass).
 - ✅ `src/ui/` — **real, status-driven screens (steps 5a + 5b)**, built on kit tokens (monochrome,
@@ -1041,10 +1056,11 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   **BACKLOG.md**.
 - 🔍 **Internal security-audit pass done 2026-09-12** (reasoning + code review, no devices): the
   reconnect create/join role and the `peerLeftAbortsPairing` narrowing both hold (with sharper
-  arguments now recorded); the **Max-privacy strict relay claim does NOT** — a peer-reflexive
-  candidate can still complete a relayed path in a mixed-privacy pair. Verdicts, three actionable
-  findings, and the doc corrections they forced are in **BACKLOG.md § Security audit**. An INDEPENDENT
-  audit is still wanted before a public launch.
+  arguments now recorded); the **Max-privacy strict relay claim did NOT** — a peer-reflexive candidate
+  could still complete a relayed path in a mixed-privacy pair, **now fixed** by the selected-path check
+  above (§ Max-privacy strict model). Verdicts, the remaining findings, and the doc corrections they
+  forced are in **BACKLOG.md § Security audit**. An INDEPENDENT audit is still wanted before a public
+  launch.
 
 ## Known residuals / deferred
 - **`pairingId` linkability** (reconnect) — **restated after the 2026-09-12 audit; the earlier text

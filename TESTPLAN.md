@@ -142,14 +142,18 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       (a Reliable answerer still fetching TURN creds used to silently drop the offer). Either it
       connects directly, or the Max-privacy side fails closed with the hint — never a stuck "agreeing
       on keys".
-- [ ] **C4 · Max-privacy never relays — tests the 2026-09-12 audit finding.** During C3 confirm on the
+- [ ] **C4 · Max-privacy never relays — verifies the 2026-09-12 audit fix.** During C3 confirm on the
       Max-privacy side that **no `turn-request` frame is sent** (devtools → WS → Messages). Then force the
       DIRECT path to fail while the peer stays Reliable (easiest: put both on mobile networks, or use a
       restrictive Wi-Fi) and read the Max side's **selected candidate pair** in `chrome://webrtc-internals`.
-      Expected by the strict model: **terminal `failed` + the switch-to-Reliable hint**. If instead it
-      **connects**, inspect the selected pair's remote candidate — `relay`, or `prflx` whose address equals
-      the peer's TURN relay address, **confirms the peer-reflexive bypass** (BACKLOG § Security audit /
-      Findings). Record the candidate pair either way: this case is the whole reason the finding is open.
+      Expected: **terminal `failed` + the switch-to-Reliable hint**, and no relayed selected pair. The
+      audit found that ICE can LEARN the peer's relay address as a `prflx` candidate even though we drop
+      the signalled `typ relay` one; the fix refuses such a path at channel-open, before any byte. So:
+      **`failed` ⇒ the fix works**; a **connection whose selected remote candidate is `relay`, or `prflx`
+      at the peer's TURN address, means the gate did not catch it** — capture the full candidate-pair
+      table and reopen BACKLOG § Security audit / Findings.
+      Worth pairing with a control: the same Max ↔ Reliable run where the direct path DOES work must
+      still connect normally (the gate must not reject a legitimate `prflx` from a NAT mapping).
 - [ ] **C5 · mobile-to-mobile** — IPH (LTE) ↔ AND-1 (different LTE / other Wi-Fi), Reliable. The
       carrier-NAT-to-carrier-NAT case the desktop pair never exercises.
 
