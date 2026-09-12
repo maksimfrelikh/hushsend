@@ -27,6 +27,17 @@ import { expect, type Page } from '@playwright/test';
  */
 export const BASE = `http://localhost:${process.env.E2E_VITE_PORT ?? '5173'}`;
 
+/**
+ * Which Chromium to drive. Default is the installed Google Chrome (`channel: 'chrome'`), but a
+ * machine may have a different Chromium build and no Chrome at all — Brave, Chromium itself, Edge.
+ *   E2E_CHROME_PATH=/path/to/binary   → launch that binary (Brave: the app's MacOS/… executable)
+ *   E2E_CHROME_CHANNEL=msedge         → a channel Playwright knows
+ *   E2E_CHROME_CHANNEL=               → empty: Playwright's own bundled Chromium
+ * A path wins over a channel, because the two cannot be combined.
+ */
+export const CHROME_PATH = process.env.E2E_CHROME_PATH ?? '';
+export const CHROME_CHANNEL = CHROME_PATH ? '' : (process.env.E2E_CHROME_CHANNEL ?? 'chrome');
+
 const norm = (s: string | null): string => (s ?? '').trim().replace(/\s+/g, ' ');
 
 /** A creates a words session; returns the 5-word credential read from A's UI. */

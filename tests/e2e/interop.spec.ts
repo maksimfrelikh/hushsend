@@ -11,7 +11,7 @@ import {
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { BASE, createLink, fragmentOf } from './helpers';
+import { BASE, CHROME_CHANNEL, CHROME_PATH, createLink, fragmentOf } from './helpers';
 
 /**
  * CROSS-ENGINE interop (step 6e — the part that needs no real devices). The rest of the suite drives
@@ -56,7 +56,11 @@ const ENGINES: Record<string, Engine> = {
   chrome: {
     name: 'chrome',
     type: chromium,
-    options: { channel: 'chrome', args: ['--disable-features=WebRtcHideLocalIpsWithMdns'] },
+    options: {
+      ...(CHROME_CHANNEL ? { channel: CHROME_CHANNEL } : {}),
+      ...(CHROME_PATH ? { executablePath: CHROME_PATH } : {}),
+      args: ['--disable-features=WebRtcHideLocalIpsWithMdns'],
+    },
   },
   firefox: {
     name: 'firefox',

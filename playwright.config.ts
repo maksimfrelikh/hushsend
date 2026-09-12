@@ -1,4 +1,5 @@
 import { defineConfig } from '@playwright/test';
+import { CHROME_CHANNEL, CHROME_PATH } from './tests/e2e/helpers';
 
 /**
  * E2E for step-2 file transfer. Drives two tabs in one real Chromium through the
@@ -44,8 +45,10 @@ export default defineConfig({
       name: 'chromium',
       testIgnore: /interop\.spec\.ts/,
       use: {
-        channel: 'chrome',
+        // Chrome by default; E2E_CHROME_PATH / E2E_CHROME_CHANNEL redirect it (see helpers).
+        ...(CHROME_CHANNEL ? { channel: CHROME_CHANNEL } : {}),
         launchOptions: {
+          ...(CHROME_PATH ? { executablePath: CHROME_PATH } : {}),
           // Expose raw loopback host candidates instead of mDNS .local names so two tabs in
           // the same browser reliably connect without any STUN/TURN round-trip.
           args: ['--disable-features=WebRtcHideLocalIpsWithMdns'],
