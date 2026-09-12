@@ -86,7 +86,12 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: 'node server/signaling-server.js',
+      // `server/` is its OWN npm package (it depends on `ws`), and the root `npm ci` does not touch
+      // it — so a fresh clone fails here with a bare ERR_MODULE_NOT_FOUND from a WebServer process,
+      // which reads like a broken repo rather than a missing install. Install it on demand, once:
+      // the guard keeps the cost at a single `existsSync` on every later run.
+      command:
+        "node -e \"require('fs').existsSync('server/node_modules/ws')||require('child_process').execSync('npm --prefix server ci --omit=dev',{stdio:'inherit'})\" && node server/signaling-server.js",
       url: `http://127.0.0.1:${SIGNALING_PORT}/health`,
       reuseExistingServer: !process.env.CI,
       timeout: 30_000,
