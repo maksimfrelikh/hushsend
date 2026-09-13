@@ -14,10 +14,19 @@ Read this file, then `BACKLOG.md` § Security audit for the live list. `CLAUDE.m
 and § Crypto carry the mechanisms. Do not answer the readiness question from `README.md` alone — it
 is written for a general audience, not for someone whose safety depends on the details.
 
-**Do not trust this file over the code.** Every claim below was verified on 2026-09-12; the repo rule
-is that docs which drift are bugs. If you are about to rely on something here, re-check it — the
-audits that produced this document found three complete breaks in claims that had been written down
-confidently.
+**Do not trust this file over the code.** Claims below were verified on 2026-09-12 and re-verified
+against the LIVE HOST and the SERVED bundle on 2026-09-13; the repo rule is that docs which drift are
+bugs. If you are about to rely on something here, re-check it — the audits that produced this document
+found three complete breaks in claims that had been written down confidently, and the 2026-09-13 pass
+found three more (F1/F2/F4, all fixed — `BACKLOG.md` § Third pass) plus one unlisted exposure (F3,
+below). The pattern is stable enough to plan around: **the breaks are where the prose is most
+confident**, and twice now the false sentence was inside the code's own comments.
+
+One thing that pass established is worth carrying forward, because it changes the cost of item 1
+below: **the production build is byte-for-byte reproducible.** A fresh `vite build` with the deploy
+script's environment reproduced all eight files of the served tree exactly, JS included. The hard half
+of "verifiable delivery" already works; what is missing is only publishing hashes from somewhere the
+app server cannot silently change.
 
 ---
 
@@ -44,7 +53,17 @@ is not something the architecture attempts to conceal.
 - **No file bytes before authentication**, both directions, enforced in the core rather than the UI.
 - **The signaling socket closes the moment a pair authenticates**, for every method including
   reconnect. A server that stays off the path therefore learns no session duration.
-- **Max privacy never requests a TURN relay**, and unsolicited TURN credentials are inert.
+- **Max privacy never requests a TURN relay**, and unsolicited TURN credentials are inert. Verified
+  2026-09-13 against the SERVED bundle, not the source: the ICE-server builder pushes the TURN entry
+  only when `mode === "reliable"`.
+- **Max privacy opens a channel only on a path it positively established is direct** (since
+  2026-09-13). The channel-open gate used to treat "ICE has not published a selection yet" as "no
+  relay" and open anyway — finding F1, see `BACKLOG.md` § Third pass. It now polls for a judgement and
+  refuses anything still undetermined at the deadline, down the same terminal path as a relay.
+- **A detected interposer is now visible to the user** (since 2026-09-13). It was not: the three-way
+  attestation verdict was projected two-way, so `mismatch` rendered exactly like the everyday "this
+  browser cannot tell" state, under copy blaming the browser — finding F2. It is still ADVISORY (see
+  below); what changed is that the detection now has somewhere to appear.
 - **CPace is a faithful implementation** — byte-exact against the published CFRG draft-21 vectors.
   One online guess per session against ~41 bits, capped at 10 attempts.
 - **No third-party network contact at all.** The app makes zero HTTP requests: no analytics, no error
@@ -67,10 +86,15 @@ not help (the same server emits the header), SRI does not help (the same server 
 hash), and CSP does not govern WebRTC at all, so a hostile bundle can exfiltrate over an
 `RTCPeerConnection` outside any policy.
 
-**Status: open, and nothing in the repo addresses it.** Closing it requires delivering the client
-some way the server cannot silently change: a reproducible build with hashes published and mirrored
-independently, a browser extension, or a desktop build. Until then the honest statement is that
-hushsend protects against a *compromised or curious relay*, not against a *compelled publisher*.
+**Status: partly addressed since 2026-09-13 — the detection half exists, the prevention half does
+not.** The build is reproducible and CI enforces that; an independent machine publishes and signs the
+expected hashes; `deploy/verify-bundle.sh` checks a live deployment against them from any network.
+A compelled operator can therefore no longer change the delivered client *silently*. They can still
+change it — and a browser that has already loaded the modified bundle has already lost, so this helps
+a watchdog, not the person being targeted at that moment. Prevention needs a client the server does
+not deliver at all: a browser extension, a desktop build, or an independent mirror. Until one of those
+exists the honest statement is unchanged in substance — hushsend protects against a *compromised or
+curious relay*, and against a *compelled publisher* only to the extent that somebody is looking.
 
 Moving the frontend to a CDN in a friendlier jurisdiction lowers the probability of compulsion but
 **adds** a party that can tamper, and still gives the user no way to detect it.
@@ -83,8 +107,10 @@ candidate; the relay filter only refuses `typ relay`, and a client cannot tell a
 candidate from the peer's because the peer's real address is only ever learned *from the server*.
 Contents stay unreadable. **Byte volume, exact session duration and per-file timing do not.**
 
-**Status: detection built, not enforced.** `core/pathAttest.ts` has the two peers attest, over the
-authenticated channel, to the addresses they can be reached at. Enforcing it was tried twice and
+**Status: detection built, SHOWN, not enforced.** `core/pathAttest.ts` has the two peers attest, over
+the authenticated channel, to the addresses they can be reached at. Since 2026-09-13 a `mismatch` is
+displayed as its own state with its own copy (finding F2 — before that it was indistinguishable from
+"this browser cannot tell", which is what Safari always reports). It still gates no bytes. Enforcing it was tried twice and
 withdrawn both times: it fails on honest Firefox↔Safari pairs — intermittently, one run in two —
 because WebKit cannot disable mDNS obfuscation and so cannot name the address it was reached on. An
 occasional false "someone is in between" destroys a transfer at random and teaches the user to
@@ -105,6 +131,29 @@ the peer to attest that same address, and the check passes. Today both are the s
 and during development all three services share one machine, which buys nothing. The strong form is
 **several independent STUN servers cross-checked by the client**, because it requires trusting no
 single operator; `VITE_STUN_URLS` is already a list, the comparison is not written.
+
+### 3b. That you used hushsend at all is visible to your network (new, 2026-09-13)
+
+There is no Encrypted Client Hello on this deployment, so the TLS handshake carries
+`hushsend.frelikh.dev` in **cleartext SNI** on every visit. An ISP or a state-level observer therefore
+learns "this person opened a privacy file-transfer tool" from **one side alone**, with no cooperation
+from anyone and without decrypting anything. For this audience that fact is frequently the one that
+is actually acted on — it is upstream of §4, which needs the transfer to happen at all.
+
+It is also one name and one IP, so it is trivially blockable, and the subdomain is public in
+Certificate Transparency logs. Note that the app, the signaling WebSocket and STUN/TURN all resolve to
+the **same address** (verified 2026-09-13: `hushsend.frelikh.dev` and `turn.hushsend.frelikh.dev` both
+→ 94.46.199.61), so that single name covers every service.
+
+**Status: SAID OUT LOUD 2026-09-13; the exposure itself is open.** The landing screen now carries a
+collapsed "What your network can still see" disclosure (`NetworkExposure`, testid
+`network-exposure`) stating this and § 4 in both languages, with the one action that helps — Tor or a
+VPN, on **both** sides. Collapsed on purpose: these are permanent properties of a direct transfer, not
+events, and a standing banner would be dismissed within a day and would train people to ignore the
+badges that DO report events.
+
+That changes what users are told, not what the network sees. Removing the exposure needs an onion
+service, a mirror on a domain that is not obviously this tool, or ECH — none of which exist here.
 
 ### 4. The social graph, to the network
 
@@ -162,10 +211,30 @@ guarantee is worse than an honest limitation: people calibrate their behaviour t
 
 ## The road to "yes", in order
 
-1. **Verifiable delivery** — reproducible build, published hashes, an independent mirror or an
-   extension. Largest single risk reduction available, and it is not a code change to hushsend.
+0. **Done 2026-09-13** — F1 (the strict gate no longer opens on an unverified path), F2 (a detected
+   interposer is no longer displayed as an ordinary Safari) and F4 (comments claiming controls that do
+   not exist). Hours of work, listed first because they were bugs rather than roadmap.
+1. **Verifiable delivery** — **FIRST STEP BUILT 2026-09-13; the rest is open.**
+   *Built:* CI now builds the bundle on a GitHub runner (a machine the site operator does not own),
+   **fails if the build stops being byte-for-byte reproducible**, publishes a SHA-256 manifest in the
+   public run summary and attaches a signed provenance attestation to a public transparency log.
+   `deploy/verify-bundle.sh` checks a live deployment against that manifest from anywhere; the deploy
+   script records the hashes it published.
+   *What that does and does not buy:* it does NOT help a browser that has already been served a
+   hostile bundle, and selective tampering aimed at one IP is caught only by someone checking from
+   that vantage point. It removes **"silently"**: the delivered client can no longer be changed
+   without the change being detectable by anyone who looks.
+   *Still open:* nobody checks on a schedule from an unrelated network; there is no independent
+   mirror; and there is no pre-delivered client (extension or desktop build) — which is the only form
+   that protects the person at the moment they load the page. Those remain the real answer, and each
+   of them needs the reference hash that now exists.
 2. **STUN under a different party**, ideally several cross-checked in the client. Precondition for
-   path attestation ever becoming a control.
+   path attestation ever becoming a control. Nothing exists until the services actually run on
+   separate machines under separate operators: today all three resolve to one IP.
+2b. ✅ **Done 2026-09-13 — the SNI exposure (§3b) and the direct-connection exposure (§4) are now
+   stated in the interface**, not only in this file, with the Tor/VPN-on-both-sides advice. Cheapest
+   honesty available, and it was missing: the privacy toggle only ever said the PEER sees your IP,
+   which is a far smaller claim than either of these.
 3. **The real-device pass** — `TESTPLAN.md`, all 43 cases, with the attestation verdict recorded per
    engine pair.
 4. **Path attestation as a control**, decided from that data rather than from a loopback run.

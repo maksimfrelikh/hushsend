@@ -627,9 +627,21 @@ enforce it in Max-privacy, then a direct failure is **terminal**:
   remote is typed `relay` OR sits on a dropped endpoint. A refusal takes the SAME terminal path as a
   direct ICE failure (`onIceFailure` → `onIceFailed` → `failDirect` + hint) and `onOpen` never fires,
   so **no byte can cross a relayed path**. A `prflx` remote we never dropped is ALLOWED — legitimate
-  NAT mappings produce those on genuinely direct paths. Unavailable/empty stats ⇒ "unknown", not
-  "relay": we never tear down a working connection over a missing API. `relax.test.ts` covers both pure
-  halves; the browser-side confirmation is **TESTPLAN § C4**.
+  NAT mappings produce those on genuinely direct paths.
+  **Unavailable/empty stats ⇒ REFUSE (changed 2026-09-13, finding F1).** This used to read "unknown,
+  not relay — we never tear down a working connection over a missing API", and that was the hole:
+  `selectedRemoteCandidate` returns null until ICE publishes a selection, so the gate waved through
+  every path it had simply not looked at yet. Its own docstring already said a caller must read null
+  as unknown NEVER as safe, and the condition is real — `SessionController.verifyPath` needed a 5 s
+  poll for exactly this, and runs LATER in the session than the gate. So the rule is now POSITIVE:
+  **open only on a path established to be direct.** `relax.classifySelectedPath` polls for a
+  judgement (`SELECTED_PAIR_TIMEOUT_MS` 5 s / `SELECTED_PAIR_POLL_MS` 100 ms), retrying on a null read
+  so a transient `getStats()` rejection does not decide the session, and anything still
+  `undetermined` at the deadline is refused down the same terminal path as a relay. Measured
+  2026-09-13: chromium, firefox and webkit each report a selected pair on the FIRST read at
+  channel-open (0–1 ms, 3/3 runs per engine), so a healthy connection never waits and the deadline is
+  insurance, not latency. `relax.test.ts` covers both pure halves **and the policy** (including the
+  reproduction of the old wave-through); the browser-side confirmation is **TESTPLAN § C4**.
   - **Residual:** the check runs at channel-open. A mid-session ICE **re-nomination** onto a learned
     relay path (e.g. the direct path dies later) is not re-checked — noted in BACKLOG § Security audit.
 - **ICE-fail → terminal `failed` + hint**: an ICE failure (`iceconnectionstatechange` /
@@ -1173,10 +1185,23 @@ arrives → the 15 s deadline fails the session). A TERMINATING attacker never r
 fingerprint binding stops it at the SAS / key-confirmation step.
 
 - **Verdicts.** `ok` (selected address attested), `unknown` (nothing to judge on — no selected
-  address, or an engine that reports no usable candidates: **allowed**, because a missing API must
-  not tear down a working connection), `mismatch` → terminal, same teardown as an authenticity
-  failure. Projected DEV-only as `dev.pathVerdict` / `dev.pathSelected`
-  (`path-verdict` / `path-selected` testids).
+  address, or an engine that reports no usable candidates), `mismatch` (checked, and the address we
+  selected is in neither of the peer's). **All three are advisory: none tears anything down.** This
+  bullet used to end "`mismatch` → terminal, same teardown as an authenticity failure", which the code
+  has never done — and two audits read past it because it was phrased as a specification. Corrected
+  2026-09-13 (finding F4) together with the two call-site comments that claimed the attestation
+  "gates file bytes".
+- **Projection (changed 2026-09-13, finding F2).** The verdict now reaches the USER three-way as
+  `connection.pathCheck`, not two-way. It used to be collapsed to `pathConfirmed: 'yes' | 'no'`, so
+  `mismatch` — the only positive evidence of an interposer this system can produce — rendered
+  identically to `unknown`, the everyday outcome on Safari, under a hint whose stated cause ("this
+  browser does not expose enough to check it") is false on a mismatch. Since the DEV diagnostics that
+  hold the real verdict are tree-shaken out of production, that left the detection with no
+  representation anywhere a user could see it. `mismatch` now has its own label
+  (`⚠ route did not match`), its own weight (`hs-badge--alert`) and its own copy, which names BOTH
+  causes — honest NAT/Safari quirk, or someone carrying the connection — and gives an action, rather
+  than accusing. Still projected DEV-only in full as `dev.pathVerdict` / `dev.pathSelected`
+  (`path-verdict` / `path-selected` testids); the user-facing badge carries `data-path-verdict`.
 - ⚠️ **ADVISORY — it does NOT tear down and does NOT gate bytes.** It was built as a control (fail
   closed on `mismatch`, gate `sendFiles`/`acceptIncoming`) and the gate was REMOVED after a
   firefox↔webkit pair on one LAN failed it reproducibly **with no attacker present**. The cause is
@@ -1185,7 +1210,10 @@ fingerprint binding stops it at the SAS / key-confirmation step.
   **cannot attest to the address it was actually reached on**. That is what real Safari does,
   including iOS. A control that fails closed there breaks honest transfers on a primary target
   platform — worse than the leak it closes. Measured, not assumed: with the gate in place
-  `interop · firefox → webkit` failed every run; without it, 9/9 interop + 96/96 engine tests pass.
+  `interop · firefox → webkit` failed reproducibly, and on the RE-TEST after the "wait for ICE to
+  select a pair" fix it failed **intermittently, one run in two** — which is worse, not better, since
+  a spurious "someone is in between" both destroys an honest transfer at random and trains the user
+  to dismiss the warning that matters. Without the gate, 9/9 interop + 96/96 engine tests pass.
 - **What it buys today: evidence.** The verdict is logged and projected, so the real-device pass can
   record what each engine actually reports — precisely the input needed to decide whether this can
   become a control (e.g. by having each side attest the address it SELECTED and checking that against

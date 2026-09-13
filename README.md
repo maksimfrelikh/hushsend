@@ -65,13 +65,47 @@ pairing is an SSH-style hard stop, never a dismissable toast.
 > the honest statement is: **nothing on the path can read your files, and a relay is refused — but a
 > hostile server can be on the path and learn who is talking to whom.**
 
+## Verifying what you were served
+
+The server that this threat model calls **untrusted** is also the server that hands you the
+JavaScript. That is the largest open risk in the product ([THREATMODEL.md](THREATMODEL.md) § 1) and
+neither CSP nor SRI touches it, because the same server emits both.
+
+What exists today is a second opinion about what the bytes should be. Every push builds the bundle on
+a GitHub runner — a machine the site operator does not control — publishes the SHA-256 of every file
+in the run summary, and attaches a signed provenance attestation recorded in a public transparency
+log. The build is **byte-for-byte reproducible**, and CI fails if it ever stops being: without that,
+"the live site does not match CI" would be the ordinary outcome and nobody would investigate a real
+one.
+
+So anyone can check the live deployment against an independent build:
+
+```bash
+bash deploy/verify-bundle.sh --manifest <manifest from the CI run for that commit>
+```
+
+**Read the limits before relying on it** — they are in the header of
+[`deploy/verify-bundle.sh`](deploy/verify-bundle.sh), and they matter:
+
+- It does nothing for a browser that has **already** been served a hostile bundle. Checking afterwards
+  from the same machine is shutting the door behind you.
+- A bundle can be served selectively, to one IP. That is caught only by someone checking **from that
+  vantage point** — an argument for several people checking from several networks, not for checking
+  once.
+- It verifies that the bytes match a build of a given commit. It says nothing about whether that
+  commit is honest; for that, read the source.
+
+What it removes is *silently*. An operator can no longer change the delivered client without the
+change being detectable by anyone who looks — and it is the precondition for the stronger answers
+(an extension or desktop build shipped through a store, or an independent mirror), none of which can
+be verified without a reference hash.
+
 ## Status
 
 **Feature-complete and deployed.** All four methods, reconnect, the mesh lobby, TURN, i18n (EN/RU),
-light/dark, and the deployment are built and live. **231 vitest tests** (206 unit + 25 integration)
-and a Playwright e2e suite — **33 per engine** across chromium / firefox / webkit, plus a phone
-profile and 5 cross-engine pairs — cover the protocol paths. Counts verified 2026-09-12; refresh them
-here whenever the suite grows.
+light/dark, and the deployment are built and live. **243 vitest tests** and a Playwright e2e suite —
+**34 per engine** across chromium / firefox / webkit, plus a phone profile and 5 cross-engine pairs —
+cover the protocol paths. Counts verified 2026-09-13; refresh them here whenever the suite grows.
 
 A second internal audit on **2026-09-12** (modelling a fully malicious signaling server, not just a
 passive one) found and fixed three complete breaks — SAS certificate grinding, server-chosen pairing

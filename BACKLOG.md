@@ -551,8 +551,8 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   typed `relay` OR sits on a dropped endpoint. A refusal reuses the terminal direct-failure path
   (`onIceFailure` → `onIceFailed` → `failDirect` + switch-to-Reliable hint) and `onOpen` never fires,
   so **no byte crosses a relayed path**. Deliberately NOT blanket-rejecting `prflx` (legitimate NAT
-  mappings produce it on direct paths), and unavailable/empty stats read as "unknown", never "relay" —
-  a missing API must not tear down a working connection. 15 unit tests in `relax.test.ts` cover both
+  mappings produce it on direct paths). **Unavailable/empty stats used to read as "unknown, never
+  relay" — that was finding F1, fixed 2026-09-13: see the F1 entry below.** Unit tests in `relax.test.ts` cover both
   pure halves (including the IPv6 and Firefox-`ip` shapes). **The REFUSAL branch now has direct e2e
   coverage too (2026-09-12):** `?forceRelayPath=1` (DEV-only, tree-shaken) stubs the gate's VERDICT and
   nothing else, so the refusal, teardown and the reason the user sees are all production code —
@@ -595,6 +595,120 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   **Possible fix:** announce a *blinded* id instead of the raw one — e.g. `HMAC(pairingId, fp_min‖fp_max)`
   — which a peer holding the pin can recognise by recomputation while a stranger learns nothing
   correlatable across sessions. Folds naturally into the reconnect-in-lobby work.
+
+### Third pass, 2026-09-13 — verification against the live host (findings + fixes)
+
+This pass checked the DEPLOYMENT and the SERVED bundle rather than the source, on the reasoning that
+the previous two passes both found breaks where the prose was most confident. Most claims held and
+are now backed by evidence rather than assertion (served bundle == a fresh rebuild, byte-identical;
+DEV knobs genuinely tree-shaken; TURN pushed only in Reliable; signaling logs 3 lines since boot;
+nginx logs 0 lines for this vhost; the socket-close and `ok`-verdict claims driven on a real engine).
+Four things did not hold. Three are fixed below; the fourth is new scope and is listed under § Ops.
+
+- ✅ **(F1) The Max-privacy channel-open gate read "cannot tell" as "no relay" — FIXED 2026-09-13.**
+  `openChannelUnlessRelayed` asked `selectedPathIsRelayed()`, which took `isForbiddenRemoteCandidate`'s
+  `!remote → false` branch for an answer. But `selectedRemoteCandidate` returns null until ICE
+  publishes a selection, and **its own docstring already said the caller must read that as unknown,
+  NEVER as safe** — so the gate whose entire purpose is to make STRICT true could open a channel on a
+  path it had not looked at. Not theoretical: this codebase's other consumer of the same resolver,
+  `SessionController.verifyPath`, needed a 20×250 ms poll for exactly this condition, and it runs
+  LATER in the session than the gate does. Same class as the peer-reflexive finding above — a control
+  that is silently inert — and reachable in the live deployment, where `TURN_SECRET`/`TURN_URLS` are
+  configured and Max ↔ Reliable pairs therefore exist.
+  **Fix as built:** the policy moved into `relax.classifySelectedPath` (pure, injected clock/sleep/
+  stats-reader, so it is unit-testable without a browser) and returns `direct` | `relayed` |
+  `undetermined`. The gate now opens ONLY on `direct`; `undetermined` takes the same terminal refusal
+  path as `relayed`. A null read CONTINUES the poll rather than ending it, so a transient `getStats()`
+  rejection does not decide the session, while an engine with no `getStats()` at all never yields a
+  judgement and is refused — the honest outcome, since the Max-privacy promise cannot be kept on an
+  engine that cannot report its own path.
+  **Measured before changing the policy** (the point being not to repeat the mistake of deciding from
+  a loopback intuition): chromium, firefox and webkit each report a selected pair on the **first** read
+  after DataChannel open — 0–1 ms, 3/3 runs per engine — so a healthy connection never waits and the
+  5 s deadline is insurance, not latency. 9 unit tests in `relax.test.ts`, one of which reproduces the
+  old wave-through against the old expression. Full suites after the change: 243 unit,
+  firefox e2e 33/33, webkit+interop 38/38.
+- ✅ **(F2) A detected interposer was displayed identically to an ordinary Safari — FIXED 2026-09-13.**
+  `pathSettled` took `{ confirmed: boolean }` and stored `'yes' | 'no'`, so `mismatch` — the only
+  positive evidence this system can produce — collapsed onto `unknown`, which is the ORDINARY outcome
+  on Safari/iOS. Same badge, same class, same hint; and that hint states the cause as *"this browser
+  does not expose enough to check it. Safari never does"*, which on a mismatch is simply untrue — the
+  browsers exposed plenty, the check ran and disagreed. Because `Diagnostics` (which holds the real
+  verdict) is tree-shaken out of production — verified against the served bundle: `path-verdict`
+  appears 0 times — the detection had **no representation anywhere a user could see it**, while the
+  benign state it hid behind is common enough to train people to ignore it.
+  The original reasoning for collapsing — that a `mismatch` is not reliable enough to accuse anyone
+  with, since honest firefox↔webkit pairs produce it — is still right, and nothing here turns it into
+  an accusation. What was wrong was the consequence. **Fix as built:** `connection.pathCheck` carries
+  the verdict three-way; `mismatch` gets its own label (`⚠ route did not match`), its own weight
+  (`hs-badge--alert`, the inverted fill the design language already uses for danger) and its own copy,
+  which names BOTH causes and ends with something to do. `ok` shows no hint at all. Regression tests:
+  3 in `connectionSlice.test.ts` (the reducer could not even represent the difference before) and an
+  e2e in `privacy.spec.ts` driven by a new DEV-only `?forcePathMismatch=1` that stubs the VERDICT
+  only — badge, class, hint and the absence of a teardown are all production code — asserting the
+  mismatch side is distinct from both other states while the honest side stays `ok` with no hint.
+- ✅ **(F4) Code comments asserting controls that do not exist — FIXED 2026-09-13.** Two call sites
+  read `startPathAttestation(); // verify WHO is on the path — gates file bytes`, and `verifyPath`'s
+  docstring opened with "`mismatch` is a HARD STOP on the same terminal path as a SAS mismatch". The
+  body has never done either. CLAUDE.md § Path attestation carried the same claim
+  ("`mismatch` → terminal, same teardown as an authenticity failure"). This is the repo's own
+  documented failure mode — confident prose read as specification — having moved from the docs into
+  the code, where two audits passed over it. All four corrected, and the advisory status is now stated
+  at the top of the function that would have to implement the control.
+
+- ✅ **Verifiable delivery, first step — BUILT 2026-09-13.** THREATMODEL § 1's top-ranked risk, and the
+  pass found its hardest technical precondition already satisfied but unnoticed: **the production
+  build is byte-for-byte reproducible.** A fresh `vite build` with the deploy script's environment
+  reproduced all eight files of the served tree exactly, JS included. What was missing was only the
+  attestation half — CI ran typecheck/lint/vitest/e2e but never built the bundle.
+  **Built:** `.github/workflows/ci.yml` job `build-attest` builds on a GitHub runner, **builds twice
+  and fails unless the two are byte-identical** (without that guard a published hash is meaningless,
+  because "live ≠ CI" would become the ordinary outcome), publishes the SHA-256 manifest in the public
+  run summary, uploads it as an artifact, and attaches a signed provenance attestation via
+  `actions/attest-build-provenance` — verifiable with `gh attestation verify`, recorded in a public
+  transparency log. `deploy/build-env.sh` is now the single source of the VITE_* values baked into the
+  bundle (the deploy script and CI both source it — two copies that agree today would be a silent
+  break tomorrow, and the break would look like tampering). `deploy/bundle-manifest.sh` generates the
+  manifest for both sides; `deploy/verify-bundle.sh` checks a LIVE deployment against it.
+  **Verified end-to-end, not just written:** the verifier was run against production and matched all
+  8 files including the lazily-fetched `.wasm` whose path only appears inside the JS; both negative
+  cases (one altered hash, one manifest entry the host does not serve) exit 1 loudly; the CI step
+  sequence was executed locally and the two builds were byte-identical.
+  **Stated limits** (in `deploy/verify-bundle.sh`'s header, README and THREATMODEL, because
+  overclaiming here is the exact failure mode this repo keeps hitting): it does nothing for a browser
+  already served a hostile bundle; selective tampering at one IP is caught only by someone checking
+  from that vantage point; and it proves the bytes match a build of a commit, not that the commit is
+  honest. It removes "silently" — nothing more, and that is worth having.
+  **Still open:** no scheduled check from an unrelated network, no independent mirror, no
+  pre-delivered client (extension / desktop). Those are the forms that protect the user at load time.
+
+- ✅ **(F3, partial) The network exposures are now stated in the UI — 2026-09-13.** The pass found an
+  exposure listed nowhere: there is no ECH on this deployment, so the TLS handshake carries
+  `hushsend.frelikh.dev` in **cleartext SNI**, and an observer therefore learns "this person opened a
+  privacy file-transfer tool" from ONE side, without decrypting anything and before any transfer
+  happens. For this audience that fact is frequently the one acted on — it is upstream of the
+  social-graph residual, which at least requires a transfer to occur. Neither it nor the social-graph
+  residual appeared anywhere in the interface: the privacy toggle says only "your peer sees your IP",
+  which is a much smaller claim than "your provider sees that you used this, and who with".
+  **Built:** a collapsed `<details>` on the landing (`NetworkExposure`, testid `network-exposure`),
+  EN + RU, naming both exposures and ending in the only action that helps — Tor or a VPN **on both
+  sides**, since one side alone does not address the direct-connection point. Collapsed deliberately:
+  both are permanent properties of the deployment rather than events, and a standing banner would be
+  dismissed within a day AND would train users to dismiss the path-attestation badge, which does
+  report an event. e2e in `smoke.spec.ts` asserts it is present, starts collapsed, is honest in the
+  summary line alone, and carries all three points once opened.
+  **Still open — this is disclosure, not mitigation.** Removing the exposure needs an onion service, a
+  mirror on a domain that is not obviously this tool, or ECH. Also note the whole deployment is one
+  name on one IP (app + signaling + STUN/TURN), so it is trivially blockable and public in CT logs.
+
+**Observed once, not reproduced — tracked, not dismissed:**
+
+- [ ] **`reconnect.spec.ts:150` (key-changed hard-stop) stalled at `pairing` on webkit, once.** Seen in
+  one full `--project=webkit --project=interop` run; NOT reproduced in a second full run (38/38), nor
+  in `--repeat-each=2` isolated runs either with or without the day's changes (6/6 each). Ruled out as
+  a regression on mechanism as well as evidence: the F1 change's only effect on that path is to reach
+  `failed` — the state the test waits for — possibly ~5 s later, so it cannot produce a stall in
+  `pairing`. Logged here because a flaky *security* assertion is worth a root cause, not a rerun.
 
 ### Second pass, 2026-09-12 — a FULLY MALICIOUS server (findings + fixes)
 
