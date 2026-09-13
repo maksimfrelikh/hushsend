@@ -94,7 +94,7 @@ const ONE_TO_ONE_MAX_PEERS = 2;                                              // 
 // token paths keep separate env knobs (same 3-min default). The 4-digit lobby is an IDLE timeout
 // (re-armed on each join); the words AND token rooms arm once at CREATE and never re-arm — for words
 // it bounds guessing, for token it is the natural pre-connect wait window of a strictly-1:1 link/QR.
-const ROOM_TTL_MS       = Number(process.env.ROOM_TTL_MS)       || 180000;   // 4-digit room/link/QR lobby (~3 min, idle)
+const ROOM_TTL_MS       = Number(process.env.ROOM_TTL_MS)       || 180000;   // 4-digit room lobby ONLY (~3 min, idle; link/QR moved to TOKEN_ROOM_TTL_MS)
 const WORD_ROOM_TTL_MS  = Number(process.env.WORD_ROOM_TTL_MS)  || 180000;   // words rendezvous   (~3 min, from-create)
 const TOKEN_ROOM_TTL_MS = Number(process.env.TOKEN_ROOM_TTL_MS) || 180000;   // link/QR token room (~3 min, from-create)
 // link/QR high-entropy rendezvous TOKEN (codeType=token). 16 bytes = 128 bits of CSPRNG entropy →
@@ -124,10 +124,10 @@ const TURN_SECRET     = process.env.TURN_SECRET || '';                       // 
 const TURN_URLS       = (process.env.TURN_URLS || '')                        // comma-separated turn(s):… URIs → array; '' ⇒ relay disabled
   .split(',').map((s) => s.trim()).filter(Boolean);
 const TURN_CRED_TTL_S = Number(process.env.TURN_CRED_TTL_S) || 3600;         // credential lifetime (~1h); the username embeds the unix-expiry
-// Dev-only origin allowlist for the Vite dev server. Overridable (comma-separated) ONLY so a test
-// run can serve the app on another port when 5173 is taken on the host — production is unaffected,
-// the whole list is empty unless NODE_ENV !== 'production'. Without this, an app served anywhere but
-// 5173 gets every socket closed with 4003 'origin not allowed'.
+// Dev-only origin allowlist for a Vite dev server. Overridable (comma-separated) ONLY so a test run
+// can serve the app on another port when 5173 is taken on the host — production is unaffected, the
+// whole list is empty unless NODE_ENV !== 'production'. Without this, an app served anywhere but
+// 5173 gets every socket closed with 4003 'origin not allowed', which looks like a broken app.
 const devOrigins = DEV
   ? (process.env.DEV_ORIGINS || 'http://localhost:5173').split(',').map((s) => s.trim()).filter(Boolean)
   : [];
