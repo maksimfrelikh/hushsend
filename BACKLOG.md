@@ -701,14 +701,63 @@ Four things did not hold. Three are fixed below; the fourth is new scope and is 
   mirror on a domain that is not obviously this tool, or ECH. Also note the whole deployment is one
   name on one IP (app + signaling + STUN/TURN), so it is trivially blockable and public in CT logs.
 
-**Observed once, not reproduced — tracked, not dismissed:**
+**The e2e flake, chased to a cause rather than rerun away:**
 
-- [ ] **`reconnect.spec.ts:150` (key-changed hard-stop) stalled at `pairing` on webkit, once.** Seen in
-  one full `--project=webkit --project=interop` run; NOT reproduced in a second full run (38/38), nor
-  in `--repeat-each=2` isolated runs either with or without the day's changes (6/6 each). Ruled out as
-  a regression on mechanism as well as evidence: the F1 change's only effect on that path is to reach
-  `failed` — the state the test waits for — possibly ~5 s later, so it cannot produce a stall in
-  `pairing`. Logged here because a flaky *security* assertion is worth a root cause, not a rerun.
+- [ ] **Reconnect assertions intermittently time out at `pairing` — ONE CONTRIBUTOR FIXED, THE FLAKE
+  SURVIVES (2026-09-13).** Read the status line carefully: a measurable contributor was found and
+  removed, and the flake then reproduced anyway on webkit. It is NOT closed. First logged here as
+  "observed once, not reproduced"; that entry was right to refuse to dismiss it and wrong about
+  almost everything else, so it is replaced rather than amended.
+  **Reproduction, which was the whole difficulty:** `taskset -c 0,1` — two cores, like a GitHub
+  runner. It never reproduced on an idle 8-core host and never in an isolated run of the spec; it
+  needs the FULL suite on constrained cores.
+  **Not a regression, established by matched experiment rather than argument:** baseline `6d11d1c`
+  (before the day's changes, built in a separate worktree) failed 1 run in 3 on two cores with the
+  same signature; the changed tree failed 1 in 3. Independently, two commits that touched **no `src/`
+  at all** — `3687c81` (BACKLOG.md only) and `0cdcb14` (docs + a shell script) — failed the same CI
+  job. And the job ran 3.0 min against a 25-min limit, so it was never a job-level timeout.
+  **Not slowness either, which was the obvious theory:** under three busy-loops pinned to the same two
+  cores, the reconnect spec ran in 5–12 s and passed 6/6. CPU starvation alone does not do it.
+  **What it actually was: browser processes accumulating across the run.** `reconnect.spec.ts` was the
+  ONLY spec closing the contexts it opened — and its own comment already described this failure mode
+  ("six tabs were competing — which is how a 3-second test turned into a 60-second timeout on a loaded
+  machine"). Six other specs created contexts and never closed them, and Playwright disposes those at
+  WORKER exit, not test or file exit. Each abandoned context keeps a live PeerConnection running ICE
+  keepalives. Measured over a full chromium suite: **31 browser processes at peak, climbing
+  monotonically** — which is why it bit the specs that run later.
+  **Fix:** the `afterEach` cleanup `reconnect.spec.ts` already used, applied to every spec that opens
+  a context (`identity-enroll`, `privacy`, `relax`, `smoke`, `ws-close` — `limits` and `interop`
+  already cleaned up). Re-measured: **peak 12 processes, and flat instead of climbing.** Flatness is
+  the property that matters, not the number.
+  **Evidence for the fix, stated at its real strength:** 5/5 clean full chromium runs on two cores
+  afterwards (1.9 min each, versus 2.9–3.0 min for the runs that failed), against 1-in-3 before. At a
+  prior rate of ~1/3, five clean runs would happen by luck about 13% of the time — support, not proof.
+  **AND THEN IT FAILED AGAIN.** A full four-project pass (chromium + firefox + webkit + interop, 106
+  tests, 8.5 min, all 8 cores) failed `reconnect.spec.ts:70` on **webkit** with the identical
+  signature: `connected` expected, `pairing` for 122 polls over 60 s. chromium 34/34, firefox 34/34,
+  webkit 33/34.
+  **So what is actually known:** process accumulation was real, is gone, and mattered (measured
+  31→12, climbing→flat). It was not the whole cause. What remains is a stall between `pairing` and
+  `connected` in the reconnect flow, now seen on webkit specifically, and it is the same test and the
+  same signature every time — which is a narrow enough target to be worth the next session.
+  **Where to start, so the next attempt does not re-derive today's work:** `taskset -c 0,1` plus the
+  FULL suite is the cheap reproduction for chromium; webkit reproduces without core constraint in a
+  multi-project run. The stall is AFTER both peers meet (`pairing` means `pairingStarted` already
+  fired), so it is in offer/answer, ICE, DTLS, DataChannel open, or the reconnect proof exchange — not
+  in rendezvous. Note the deadline mismatch in the next item: the test cannot currently tell a stall
+  from a correctly-handled failure, so aligning that first would make the next failure informative.
+- **Test-design note found in passing, not fixed:** the reconnect deadline in the app is 120 s
+  (`DEFAULT_RECONNECT_TIMEOUT_MS`) while `reconnect.spec.ts` waits 60 s. The test gives up before the
+  app's own safety net can fire, so "the app stalled" and "the app would have failed correctly at its
+  deadline" are indistinguishable to it. Worth aligning if these assertions are ever load-bearing
+  again — deliberately NOT changed here, because raising a timeout while chasing a stall is how a
+  real hang gets hidden.
+- ✅ **Gate deadline 5 s → 15 s (refinement of F1, same day).** 5 s came from a measurement on an idle
+  8-core host; the same codebase shows the worst case is not that (`verifyPath` polls up to 5 s for the
+  same resolver because it was measured returning null on firefox↔webkit). A deadline set AT a measured
+  worst case is where spurious failures come from, and the asymmetry is one-sided: waiting longer only
+  delays a doomed connection, while refusing early breaks an HONEST transfer on exactly the cheap phone
+  and congested network this product exists for. Now matches `PATH_ATTEST_TIMEOUT_MS`.
 
 ### Second pass, 2026-09-12 — a FULLY MALICIOUS server (findings + fixes)
 

@@ -1,8 +1,19 @@
-import { test, expect, type Browser, type Page } from '@playwright/test';
+import { test, expect, type Browser, type Page, type BrowserContext } from '@playwright/test';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { BASE, createWords, pickWords } from './helpers';
+
+// Every tab here holds a LIVE WebRTC connection: even after its signaling socket closes on connect
+// (which it does — see ws-close.spec.ts), the PeerConnection keeps running ICE keepalives and DTLS.
+// A context that is never closed therefore keeps working until the WORKER exits, not until the test
+// ends, so they accumulate across the file and then across the whole run. Measured 2026-09-13: a full
+// chromium suite peaks at 31 browser processes, and on a 2-core CI runner that contention is what
+// turns a 2-second reconnect into a 60-second timeout — the failure mode reconnect.spec.ts documented
+// and fixed for itself. Same fix, applied here. (See BACKLOG § Third pass.)
+test.afterEach(async () => {
+  await Promise.all(openContexts.splice(0).map((c) => c.close().catch(() => {})));
+});
 
 /**
  * Step-4b-i TOFU enrollment, end to end. Two tabs connect via the "words" method (CPace +
@@ -32,8 +43,12 @@ async function readOwnPubkey(page: Page): Promise<string> {
 }
 
 /** Open one isolated context+page (own IndexedDB), pointed at the Blob receive path. */
+/** Contexts opened by the current test, closed after it — see the afterEach below. */
+const openContexts: BrowserContext[] = [];
+
 async function openTab(browser: Browser): Promise<Page> {
   const context = await browser.newContext({ baseURL: BASE, acceptDownloads: true });
+  openContexts.push(context);
   const page = await context.newPage();
   await page.goto(`${BASE}/?forceBlob=1`);
   return page;

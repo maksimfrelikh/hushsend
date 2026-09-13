@@ -1,5 +1,15 @@
-import { test, expect, type Browser, type Page } from '@playwright/test';
+import { test, expect, type Browser, type Page, type BrowserContext } from '@playwright/test';
 import { BASE, createLink, createWords, fragmentOf, pickWords } from './helpers';
+
+// Every tab here holds a LIVE WebRTC connection: even after its signaling socket closes on connect,
+// the PeerConnection keeps running ICE keepalives and DTLS. A context that is never closed therefore
+// keeps working until the WORKER exits, not until the test ends, so they accumulate across the run.
+// Measured 2026-09-13: a full chromium suite peaks at 31 browser processes, and on a 2-core CI runner
+// that contention is what turns a 2-second reconnect into a 60-second timeout — the failure mode
+// reconnect.spec.ts documented and fixed for itself. Same fix here. (See BACKLOG § Third pass.)
+test.afterEach(async () => {
+  await Promise.all(openContexts.splice(0).map((c) => c.close().catch(() => {})));
+});
 
 /**
  * E2E for the Max-privacy STRICT model (step 6d).
@@ -15,8 +25,12 @@ import { BASE, createLink, createWords, fragmentOf, pickWords } from './helpers'
  */
 
 
+/** Contexts opened by the current test, closed after it — see the afterEach below. */
+const openContexts: BrowserContext[] = [];
+
 async function openTab(browser: Browser): Promise<Page> {
   const context = await browser.newContext({ baseURL: BASE });
+  openContexts.push(context);
   const page = await context.newPage();
   await page.goto(`${BASE}/?forceIceFail=1`);
   return page;
@@ -72,6 +86,7 @@ test('max-privacy · a direct ICE failure fails terminally with a switch-to-Reli
  */
 async function openRelayGatedTab(browser: Browser, url: string): Promise<Page> {
   const context = await browser.newContext({ baseURL: BASE });
+  openContexts.push(context);
   const page = await context.newPage();
   await page.goto(`${BASE}${url}`);
   return page;

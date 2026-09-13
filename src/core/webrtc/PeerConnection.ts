@@ -16,11 +16,19 @@ import { localCandidateAddresses } from '../pathAttest';
  *
  * Measured 2026-09-13: chromium, firefox and webkit each report a selected pair on the FIRST read
  * after DataChannel `open` (0–1 ms, 3/3 runs per engine), so a healthy connection never waits and
- * this budget is insurance, not latency. It is generous on purpose — the cost of waiting is a slower
- * failure, the cost of not waiting was opening an unverified path — and it sits below the 120 s
- * key-confirmation deadline by a wide margin, so a stalled gate surfaces as its own failure first.
+ * this budget is insurance, not latency. It sits far below the 120 s key-confirmation deadline, so a
+ * stalled gate surfaces as its own failure first.
+ *
+ * WHY 15 s AND NOT THE 5 s THIS SHIPPED WITH. 5 s was picked from the measurement above, taken on an
+ * idle 8-core host — and the same codebase contains evidence that the worst case is not that: the
+ * OTHER consumer of this resolver, `SessionController.verifyPath`, polls for up to 5 s because it was
+ * measured returning null, on firefox↔webkit. Setting the deadline AT a measured worst case is
+ * exactly where spurious failures come from. The cost asymmetry is severe and one-sided: waiting
+ * longer only makes a doomed connection fail later, while refusing too early breaks an HONEST
+ * transfer — for a user whose alternative to this tool may be worse than no transfer at all, on the
+ * cheap phone and congested network this product exists for. So it matches PATH_ATTEST_TIMEOUT_MS.
  */
-const SELECTED_PAIR_TIMEOUT_MS = 5000;
+const SELECTED_PAIR_TIMEOUT_MS = 15_000;
 /** Poll step while waiting for that selection. */
 const SELECTED_PAIR_POLL_MS = 100;
 

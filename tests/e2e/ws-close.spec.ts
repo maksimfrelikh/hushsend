@@ -13,6 +13,17 @@ import {
   startReconnect,
 } from './helpers';
 
+// Every tab here holds a LIVE WebRTC connection: even after its signaling socket closes on connect
+// (which it does — see ws-close.spec.ts), the PeerConnection keeps running ICE keepalives and DTLS.
+// A context that is never closed therefore keeps working until the WORKER exits, not until the test
+// ends, so they accumulate across the file and then across the whole run. Measured 2026-09-13: a full
+// chromium suite peaks at 31 browser processes, and on a 2-core CI runner that contention is what
+// turns a 2-second reconnect into a 60-second timeout — the failure mode reconnect.spec.ts documented
+// and fixed for itself. Same fix, applied here. (See BACKLOG § Third pass.)
+test.afterEach(async () => {
+  await Promise.all(openContexts.splice(0).map((c) => c.close().catch(() => {})));
+});
+
 /**
  * Privacy: the 1:1 methods (link / qr / words) CLOSE their own signaling socket the instant they
  * reach an authenticated `connected` — so the untrusted server never learns how long the P2P
@@ -145,8 +156,12 @@ test('1:1 words (CPace): signaling socket closes on connect; P2P survives; trans
 });
 
 /** A tab with its OWN context — reconnect needs two separate keystores, not two tabs sharing one. */
+/** Contexts opened by the current test, closed after it — see the afterEach below. */
+const openContexts: BrowserContext[] = [];
+
 async function openIsolated(browser: Browser): Promise<Page> {
   const context = await browser.newContext({ baseURL: BASE, acceptDownloads: true });
+  openContexts.push(context);
   const page = await context.newPage();
   await page.goto(`${BASE}/?forceBlob=1`);
   return page;
