@@ -78,7 +78,19 @@ log. The build is **byte-for-byte reproducible**, and CI fails if it ever stops 
 "the live site does not match CI" would be the ordinary outcome and nobody would investigate a real
 one.
 
-So anyone can check the live deployment against an independent build:
+So anyone can check the live deployment against an independent build — **with no account, no token
+and nothing to obtain from us**:
+
+```bash
+bash deploy/verify-bundle.sh --attest
+```
+
+That takes the bytes you were actually served and asks GitHub's public attestation API whether each
+one is covered by a signed provenance statement. Verified against production on 2026-09-13: all eight
+files, signed, from a named commit. It also demonstrates the reproducibility — the operator built
+those bytes on their own machine and a GitHub runner independently produced the same ones.
+
+If you have a manifest from a specific CI run and want to pin to it:
 
 ```bash
 bash deploy/verify-bundle.sh --manifest <manifest from the CI run for that commit>

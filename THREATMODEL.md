@@ -218,8 +218,11 @@ guarantee is worse than an honest limitation: people calibrate their behaviour t
    *Built:* CI now builds the bundle on a GitHub runner (a machine the site operator does not own),
    **fails if the build stops being byte-for-byte reproducible**, publishes a SHA-256 manifest in the
    public run summary and attaches a signed provenance attestation to a public transparency log.
-   `deploy/verify-bundle.sh` checks a live deployment against that manifest from anywhere; the deploy
-   script records the hashes it published.
+   `deploy/verify-bundle.sh --attest` checks a live deployment against those signatures from anywhere
+   **with no account and nothing obtained from the operator** — verified end to end against
+   production on 2026-09-13, all eight served files signed, from a named commit, which also
+   demonstrates the build reproduces across machines. The deploy script records the hashes it
+   published.
    *What that does and does not buy:* it does NOT help a browser that has already been served a
    hostile bundle, and selective tampering aimed at one IP is caught only by someone checking from
    that vantage point. It removes **"silently"**: the delivered client can no longer be changed

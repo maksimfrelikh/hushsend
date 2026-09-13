@@ -161,11 +161,20 @@ run summary, and signs a provenance attestation into a public transparency log.
 
 ```sh
 # From ANY machine — ideally not this one, and ideally more than one network.
+# Needs nothing but curl: asks GitHub's PUBLIC attestation API whether the bytes you were served
+# carry a signed provenance statement. No account, no token, no manifest to obtain from anyone.
+bash deploy/verify-bundle.sh --attest
+
+# Pin to a specific CI run's manifest instead:
 bash deploy/verify-bundle.sh --manifest <manifest from the CI run for the deployed commit>
 
 # Or, with no manifest, just print what the live site is serving:
 bash deploy/verify-bundle.sh
 ```
+
+`--attest` discovers the files from `index.html`, which does not name the lazily-fetched QR decoder
+`.wasm` (its path lives inside the JS). Combine the two flags to cover the whole tree:
+`--attest --manifest MANIFEST.sha256`.
 
 `deploy-frontend.sh` writes the hashes it published to `MANIFEST.sha256` in the repo root — **outside
 `dist/`** on purpose: a file inside the published tree that CI does not build would make the deployed

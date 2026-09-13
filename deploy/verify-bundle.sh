@@ -2,8 +2,16 @@
 #
 # Check that a LIVE hushsend deployment is serving exactly the bytes an independent build produced.
 #
+#   bash deploy/verify-bundle.sh --attest             # RECOMMENDED: needs nothing but curl
 #   bash deploy/verify-bundle.sh --manifest <file|URL> [--base https://hushsend.frelikh.dev]
 #   bash deploy/verify-bundle.sh                      # no manifest: just print what is being served
+#
+# `--attest` is the route to reach for. It takes the bytes you were ACTUALLY served, and asks
+# GitHub's public attestation API whether each one is covered by a signed provenance statement — no
+# account, no token, no manifest to obtain from anyone, and no trust in the site operator at any
+# point. A match means those exact bytes came out of a build of a named commit on GitHub's
+# infrastructure. (It also proves the build is reproducible across machines: the operator built these
+# bytes on their own host and a GitHub runner produced the same ones.)
 #
 # WHY THIS EXISTS, and what it does NOT do.
 #
@@ -32,10 +40,14 @@ set -euo pipefail
 
 BASE="https://hushsend.frelikh.dev"
 MANIFEST=""
+ATTEST=0
+REPO="${HUSHSEND_REPO:-maksimfrelikh/hushsend}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --base) BASE="${2:?--base needs a URL}"; shift 2 ;;
     --manifest) MANIFEST="${2:?--manifest needs a file or URL}"; shift 2 ;;
+    --attest) ATTEST=1; shift ;;
+    --repo) REPO="${2:?--repo needs owner/name}"; shift 2 ;;
     -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *) echo "verify-bundle: unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -57,7 +69,13 @@ fetch() { # fetch <url> <dest> — fail loudly rather than hashing an error page
 # Which files to check. With a manifest we check EXACTLY what it names — that also covers files no
 # amount of HTML parsing would find, such as the lazily-fetched QR-decoder .wasm, whose path only
 # appears inside the JavaScript.
-if [ -n "$MANIFEST" ]; then
+if [ "$ATTEST" = "1" ] && [ -z "$MANIFEST" ]; then
+  # Discover from index.html. The lazily-fetched QR .wasm is NOT referenced there (its path lives
+  # inside the JS), so it is not covered by this list — the files that execute are.
+  fetch "$BASE/" "$TMP/index.html" || exit 2
+  PATHS="index.html
+$(grep -oE '(src|href)="/[^"]+"' "$TMP/index.html" | sed 's/.*="\///;s/"$//' | LC_ALL=C sort -u)"
+elif [ -n "$MANIFEST" ]; then
   case "$MANIFEST" in
     http://*|https://*) fetch "$MANIFEST" "$TMP/manifest.txt" || exit 2 ;;
     *) cp "$MANIFEST" "$TMP/manifest.txt" || exit 2 ;;
@@ -89,7 +107,13 @@ while IFS= read -r rel; do
   fi
   got="$(sha256sum "$TMP/dl/$rel" | cut -d' ' -f1)"
   printf '%s  %s\n' "$got" "$rel" >> "$TMP/actual.txt"
-  if [ -n "$MANIFEST" ]; then
+  if [ "$ATTEST" = "1" ] && [ -z "$MANIFEST" ]; then
+  # Discover from index.html. The lazily-fetched QR .wasm is NOT referenced there (its path lives
+  # inside the JS), so it is not covered by this list — the files that execute are.
+  fetch "$BASE/" "$TMP/index.html" || exit 2
+  PATHS="index.html
+$(grep -oE '(src|href)="/[^"]+"' "$TMP/index.html" | sed 's/.*="\///;s/"$//' | LC_ALL=C sort -u)"
+elif [ -n "$MANIFEST" ]; then
     want="$(awk -v p="$rel" '$2 == p {print $1}' "$TMP/manifest.txt")"
     if [ -z "$want" ]; then
       printf '  ? %s  (not in manifest)\n' "$rel"
@@ -105,6 +129,41 @@ while IFS= read -r rel; do
 done <<EOT
 $PATHS
 EOT
+
+# --- signed provenance, the route that needs no manifest and no account ---------------------------
+if [ "$ATTEST" = "1" ]; then
+  echo
+  echo "checking signed provenance at github.com/$REPO"
+  echo "  (unauthenticated GitHub API: 60 requests/hour per IP — this uses one per file)"
+  echo
+  bad=0
+  while IFS= read -r line; do
+    got="${line%% *}"; rel="${line##*  }"
+    [ -n "$got" ] || continue
+    # A signed DSSE payload naming this exact digest. Decoded and searched rather than trusting the
+    # endpoint's own say-so: the claim must be inside what was signed.
+    payload="$(curl -fsSL --max-time 60 "https://api.github.com/repos/$REPO/attestations/sha256:$got" 2>/dev/null \
+      | grep -o '"payload":"[A-Za-z0-9+/=]*"' | head -1 | sed 's/.*:"//;s/"$//' | base64 -d 2>/dev/null || true)"
+    if [ -n "$payload" ] && printf '%s' "$payload" | grep -q "$got"; then
+      commit="$(printf '%s' "$payload" | grep -o '"gitCommit":"[0-9a-f]*"' | head -1 | sed 's/.*:"//;s/"$//')"
+      printf '  ✓ %-40s signed, from commit %s\n' "$rel" "${commit:0:8}"
+    else
+      printf '  ✗ %-40s NO signed provenance for these bytes\n' "$rel"
+      bad=$((bad + 1))
+    fi
+  done < "$TMP/actual.txt"
+  echo
+  if [ "$bad" -gt 0 ]; then
+    echo "✗ $bad file(s) served to you are NOT covered by any signed build attestation."
+    echo "  Either the deploy is older/newer than any attested build, or these bytes did not come"
+    echo "  from a build of this repository. Establish which before concluding."
+    exit 1
+  fi
+  echo "✓ every file you were served carries a signed provenance statement from a build on GitHub."
+  echo "  That covers these bytes, fetched from here, now — and says nothing about whether the COMMIT"
+  echo "  itself is honest. Read the source for that."
+  exit 0
+fi
 
 echo
 if [ -z "$MANIFEST" ]; then
