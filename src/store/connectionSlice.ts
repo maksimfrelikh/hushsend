@@ -1,4 +1,5 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
+import type { PathVerdict } from '../core/pathAttest';
 import type { SasUiRole } from '../core/sasRole';
 import type { PeerInfo } from '../types/protocol';
 
@@ -38,18 +39,28 @@ export interface ConnectionState {
    *  id was missing → the SAS screen FAILS CLOSED (restart, never a functional picker). */
   sasRole: SasUiRole | null;
   /**
-   * User-facing path-attestation result, deliberately BINARY (see `core/pathAttest.ts`).
+   * User-facing path-attestation result, carried THREE-WAY (see `core/pathAttest.ts`).
    *
-   * The underlying verdict is three-way, but only `ok` is safe to present as reassurance. A
-   * `mismatch` is today indistinguishable from an ordinary NAT quirk — a peer behind mDNS-obfuscated
-   * host candidates cannot name the address it was reached on — and it is exactly what made
-   * enforcement flap on honest firefox↔webkit pairs. Telling a journalist "someone is in between" on
-   * that signal is a false accusation at the worst possible moment, so `mismatch` and `unknown` both
-   * surface as "not confirmed" and the three-way detail stays in the DEV diagnostics.
+   * This used to be binary — `ok` vs everything else — on the reasoning that a `mismatch` is not
+   * reliable enough to accuse anyone with, because a peer behind mDNS-obfuscated host candidates
+   * cannot name the address it was reached on and honest firefox↔webkit pairs therefore mismatch
+   * with no attacker present. That reasoning is still right, and nothing here turns `mismatch` into
+   * an accusation. What was wrong was the CONSEQUENCE: collapsing it made the one positive detection
+   * the system can produce render identically to the everyday "this browser cannot tell" state — and
+   * the copy under that state explains the cause as the browser's, which on a `mismatch` is false.
+   * Since `unknown` is the ordinary outcome on Safari, users are trained to ignore exactly the badge
+   * a real interposer would raise, and the DEV diagnostics that hold the real verdict are
+   * tree-shaken out of the production bundle, so there is no other signal at all.
+   *
+   * So the three states stay distinct here and the UI says, for each, what was actually checked:
+   *  - `ok`       — we verified the address we connected to is one the peer named.
+   *  - `unknown`  — we could not check (one of the two browsers reported too little).
+   *  - `mismatch` — we checked and it DISAGREED. Both causes are named to the user, and no byte is
+   *                 gated on it: this is still advisory, which is what BACKLOG tracks.
    *
    * `null` until the attestation settles (or off the authenticated paths).
    */
-  pathConfirmed: 'yes' | 'no' | null;
+  pathCheck: PathVerdict | null;
   /** Mesh-lobby roster (room method): everyone currently in the 4-digit room EXCEPT us. The human
    *  picks whom to raise a 1:1 channel with. Maintained from welcome (set) / peer-joined (add) /
    *  peer-left (remove). Empty/unused for words/link/qr (they auto-pair with a single peer). */
@@ -70,7 +81,7 @@ const initialState: ConnectionState = {
   credential: null,
   sas: null,
   sasRole: null,
-  pathConfirmed: null,
+  pathCheck: null,
   roster: [],
   notice: null,
   error: null,
@@ -155,10 +166,11 @@ const slice = createSlice({
       state.sasRole = action.payload.role;
     },
 
-    /** Path attestation settled. Only `ok` becomes a "yes" — see the field's own note for why a
-     *  `mismatch` must not be shown to the human as an accusation while it is advisory. */
-    pathSettled(state, action: PayloadAction<{ confirmed: boolean }>) {
-      state.pathConfirmed = action.payload.confirmed ? 'yes' : 'no';
+    /** Path attestation settled. The verdict is carried through VERBATIM — see the field's own note
+     *  for why collapsing `mismatch` into `unknown` here was the bug, and `core/pathAttest.ts` for
+     *  why `unknown` is benign by design. Still advisory: nothing downstream gates bytes on this. */
+    pathSettled(state, action: PayloadAction<{ verdict: PathVerdict }>) {
+      state.pathCheck = action.payload.verdict;
     },
 
     // --- mesh-lobby roster (room method) — serializable projections, NOT FSM transitions ---
@@ -188,6 +200,7 @@ const slice = createSlice({
       state.status = 'awaitingPeer';
       state.sas = null;
       state.sasRole = null;
+      state.pathCheck = null; // per-pair, exactly like sas — must not survive into the next pick
       state.peerId = null;
     },
     confirmStarted(state) {

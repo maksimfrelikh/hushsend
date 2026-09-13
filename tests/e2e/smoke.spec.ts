@@ -112,3 +112,37 @@ test('smoke · reconnect: enrolled peers re-auth via the pinned key with NO SAS 
   await expect(b.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
   await expect(a.getByTestId('auth-state')).toContainText('reconnect');
 });
+
+/**
+ * The landing states what the NETWORK can still see (THREATMODEL § 3b SNI, § 4 the direct
+ * connection). Asserted because it is a safety property, not decoration: this audience calibrates
+ * its behaviour to what it is told, and both facts are observable from ONE side with no cooperation
+ * from anyone — while nothing else in the UI mentions either. The privacy toggle says only that the
+ * PEER sees your IP, which is a much smaller claim.
+ *
+ * Also asserted: it starts COLLAPSED. An always-open warning about a permanent property gets
+ * dismissed within a day and trains people to ignore the badges that do report real events.
+ */
+test('smoke · landing states what the network can still see, collapsed by default', async ({ page }) => {
+  await page.goto('/');
+  const box = page.getByTestId('network-exposure');
+  await expect(box).toBeVisible();
+  await expect(box).not.toHaveAttribute('open', /.*/); // collapsed until asked
+
+  // The summary is honest on its own, before anything is expanded.
+  await expect(box).toContainText('that you opened hushsend');
+  await expect(box).toContainText('never what you sent');
+
+  await box.getByText('What your network can still see').click();
+  await expect(box).toHaveAttribute('open', /.*/);
+
+  // § 3b — using the tool at all is visible, before any transfer happens.
+  await expect(box).toContainText('reveals its address to your internet provider in the clear');
+  await expect(box).toContainText('even if nothing is ever sent');
+  // § 4 — one side's network is enough to establish contact.
+  await expect(box).toContainText('needs data from ONE of the two networks only');
+  await expect(box).toContainText('cannot be denied');
+  // ...and something to do about it, on BOTH sides (one is not enough for § 4).
+  await expect(box).toContainText('Tor or a VPN');
+  await expect(box).toContainText('BOTH sides');
+});

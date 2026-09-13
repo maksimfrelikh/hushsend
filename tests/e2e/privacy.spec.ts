@@ -20,10 +20,12 @@ import { BASE, createWords, pickWords } from './helpers';
  */
 
 
-async function openIsolatedTab(browser: Browser): Promise<Page> {
+/** `extraQuery` appends DEV-only knobs (e.g. `&forcePathMismatch=1`) to this tab's URL alone, so one
+ *  side of a pair can be driven into a branch while the other stays honest. */
+async function openIsolatedTab(browser: Browser, extraQuery = ''): Promise<Page> {
   const context = await browser.newContext({ baseURL: BASE });
   const page = await context.newPage();
-  await page.goto(`${BASE}/?forceBlob=1`);
+  await page.goto(`${BASE}/?forceBlob=1${extraQuery}`);
   return page;
 }
 
@@ -126,9 +128,64 @@ test('path attestation resolves to ok on a real connection (not silently unknown
   await expect(sender.getByTestId('path-selected')).not.toHaveText('—');
   await expect(sender.getByTestId('path-selected')).not.toHaveText('');
 
-  // The USER-FACING badge follows the verdict. It is deliberately binary: only `ok` reassures, and
-  // `mismatch` folds into "not confirmed" rather than accusing anyone — see connectionSlice.
+  // The USER-FACING badge follows the verdict. `ok` is the only one that reassures — and it carries
+  // the verdict as a data attribute so the three states can be told apart from the outside.
   await expect(sender.getByTestId('path-state')).toContainText('confirmed');
+  await expect(sender.getByTestId('path-state')).toHaveAttribute('data-path-verdict', 'ok');
   await expect(sender.getByTestId('path-state')).toHaveClass(/hs-badge--verified/);
   await expect(receiver.getByTestId('path-state')).toHaveClass(/hs-badge--verified/);
+  // `ok` shows no hint at all — there is nothing to caveat.
+  await expect(sender.getByTestId('path-hint')).toHaveCount(0);
+});
+
+/**
+ * F2 REGRESSION (2026-09-13). `mismatch` — the only positive evidence of an interposer this system
+ * can produce — used to be projected as `pathConfirmed: 'no'`, the SAME value as `unknown`, which is
+ * the everyday outcome on Safari. So the badge, its class and its hint were all identical to the
+ * benign case, and the hint asserted the cause was "this browser does not expose enough to check it"
+ * — false on a mismatch, where the check ran and disagreed. The DEV diagnostics that hold the real
+ * verdict are tree-shaken out of production, so there was no other signal anywhere.
+ *
+ * `?forcePathMismatch=1` (DEV-only) stubs the VERDICT and nothing else: the attestation runs for
+ * real, and the projection, badge, hint and teardown below are all production code. Asserted on ONE
+ * side only — the knob rides that tab's URL — which also proves the states are per-side.
+ *
+ * Note what is deliberately NOT asserted: a teardown. The check is still ADVISORY and gates no byte
+ * (BACKLOG § Security audit); this test pins what the human is TOLD, not a control.
+ */
+test('path MISMATCH is shown differently from "could not check", and does not blame the browser', async ({
+  browser,
+}) => {
+  const sender = await openIsolatedTab(browser, '&forcePathMismatch=1');
+  const receiver = await openIsolatedTab(browser);
+
+  const words = await createWords(sender);
+  await pickWords(receiver, words);
+
+  await expect(sender.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
+  await expect(receiver.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
+
+  // The forcing side reports mismatch; the honest side still reaches ok — so this is the UI under
+  // test, not a broken pairing.
+  await expect(sender.getByTestId('path-verdict')).toHaveText('mismatch', { timeout: 30_000 });
+  await expect(receiver.getByTestId('path-verdict')).toHaveText('ok', { timeout: 30_000 });
+
+  // DISTINCT from both other states: its own verdict attribute, its own label, its own weight.
+  const badge = sender.getByTestId('path-state');
+  await expect(badge).toHaveAttribute('data-path-verdict', 'mismatch');
+  await expect(badge).toHaveClass(/hs-badge--alert/);
+  await expect(badge).not.toHaveClass(/hs-badge--verified/);
+  await expect(badge).not.toContainText('not confirmed'); // the `unknown` label
+
+  // And the hint must NOT be the `unknown` copy, whose explanation is untrue here.
+  const hint = sender.getByTestId('path-hint');
+  await expect(hint).toHaveClass(/hs-path__hint--alert/);
+  await expect(hint).not.toContainText('Safari never does');
+  await expect(hint).toContainText('not one your correspondent listed');
+  await expect(hint).toContainText('still encrypted end-to-end'); // never a content scare
+  await expect(hint).toContainText('different network'); // something to actually do
+
+  // The honest side is untouched: benign states must not inherit the alarm.
+  await expect(receiver.getByTestId('path-state')).toHaveClass(/hs-badge--verified/);
+  await expect(receiver.getByTestId('path-hint')).toHaveCount(0);
 });

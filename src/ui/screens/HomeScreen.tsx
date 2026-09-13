@@ -201,7 +201,36 @@ function LandingView({
           {t('forgetPins')}
         </button>
       )}
+
+      <NetworkExposure />
     </Screen>
+  );
+}
+
+/**
+ * What the NETWORK can see — the two exposures cryptography inside the app cannot remove
+ * (THREATMODEL.md § 3b and § 4), stated on the landing screen because that is where someone decides
+ * whether to use this at all.
+ *
+ * A `<details>` on purpose. Both facts are PERMANENT properties of a direct transfer over an ordinary
+ * connection, not events, so an always-open warning would be dismissed within a day — and worse, it
+ * would train people to dismiss the badges that DO signal events (see the path-attestation copy in
+ * TransferScreen). Collapsed, one honest summary line, the detail one tap away, and an action at the
+ * end. No native `<summary>` marker: the design language has no disclosure triangle, so the caret is
+ * drawn in CSS.
+ */
+function NetworkExposure(): ReactElement {
+  const t = useT();
+  return (
+    <details className="hs-net" data-testid="network-exposure">
+      <summary className="hs-net__summary">
+        <span className="hs-net__title">{t('netTitle')}</span>
+        <span className="hs-sub hs-net__lead">{t('netSummary')}</span>
+      </summary>
+      <p className="hs-sub hs-net__item">{t('netSni')}</p>
+      <p className="hs-sub hs-net__item">{t('netDirect')}</p>
+      <p className="hs-sub hs-net__item hs-net__advice">{t('netAdvice')}</p>
+    </details>
   );
 }
 

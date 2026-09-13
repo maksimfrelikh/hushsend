@@ -88,4 +88,38 @@ describe('connection slice — lobby roster', () => {
     expect(s.notice).toBeNull();
     expect(s.status).toBe('idle');
   });
+  /**
+   * REGRESSION (F2, 2026-09-13). `pathSettled` used to take `{ confirmed: boolean }` and store
+   * `'yes' | 'no'`, so `mismatch` — the ONLY positive evidence of an interposer this system can
+   * produce — was stored identically to `unknown`, the everyday outcome on Safari. The production
+   * bundle tree-shakes the DEV diagnostics that hold the real verdict, so that collapse left the
+   * detection with no representation anywhere the user could see it, under copy blaming the browser.
+   * These assertions fail against the old reducer: it could not represent the difference at all.
+   */
+  describe('path attestation verdict (F2)', () => {
+    it('keeps mismatch, unknown and ok distinct', () => {
+      const settle = (verdict: 'ok' | 'unknown' | 'mismatch') =>
+        reducer(undefined, connectionActions.pathSettled({ verdict })).pathCheck;
+      expect(settle('ok')).toBe('ok');
+      expect(settle('unknown')).toBe('unknown');
+      expect(settle('mismatch')).toBe('mismatch');
+      expect(settle('mismatch')).not.toBe(settle('unknown')); // the whole point
+    });
+
+    it('starts null and is cleared by returnToLobby — it is a per-pair projection, like sas', () => {
+      expect(reducer(undefined, { type: '@@init' }).pathCheck).toBeNull();
+      let s = reducer(undefined, connectionActions.createStarted({ method: 'room' }));
+      s = reducer(s, connectionActions.roomReady({ room: '1234', credential: null }));
+      s = reducer(s, connectionActions.pairingStarted({ peerId: 'zeta-owl' }));
+      s = reducer(s, connectionActions.pathSettled({ verdict: 'mismatch' }));
+      s = reducer(s, connectionActions.returnToLobby());
+      expect(s.pathCheck).toBeNull(); // must not bleed into the next pick
+    });
+
+    it('reset clears it too', () => {
+      let s = reducer(undefined, connectionActions.pathSettled({ verdict: 'mismatch' }));
+      s = reducer(s, connectionActions.reset());
+      expect(s.pathCheck).toBeNull();
+    });
+  });
 });

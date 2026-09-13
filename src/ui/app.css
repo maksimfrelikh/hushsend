@@ -760,6 +760,16 @@ button.hs-row:hover:not(:disabled) {
 .hs-badge--verified {
   border-color: var(--ink);
 }
+/* The path check ran and DISAGREED. This palette has no colour to spend, so it borrows the strongest
+   signal the design language has — the inverted fill already used by .hs-glyph--danger — to make the
+   one positive detection in the system impossible to mistake for the everyday "could not check"
+   badge sitting in the same slot. Deliberately NOT an accusation: the copy beside it names the
+   honest NAT/Safari cause first. */
+.hs-badge--alert {
+  background: var(--ink);
+  color: var(--ink-fg);
+  border-color: var(--ink);
+}
 
 /* ---------- Glyphs (security states) ---------- */
 .hs-glyph {
@@ -939,4 +949,66 @@ button.hs-device:hover:not(:disabled) {
 .hs-path__hint {
   max-width: 52ch;
   margin-block: calc(-1 * var(--s-2, 8px)) var(--s-4, 16px);
+}
+/* The mismatch hint carries more than the "could not check" one does — it has to name two causes and
+   an action — so it gets the same left rule the SAS warning uses, to read as something to finish
+   rather than a footnote. */
+.hs-path__hint--alert {
+  border-left: 2px solid var(--fg);
+  padding-left: var(--s-3, 12px);
+  text-align: left;
+  color: var(--fg);
+}
+
+/* ---------- Network exposure (landing) ----------
+   The two things the network sees regardless of what the app does (THREATMODEL § 3b, § 4). Quiet by
+   construction: it is a permanent property, not an event, and an always-open warning here would
+   teach people to dismiss the badges that DO report events. Muted until opened, and never dressed
+   like the danger states. */
+.hs-net {
+  margin-block-start: var(--s-5, 20px);
+  border-top: 1px solid var(--line-2);
+  padding-block-start: var(--s-4, 16px);
+  max-width: 52ch;
+  text-align: left;
+}
+.hs-net__summary {
+  cursor: pointer;
+  list-style: none; /* Firefox */
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* No disclosure triangle in this design language — draw the caret instead. */
+.hs-net__summary::-webkit-details-marker {
+  display: none;
+}
+.hs-net__title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.hs-net__title::after {
+  content: ' ▸';
+}
+.hs-net[open] .hs-net__title::after {
+  content: ' ▾';
+}
+.hs-net__summary:hover .hs-net__title,
+.hs-net__summary:focus-visible .hs-net__title {
+  color: var(--fg);
+}
+.hs-net__lead {
+  margin: 0;
+}
+.hs-net__item {
+  margin-block: var(--s-3, 12px) 0;
+}
+/* The only line with something to DO gets the rule, so a skim lands on it. */
+.hs-net__advice {
+  border-left: 2px solid var(--line-2);
+  padding-left: var(--s-3, 12px);
+  color: var(--fg);
 }

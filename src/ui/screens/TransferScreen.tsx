@@ -13,13 +13,20 @@ import { Screen, Eyebrow } from '../ui';
  * status `connected`, i.e. after authentication). Carries the verified badge, the file picker, and
  * the live transfer panel (offer / progress / done / incoming accept-reject), plus channel close.
  */
+/** Which hint belongs to a non-`ok` verdict. `mismatch` must NOT borrow the `unknown` copy: that
+ *  copy explains the cause as "this browser does not expose enough to check it", which on a
+ *  mismatch is false — the browsers exposed plenty, the check ran and disagreed. */
+function pathHintKey(verdict: 'unknown' | 'mismatch'): 'pathUnknownHint' | 'pathMismatchHint' {
+  return verdict === 'mismatch' ? 'pathMismatchHint' : 'pathUnknownHint';
+}
+
 export function TransferScreen(): ReactElement {
   const session = useSession();
   const t = useT();
   const dispatch = useAppDispatch();
   const method = useAppSelector((s) => s.connection.method);
   const reconnectOutcome = useAppSelector((s) => s.dev.reconnect.outcome);
-  const pathConfirmed = useAppSelector((s) => s.connection.pathConfirmed);
+  const pathCheck = useAppSelector((s) => s.connection.pathCheck);
   const transfer = useAppSelector((s) => s.transfer);
   const [files, setFiles] = useState<File[]>([]);
 
@@ -48,21 +55,36 @@ export function TransferScreen(): ReactElement {
         ✓ {authStateText(method, reconnectOutcome)}
       </span>
       {/* Path attestation, beside the authenticity badge but deliberately NOT dressed like it: the
-          authenticity badge states a guarantee, this one states the result of a check. "Not
-          confirmed" is the ordinary outcome on a browser that cannot enumerate its own addresses,
-          so the hint has to say plainly that the files are still encrypted — otherwise it reads as
-          "you are being attacked", which for this product's users is a costly false alarm. */}
-      {pathConfirmed !== null && (
+          authenticity badge states a guarantee, this one states the result of a check.
+
+          THREE states, because two of them used to be one and that was the bug. "Not confirmed" is
+          the ordinary outcome on a browser that cannot enumerate its own addresses, and its hint has
+          to say plainly that the files are still encrypted — otherwise it reads as "you are being
+          attacked", a costly false alarm for this product's users. But "route did not match" is a
+          check that RAN and DISAGREED, so it gets its own label, its own weight, and copy that names
+          both possible causes instead of asserting the browser's. Neither is a teardown: the check is
+          advisory (see core/pathAttest.ts) and no byte is gated on it. */}
+      {pathCheck !== null && (
         <span
-          className={`hs-badge${pathConfirmed === 'yes' ? ' hs-badge--verified' : ''}`}
+          className={`hs-badge${pathCheck === 'ok' ? ' hs-badge--verified' : ''}${
+            pathCheck === 'mismatch' ? ' hs-badge--alert' : ''
+          }`}
           data-testid="path-state"
-          title={pathConfirmed === 'yes' ? undefined : t('pathUnknownHint')}
+          data-path-verdict={pathCheck}
+          title={pathCheck === 'ok' ? undefined : t(pathHintKey(pathCheck))}
         >
-          {pathConfirmed === 'yes' ? `✓ ${t('pathOk')}` : `· ${t('pathUnknown')}`}
+          {pathCheck === 'ok' ? `✓ ${t('pathOk')}` : pathCheck === 'mismatch' ? `⚠ ${t('pathMismatch')}` : `· ${t('pathUnknown')}`}
         </span>
       )}
       <h2 className="hs-h2">{t('trTitle')}</h2>
-      {pathConfirmed === 'no' && <p className="hs-sub hs-path__hint">{t('pathUnknownHint')}</p>}
+      {pathCheck !== null && pathCheck !== 'ok' && (
+        <p
+          className={`hs-sub hs-path__hint${pathCheck === 'mismatch' ? ' hs-path__hint--alert' : ''}`}
+          data-testid="path-hint"
+        >
+          {t(pathHintKey(pathCheck))}
+        </p>
+      )}
 
       {idle && (
         <label className="hs-drop">

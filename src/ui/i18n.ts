@@ -20,6 +20,38 @@ export const STR = {
   soon: { en: 'soon', ru: 'скоро' },
 
   // --- home ---
+  /**
+   * What the NETWORK can see — the two exposures that are inherent to a direct browser-to-browser
+   * transfer and that no amount of cryptography inside the app removes. THREATMODEL.md § 3b and § 4.
+   *
+   * Why this is in the interface at all, and why it is phrased like this: the product's users include
+   * people for whom an overstated guarantee is worse than a stated limitation, because they calibrate
+   * their behaviour to what they are told. Both facts below are observable from ONE side, with no
+   * cooperation from anyone, and neither is visible anywhere else in the UI — the privacy toggle only
+   * says the PEER sees your IP, which is a different and much smaller claim.
+   *
+   * Deliberately NOT an alarm: it is a permanent property of using this over an ordinary connection,
+   * not an event, so a banner that shouts would be dismissed within a day and would teach people to
+   * dismiss the badges that DO signal events (see the path-attestation copy above). It is a quiet,
+   * collapsed summary with one concrete action.
+   */
+  netTitle: { en: 'What your network can still see', ru: 'Что всё равно видит ваша сеть' },
+  netSummary: {
+    en: 'that you opened hushsend, and who you connected to — never what you sent',
+    ru: 'что вы открыли hushsend и с кем соединились — но не то, что вы отправили',
+  },
+  netSni: {
+    en: 'Opening this page reveals its address to your internet provider in the clear, before any encryption of the page itself. So the fact that you used a private file-transfer tool is visible to whoever watches your connection — even if nothing is ever sent.',
+    ru: 'При открытии этой страницы её адрес уходит вашему интернет-провайдеру в открытом виде — до того, как начинается шифрование самой страницы. То есть сам факт, что вы пользовались инструментом приватной передачи файлов, виден тому, кто наблюдает за вашим соединением, даже если вы ничего не отправите.',
+  },
+  netDirect: {
+    en: 'In Max privacy the transfer goes straight between the two of you, so each side\u2019s provider sees a direct connection to the other side\u2019s address. Establishing that two people were in contact needs data from ONE of the two networks only. The contents cannot be read; the fact of contact cannot be denied.',
+    ru: 'В режиме макс. приватности передача идёт напрямую между вами двоими, поэтому провайдер каждой стороны видит прямое соединение с адресом другой. Чтобы установить, что два человека были на связи, достаточно данных ОДНОЙ из двух сетей. Содержимое прочитать нельзя; сам факт связи — отрицать нельзя.',
+  },
+  netAdvice: {
+    en: 'If either of those matters to you, use Tor or a VPN — on BOTH sides. One side alone does not help with the second point.',
+    ru: 'Если для вас важно любое из этого — используйте Tor или VPN, причём с ОБЕИХ сторон. Одна сторона от второго пункта не спасает.',
+  },
   privacyTitle: { en: 'Max privacy', ru: 'Макс. приватность' },
   privacyDesc: {
     en: 'On: always direct, peer-to-peer. Your peer sees your IP; never relayed through a server — even if that means not connecting.',
@@ -219,13 +251,25 @@ export const STR = {
   // --- transfer ---
   trEyebrow: { en: 'transfer', ru: 'передача' },
   /** Path attestation, shown beside the authenticated badge. Deliberately says what was CHECKED, not
-   *  what is guaranteed: the check is advisory, and "not confirmed" is the ordinary result on
-   *  browsers that cannot enumerate their own addresses (Safari) — it is not an accusation. */
+   *  what is guaranteed: the check is advisory.
+   *
+   *  THREE states, and they must stay distinguishable. `unknown` ("could not check") is the ordinary
+   *  result on browsers that cannot enumerate their own addresses, Safari above all, and is not an
+   *  accusation. `mismatch` ("checked, and it disagreed") is the only positive evidence this system
+   *  can produce, so it cannot share a label — nor the `unknown` copy, which blames the browser and
+   *  on a mismatch is simply untrue. It is still not an accusation either: the same honest NAT quirk
+   *  produces it, so BOTH causes are named and the user is given something to do rather than a
+   *  verdict to panic about. */
   pathOk: { en: 'direct path confirmed', ru: 'прямой путь подтверждён' },
   pathUnknown: { en: 'direct path not confirmed', ru: 'прямой путь не подтверждён' },
   pathUnknownHint: {
-    en: 'Your files are still encrypted end-to-end and unreadable to anyone in between. What could not be confirmed here is WHICH route they took — this browser does not expose enough to check it. Safari never does.',
-    ru: 'Файлы всё равно зашифрованы сквозным образом и нечитаемы для любого посредника. Не удалось подтвердить только МАРШРУТ — этот браузер не раскрывает достаточно данных для проверки. Safari не раскрывает их никогда.',
+    en: 'Your files are still encrypted end-to-end and unreadable to anyone in between. What could not be confirmed here is WHICH route they took: one of the two browsers did not report enough to check. Safari never does.',
+    ru: 'Файлы всё равно зашифрованы сквозным образом и нечитаемы для любого посредника. Не удалось подтвердить только МАРШРУТ: один из двух браузеров не сообщил достаточно данных для проверки. Safari не сообщает их никогда.',
+  },
+  pathMismatch: { en: 'route did not match', ru: 'маршрут не совпал' },
+  pathMismatchHint: {
+    en: 'The address this connection actually used is not one your correspondent listed. Your files are still encrypted end-to-end and unreadable to anyone in between — this is about the ROUTE, not the contents. Two things cause it: some browsers (Safari above all) cannot report the address they were reached on, or something is carrying your connection through itself. If that distinction matters to you, stop here and reconnect over a different network.',
+    ru: 'Адрес, по которому реально прошло соединение, не совпал ни с одним из названных вашим собеседником. Файлы всё равно зашифрованы сквозным образом и нечитаемы для любого посредника — речь о МАРШРУТЕ, не о содержимом. Причин две: некоторые браузеры (прежде всего Safari) не могут сообщить адрес, по которому к ним обратились, — либо соединение кто-то пропускает через себя. Если для вас эта разница существенна, остановитесь и переподключитесь через другую сеть.',
   },
   trTitle: { en: 'What are we sending?', ru: 'Что отправляем?' },
   dropTitle: { en: 'Choose files to send', ru: 'Выберите файлы' },

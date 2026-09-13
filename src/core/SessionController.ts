@@ -393,6 +393,25 @@ function forceRelayPathEnabled(): boolean {
   }
 }
 
+/**
+ * DEV-only: force the path-attestation verdict to `mismatch`, so the user-facing mismatch state can
+ * be driven in e2e. Reproducing it for real needs an actual interposer (or a Safari on a LAN, which
+ * a headless Linux box is not), and the branch matters precisely because it is the one positive
+ * detection the system produces — F2 was that it rendered identically to the benign `unknown`.
+ * Stubs the VERDICT ONLY: the attestation still runs, the projection, the badge, the hint and the
+ * (absent) teardown are all production code. Tree-shaken in production, like every knob here.
+ */
+function forcePathMismatchEnabled(): boolean {
+  if (!import.meta.env.DEV) return false;
+  try {
+    const w = window as unknown as { __HUSHSEND_FORCE_PATH_MISMATCH__?: unknown };
+    if (w.__HUSHSEND_FORCE_PATH_MISMATCH__ === true) return true;
+    return new URLSearchParams(window.location.search).get('forcePathMismatch') === '1';
+  } catch {
+    return false; // no window (non-browser) — never force
+  }
+}
+
 function forceIceFailEnabled(): boolean {
   if (!import.meta.env.DEV) return false;
   try {
@@ -1394,7 +1413,7 @@ export class SessionController {
       this.linkSettled = true; // success — link/qr teardown guards are now closed
       this.established = true;
       this.dispatch(connectionActions.connectionEstablished());
-      this.startPathAttestation(); // verify WHO is on the path — gates file bytes (core/pathAttest.ts)
+      this.startPathAttestation(); // observe WHO is on the path — ADVISORY, gates nothing (core/pathAttest.ts)
       this.startEnrollment(); // TOFU enrollment over the now-authenticated channel (does NOT gate)
       this.closeSignalingAfterConnect(); // 1:1: the signaling socket has no further job — close it
     } else {
@@ -2346,7 +2365,7 @@ export class SessionController {
     sas.timer = null;
     this.established = true; // gates file bytes — set only on a mutual match
     this.dispatch(connectionActions.connectionEstablished());
-    this.startPathAttestation(); // verify WHO is on the path — gates file bytes (core/pathAttest.ts)
+    this.startPathAttestation(); // observe WHO is on the path — ADVISORY, gates nothing (core/pathAttest.ts)
     this.startEnrollment(); // TOFU enrollment over the now-authenticated channel (does NOT gate)
     this.closeSignalingAfterConnect(); // per-pair: close our own signaling socket (server learns no duration)
   }
@@ -2719,7 +2738,11 @@ export class SessionController {
       if (!pa || pa.settled) return;
       pa.settled = true;
       this.dispatch(devActions.setPath({ verdict: 'unknown', selected: null, peerAddrs: [] }));
-      this.dispatch(connectionActions.pathSettled({ confirmed: false }));
+      // `unknown`, NOT `mismatch`: silence is not evidence of an interposer. It is what an engine
+      // that cannot enumerate its candidates produces, and the user-facing copy for `unknown` says
+      // exactly that. (If this ever becomes a control, silence is the case that must be argued
+      // about separately — see BACKLOG § Security audit.)
+      this.dispatch(connectionActions.pathSettled({ verdict: 'unknown' }));
       this.dispatch(devActions.appendLog('path: peer never attested — UNVERIFIED (advisory)'));
     }, PATH_ATTEST_TIMEOUT_MS);
     // Replay an attestation that beat our own settle (the two peers do not settle at the same instant).
@@ -2756,12 +2779,18 @@ export class SessionController {
   /**
    * Compare the address ICE actually selected for us against the peer's attested set.
    *
-   * `mismatch` is a HARD STOP on the same terminal path as a SAS mismatch — something is on the
-   * path, and the user is told so rather than shown a quietly-working transfer. `unknown` (no
-   * selected address yet, or an engine that reports no usable candidates) passes: absence of
-   * evidence is not evidence, and a missing API must not kill a working connection. The downgrade
-   * that would otherwise open — drop the frame and never be judged — is closed by the deadline, not
-   * by treating `unknown` as guilt.
+   * ⚠️ NOTHING HERE TEARS ANYTHING DOWN. This docstring used to open by calling `mismatch` "a HARD
+   * STOP on the same terminal path as a SAS mismatch"; the body below has never done that, and the
+   * gap survived two audits because the sentence read as a specification. It is not one. All three
+   * verdicts are RECORDED and shown to the user, and the transfer proceeds either way — see
+   * `startPathAttestation` for the measured reason enforcement is deferred, and BACKLOG § Security
+   * audit for what has to land before it can become a control.
+   *
+   * `unknown` (no selected address yet, or an engine that reports no usable candidates) is benign by
+   * design: absence of evidence is not evidence. The downgrade that would otherwise open — drop the
+   * frame and never be judged — is closed by the deadline, not by treating `unknown` as guilt.
+   * `mismatch` is the only positive evidence available, so it gets its own user-facing state rather
+   * than sharing `unknown`'s (which blames the browser, and on a mismatch is false).
    */
   private async verifyPath(): Promise<void> {
     const pa = this.pathAttest;
@@ -2779,10 +2808,13 @@ export class SessionController {
       await new Promise((r) => setTimeout(r, 250));
     }
     if (!this.pathAttest || this.pathAttest.settled) return; // torn down while awaiting stats
-    const verdict = pathVerdict(selected, pa.peerAddrs);
+    // DEV knob stubs the VERDICT only — everything downstream of this line is production code.
+    const verdict = forcePathMismatchEnabled() ? 'mismatch' : pathVerdict(selected, pa.peerAddrs);
     this.dispatch(devActions.setPath({ verdict, selected, peerAddrs: pa.peerAddrs ?? [] }));
-    // Only `ok` reassures the human. `mismatch` folds into "not confirmed" — see connectionSlice.
-    this.dispatch(connectionActions.pathSettled({ confirmed: verdict === 'ok' }));
+    // The verdict goes through VERBATIM. It used to be collapsed to `ok` / not-`ok` here, which made
+    // the one positive detection this system can produce render exactly like the everyday "this
+    // browser cannot tell" state — under copy that blamed the browser. See connectionSlice.pathCheck.
+    this.dispatch(connectionActions.pathSettled({ verdict }));
     pa.settled = true;
     pa.verified = verdict === 'ok';
     if (pa.timer != null) clearTimeout(pa.timer);
