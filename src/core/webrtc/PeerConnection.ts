@@ -1,13 +1,28 @@
 import { z } from 'zod';
 import {
-  isForbiddenRemoteCandidate,
+  classifySelectedPath,
   relayCandidateEndpoint,
   selectedRemoteCandidate,
   shouldDropCandidate,
   stripRelayCandidates,
+  type SelectedPathClass,
   type StatsEntry,
 } from '../relax';
 import { localCandidateAddresses } from '../pathAttest';
+
+/**
+ * How long the Max-privacy channel-open gate waits for ICE to publish a selected candidate pair
+ * before giving up and REFUSING the path (see `classifySelectedPath`).
+ *
+ * Measured 2026-09-13: chromium, firefox and webkit each report a selected pair on the FIRST read
+ * after DataChannel `open` (0–1 ms, 3/3 runs per engine), so a healthy connection never waits and
+ * this budget is insurance, not latency. It is generous on purpose — the cost of waiting is a slower
+ * failure, the cost of not waiting was opening an unverified path — and it sits below the 120 s
+ * key-confirmation deadline by a wide margin, so a stalled gate surfaces as its own failure first.
+ */
+const SELECTED_PAIR_TIMEOUT_MS = 5000;
+/** Poll step while waiting for that selection. */
+const SELECTED_PAIR_POLL_MS = 100;
 
 /**
  * The opaque `data` payload we put inside each signaling `signal` frame. The server
@@ -338,30 +353,44 @@ export class PeerConnection {
    * A refusal goes through the SAME terminal path as a direct ICE failure (`onIceFailure` →
    * `onIceFailed` → the owner's `failDirect`, with the switch-to-Reliable hint), and `onOpen` never
    * fires, so the owner never reaches an authenticated state and NOT ONE BYTE crosses a relayed path.
-   * Off in Reliable (relay allowed), and a stats read that fails or reports nothing selected is
-   * treated as "no evidence of a relay" — we do not tear down a working connection over a missing API.
+   * Off entirely in Reliable, where a relay is allowed.
+   *
+   * In Max privacy the rule is now POSITIVE: open only on a path we established is direct. A path we
+   * could not classify within the deadline is refused, not waved through — see `classifySelectedPath`
+   * for why the old "no evidence of a relay ⇒ open" reading was a hole rather than caution, and for
+   * the measurement showing this costs a healthy connection nothing.
    */
   private async openChannelUnlessRelayed(): Promise<void> {
     if (this.closed) return;
-    if (this.filterRelay && (await this.selectedPathIsRelayed())) {
-      if (import.meta.env.DEV) console.warn('[webrtc] selected path is relayed (Max-privacy) — refusing');
-      this.onIceFailure();
-      return;
+    if (this.filterRelay) {
+      const verdict = await this.classifyPath();
+      if (this.closed) return; // the await yields — the owner may have torn us down meanwhile
+      if (verdict !== 'direct') {
+        if (import.meta.env.DEV) {
+          console.warn(`[webrtc] Max-privacy refusing: selected path is ${verdict}`);
+        }
+        this.onIceFailure();
+        return;
+      }
     }
     if (this.closed) return; // the await above yields — the owner may have torn us down meanwhile
     this.handlers.onOpen?.();
   }
 
-  /** Does the SELECTED candidate pair terminate on a relay — either typed `relay`, or an endpoint we
-   *  dropped as one (the peer-reflexive bypass)? False when stats are unavailable or nothing is
-   *  selected yet: absence of evidence, not evidence of a relay. */
-  private async selectedPathIsRelayed(): Promise<boolean> {
+  /** Ask the policy (`relax.classifySelectedPath`) what the selected path is, wired to this
+   *  connection's stats reader, dropped-relay endpoints and teardown flag. The reasoning — above all
+   *  why `undetermined` is not `direct` — lives with the policy. */
+  private classifyPath(): Promise<SelectedPathClass> {
     // DEV/TEST: stub the VERDICT only. Everything after it — the refusal, the teardown, the reason
     // the user sees — is the production path, which is the point of driving it from a test at all.
-    if (this.simulateRelayedPath) return true;
-    const entries = await this.readStats();
-    if (!entries) return false; // getStats unsupported/rejected — nothing to judge on
-    return isForbiddenRemoteCandidate(true, selectedRemoteCandidate(entries), this.droppedRelayEndpoints);
+    if (this.simulateRelayedPath) return Promise.resolve('relayed');
+    return classifySelectedPath({
+      readStats: () => this.readStats(),
+      droppedRelayEndpoints: this.droppedRelayEndpoints,
+      timeoutMs: SELECTED_PAIR_TIMEOUT_MS,
+      pollMs: SELECTED_PAIR_POLL_MS,
+      aborted: () => this.closed,
+    });
   }
 
   /** Read `getStats()` into a plain array, or null when the API is unavailable/rejects. */

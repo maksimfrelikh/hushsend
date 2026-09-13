@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  classifySelectedPath,
   endpointKey,
   isForbiddenRemoteCandidate,
   isRelayCandidate,
@@ -206,5 +207,118 @@ describe('stripRelayCandidates — relay candidates carried inside the SDP', () 
     const out = stripRelayCandidates(['v=0', odd].join('\r\n'));
     expect(out.sdp).toContain(odd);
     expect(out.endpoints).toEqual([]);
+  });
+});
+
+/**
+ * F1 REGRESSION (2026-09-13) — the Max-privacy channel-open gate used to read "cannot tell" as
+ * "not relayed" and open the channel.
+ *
+ * The old gate was `isForbiddenRemoteCandidate(true, selectedRemoteCandidate(entries), dropped)`,
+ * whose `!remote → false` branch collapses "ICE has not published a selection yet" into "safe" — the
+ * exact reading `selectedRemoteCandidate`'s own docstring forbids. The first test below reproduces
+ * that: a relayed endpoint we ALREADY dropped, on a pair still `in-progress`, was waved through.
+ */
+describe('classifySelectedPath (F1)', () => {
+  const RELAY_ADDR = '203.0.113.99';
+  const RELAY_PORT = 49200;
+  const dropped = new Set([endpointKey(RELAY_ADDR, RELAY_PORT)!]);
+
+  /** A stats snapshot where the only pair is the relayed one, in the given state. */
+  const snapshot = (state: string, selected: boolean): StatsEntry[] => [
+    { type: 'transport', id: 'T1', ...(selected ? { selectedCandidatePairId: 'P1' } : {}) },
+    { type: 'candidate-pair', id: 'P1', state, nominated: selected, selected, remoteCandidateId: 'R1' },
+    { type: 'remote-candidate', id: 'R1', candidateType: 'prflx', address: RELAY_ADDR, port: RELAY_PORT },
+  ];
+
+  /** Deterministic clock + no real waiting, so these are ordinary fast unit tests. */
+  const run = (reads: Array<StatsEntry[] | null>, timeoutMs = 500, pollMs = 100) => {
+    let clock = 0;
+    let i = 0;
+    return classifySelectedPath({
+      readStats: () => Promise.resolve(reads[Math.min(i++, reads.length - 1)]),
+      droppedRelayEndpoints: dropped,
+      timeoutMs,
+      pollMs,
+      aborted: () => false,
+      now: () => clock,
+      sleep: (ms) => {
+        clock += ms;
+        return Promise.resolve();
+      },
+    });
+  };
+
+  it('THE BUG: a not-yet-selected relayed pair is no longer waved through as safe', async () => {
+    // The old one-shot reading of the same snapshot:
+    expect(isForbiddenRemoteCandidate(true, selectedRemoteCandidate(snapshot('in-progress', false)), dropped)).toBe(
+      false,
+    );
+    // ...and what the gate concludes now, when the selection never lands:
+    await expect(run([snapshot('in-progress', false)])).resolves.toBe('undetermined');
+  });
+
+  it('waits, then answers once the selection lands', async () => {
+    await expect(run([snapshot('in-progress', false), snapshot('succeeded', true)])).resolves.toBe('relayed');
+  });
+
+  it('a genuinely direct selected pair is direct', async () => {
+    const direct: StatsEntry[] = [
+      { type: 'transport', id: 'T1', selectedCandidatePairId: 'P1' },
+      { type: 'candidate-pair', id: 'P1', state: 'succeeded', nominated: true, selected: true, remoteCandidateId: 'R1' },
+      { type: 'remote-candidate', id: 'R1', candidateType: 'srflx', address: '198.51.100.4', port: 51000 },
+    ];
+    await expect(run([direct])).resolves.toBe('direct');
+  });
+
+  it('a relay-TYPED selected candidate is relayed even on an endpoint we never dropped', async () => {
+    const relayTyped: StatsEntry[] = [
+      { type: 'transport', id: 'T1', selectedCandidatePairId: 'P1' },
+      { type: 'candidate-pair', id: 'P1', state: 'succeeded', nominated: true, selected: true, remoteCandidateId: 'R1' },
+      { type: 'remote-candidate', id: 'R1', candidateType: 'relay', address: '198.51.100.7', port: 52000 },
+    ];
+    await expect(run([relayTyped])).resolves.toBe('relayed');
+  });
+
+  it('a transient getStats() rejection is retried, not taken as an answer', async () => {
+    await expect(run([null, null, snapshot('succeeded', true)])).resolves.toBe('relayed');
+  });
+
+  it('an engine with no getStats() at all yields undetermined — never a silent open', async () => {
+    await expect(run([null])).resolves.toBe('undetermined');
+  });
+
+  it('empty stats yield undetermined, not direct', async () => {
+    await expect(run([[]])).resolves.toBe('undetermined');
+  });
+
+  it('stops immediately when the owner tore the connection down', async () => {
+    await expect(
+      classifySelectedPath({
+        readStats: () => Promise.reject(new Error('must not be read after teardown')),
+        droppedRelayEndpoints: dropped,
+        timeoutMs: 5000,
+        pollMs: 100,
+        aborted: () => true,
+      }),
+    ).resolves.toBe('undetermined');
+  });
+
+  it('bounds its own wait rather than hanging the channel forever', async () => {
+    let clock = 0;
+    const verdict = await classifySelectedPath({
+      readStats: () => Promise.resolve([]),
+      droppedRelayEndpoints: dropped,
+      timeoutMs: 5000,
+      pollMs: 100,
+      aborted: () => false,
+      now: () => clock,
+      sleep: (ms) => {
+        clock += ms;
+        return Promise.resolve();
+      },
+    });
+    expect(verdict).toBe('undetermined');
+    expect(clock).toBeLessThanOrEqual(5000 + 100); // terminated at the deadline, not spinning
   });
 });

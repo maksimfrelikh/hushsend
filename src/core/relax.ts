@@ -193,3 +193,57 @@ export function selectedRemoteCandidate(entries: Iterable<StatsEntry>): RemoteCa
     port: num(remote.port),
   };
 }
+
+/** What the Max-privacy channel-open gate concluded about the path ICE selected. */
+export type SelectedPathClass = 'direct' | 'relayed' | 'undetermined';
+
+/** Everything {@link classifySelectedPath} needs, injected so the policy stays testable without a
+ *  browser, a timer or a real RTCPeerConnection. */
+export interface ClassifySelectedPathDeps {
+  /** One `getStats()` read, already flattened. `null` = the API is missing or the call rejected. */
+  readStats: () => Promise<StatsEntry[] | null>;
+  /** Endpoints we dropped as `typ relay` — how the peer-reflexive bypass is recognised. */
+  droppedRelayEndpoints: ReadonlySet<string>;
+  /** Give up and return `undetermined` after this long. */
+  timeoutMs: number;
+  /** Wait this long between reads. */
+  pollMs: number;
+  /** True once the owner has torn the connection down — stop immediately. */
+  aborted: () => boolean;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * Classify the path ICE actually selected: `direct`, `relayed`, or `undetermined`.
+ *
+ * ⚠️ THE WHOLE POINT IS THAT `undetermined` IS ITS OWN ANSWER. The gate that calls this used to ask
+ * "is it relayed?" and take `false` for both "no" and "cannot tell yet". {@link selectedRemoteCandidate}
+ * returns null until ICE publishes a selection, and its docstring already said the caller must read
+ * that as unknown, NEVER as safe — the caller did the opposite, so a Max-privacy client could open a
+ * channel on a path it had never actually checked. The condition is real rather than theoretical:
+ * this codebase's other consumer of the same resolver (`SessionController.verifyPath`) needed a 5 s
+ * poll for exactly this, and it runs LATER in the session than the gate does. (F1, 2026-09-13.)
+ *
+ * So the answer is polled for, bounded, and the caller fails closed when none arrives. A null read
+ * CONTINUES the loop rather than ending it, so a transient `getStats()` rejection does not decide the
+ * session; an engine with no `getStats()` at all simply never yields a judgement and is refused,
+ * which is the honest outcome — the Max-privacy promise cannot be kept on an engine that cannot
+ * report its own path. Measured cost on a healthy connection: none (chromium/firefox/webkit all
+ * answer on the first read).
+ */
+export async function classifySelectedPath(deps: ClassifySelectedPathDeps): Promise<SelectedPathClass> {
+  const now = deps.now ?? (() => Date.now());
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const deadline = now() + deps.timeoutMs;
+  for (;;) {
+    if (deps.aborted()) return 'undetermined';
+    const entries = await deps.readStats();
+    const remote = entries ? selectedRemoteCandidate(entries) : null;
+    if (remote) {
+      return isForbiddenRemoteCandidate(true, remote, deps.droppedRelayEndpoints) ? 'relayed' : 'direct';
+    }
+    if (now() >= deadline) return 'undetermined';
+    await sleep(deps.pollMs);
+  }
+}
