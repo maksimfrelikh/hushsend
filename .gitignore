@@ -10,3 +10,6 @@ e2e-tmp*
 # server/.env.example (see deploy/DEPLOY.md); the server source stays tracked.
 server/.env
 server/.env.local
+
+# Local record of the hashes this host last deployed (see deploy/deploy-frontend.sh step 3b).
+MANIFEST.sha256

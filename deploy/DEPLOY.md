@@ -121,13 +121,21 @@ them with the deltas above.
 Vite bakes `VITE_*` in at **build time** — there is no runtime client config.
 
 ```sh
-# In the repo root. Set BOTH:
-#   VITE_SIGNALING_URL — the wss:// the client opens (nginx proxies /ws → Node).
-#   VITE_STUN_URLS     — your coturn STUN endpoint(s), comma-separated.
-VITE_SIGNALING_URL=wss://hushsend.frelikh.dev/ws \
-VITE_STUN_URLS=stun:turn.hushsend.frelikh.dev:3478 \
-  npm run build          # = tsc --noEmit && vite build → emits dist/
+# In the repo root. The two values live in deploy/build-env.sh — the SAME file the CI build job
+# sources, so the hashes CI publishes describe the bytes you produce. Override from the environment
+# for a fork or a staging host; do not fork the file.
+. ./deploy/build-env.sh
+npm run build            # = tsc --noEmit && vite build → emits dist/
 ```
+
+> **Do not inline the VITE_* values here again.** They are compiled INTO the bundle, so they are part
+> of its identity: a bundle built with a different signaling URL is a different bundle with a
+> different hash. Two copies that agree today drift tomorrow, and the drift looks exactly like
+> tampering to anyone verifying the site.
+
+The build is **byte-for-byte reproducible**, and that is load-bearing rather than a nicety — see
+§ *Verifying a deploy* below. `deploy/deploy-frontend.sh` does all of the above plus the publish and
+prints the hashes it deployed.
 
 > **GOTCHA — STUN is not optional cross-network.** Default privacy mode is **Max-privacy**, which is
 > **STUN-only** (never contacts TURN). With `VITE_STUN_URLS` empty, Max-privacy has *no* ICE server
@@ -139,6 +147,33 @@ VITE_STUN_URLS=stun:turn.hushsend.frelikh.dev:3478 \
 > must rebuild, not just edit nginx. It must match the nginx server_name in the CSP `connect-src`.
 
 Deploy the resulting `dist/` to the nginx `root` (e.g. `/var/www/hushsend/dist`).
+
+### Verifying a deploy (and why it is not optional)
+
+THREATMODEL.md § 1 ranks code delivery as the dominant risk: this host serves both the app and the
+signaling WebSocket, so whoever controls it can serve a modified bundle and every other guarantee in
+the product stops meaning anything. CSP does not help — this host emits the CSP header too.
+
+The counterweight is that a **different party** states what the bytes should be. Every push runs the
+CI job *reproducible build · publish + attest hashes*, which builds on a GitHub runner, refuses to
+pass unless two builds of the commit are byte-identical, publishes a SHA-256 manifest in the public
+run summary, and signs a provenance attestation into a public transparency log.
+
+```sh
+# From ANY machine — ideally not this one, and ideally more than one network.
+bash deploy/verify-bundle.sh --manifest <manifest from the CI run for the deployed commit>
+
+# Or, with no manifest, just print what the live site is serving:
+bash deploy/verify-bundle.sh
+```
+
+`deploy-frontend.sh` writes the hashes it published to `MANIFEST.sha256` in the repo root — **outside
+`dist/`** on purpose: a file inside the published tree that CI does not build would make the deployed
+tree differ from the attested one, manufacturing the very mismatch this is meant to detect.
+
+Running the verifier **on this host** is nearly worthless — it would be the suspect checking itself.
+Its value is someone else running it from somewhere else. Read the header of
+`deploy/verify-bundle.sh` for what the check does and does not prove before relying on it.
 
 ---
 

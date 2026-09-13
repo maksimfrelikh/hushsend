@@ -38,6 +38,102 @@ jobs:
       - run: npm run lint
       - run: npx vitest run
 
+  # ---------------------------------------------------------------------------------------------
+  # The build whose hashes are PUBLISHED. This is the cheapest available reduction of the largest
+  # risk in THREATMODEL.md § 1: the server that the threat model declares untrusted is the same
+  # server that delivers the JavaScript, so a compromised or compelled operator can serve a modified
+  # bundle and every other guarantee becomes theatre. CSP does not help (same server emits it), SRI
+  # does not help (same server publishes the hash).
+  #
+  # What this job changes is WHO says what the bytes should be. It builds from the public source on
+  # a machine the site operator does not own, publishes the sha256 of every file in the run summary
+  # (public on a public repo) and attaches a SIGNED provenance attestation recorded in Sigstore's
+  # transparency log. Anyone can then run `deploy/verify-bundle.sh --manifest …` against the live
+  # site, from their own network, and see whether it is serving those bytes.
+  #
+  # Be precise about the limits — see the header of deploy/verify-bundle.sh. This does not protect a
+  # browser that has ALREADY been served a hostile bundle, and targeted tampering aimed at one IP is
+  # only caught by someone checking from that vantage point. What it removes is "silently".
+  build-attest:
+    name: reproducible build · publish + attest hashes
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write # Sigstore signing identity for the attestation
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+
+      # The VITE_* values are compiled INTO the bundle, so they are part of its identity. Sourced
+      # from the same file deploy/deploy-frontend.sh uses — two copies that agree today would be a
+      # silent break tomorrow, and the break would look like tampering.
+      - name: Build (production env from deploy/build-env.sh)
+        run: |
+          . ./deploy/build-env.sh
+          echo "VITE_SIGNALING_URL=$VITE_SIGNALING_URL"
+          echo "VITE_STUN_URLS=$VITE_STUN_URLS"
+          npm run build
+          bash deploy/bundle-manifest.sh dist > "$RUNNER_TEMP/manifest.txt"
+
+      # Determinism guard. The published hash is only meaningful if building the same commit twice
+      # yields the same bytes — otherwise "the live site does not match CI" would be the NORMAL
+      # outcome and nobody would ever look into a real mismatch. Measured byte-identical on the
+      # deploy host 2026-09-13; this makes it a property CI enforces rather than a fact someone once
+      # observed. A failure here is usually a build input that leaked in: a timestamp, an absolute
+      # path, a random id.
+      - name: Build again and require byte-identical output
+        run: |
+          . ./deploy/build-env.sh
+          rm -rf dist
+          npm run build
+          bash deploy/bundle-manifest.sh dist > "$RUNNER_TEMP/manifest2.txt"
+          if ! diff -u "$RUNNER_TEMP/manifest.txt" "$RUNNER_TEMP/manifest2.txt"; then
+            echo "::error::The build is NOT reproducible — two builds of this commit differ."
+            echo "::error::Published hashes are meaningless until this is fixed. See the diff above."
+            exit 1
+          fi
+          echo "Reproducible: two independent builds of this commit are byte-identical."
+
+      # Public, human-readable, and attached to the run rather than to a mutable file anywhere.
+      - name: Publish the manifest in the run summary
+        run: |
+          {
+            echo "## Bundle hashes — commit \`${GITHUB_SHA}\`"
+            echo
+            echo "Built on a GitHub runner from the public source, independently of the site operator."
+            echo "Verify the live deployment against it:"
+            echo
+            echo '```bash'
+            echo "bash deploy/verify-bundle.sh --manifest <this manifest>"
+            echo '```'
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/manifest.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-manifest
+          path: ${{ runner.temp }}/manifest.txt
+          retention-days: 90
+
+      # Signed, verifiable with `gh attestation verify <file> --repo <owner>/<repo>`, and recorded in
+      # a public transparency log — so the claim "these bytes came from this commit" is checkable
+      # without trusting either the site operator or this workflow file after the fact.
+      # Only on a push to main: a pull_request from a fork has no token to sign with.
+      - name: Attest build provenance
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: 'dist/**'
+
   e2e:
     name: e2e (chromium)
     runs-on: ubuntu-latest

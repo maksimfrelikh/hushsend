@@ -15,8 +15,11 @@
 #
 set -euo pipefail
 
-VITE_SIGNALING_URL="${VITE_SIGNALING_URL:-wss://hushsend.frelikh.dev/ws}"
-VITE_STUN_URLS="${VITE_STUN_URLS:-stun:turn.hushsend.frelikh.dev:3478}"
+# The two VITE_* values live in deploy/build-env.sh — the SAME file the CI build-and-attest job
+# sources — so the hashes CI publishes describe the bytes this script produces. Do not inline them
+# here again: two copies that agree today are a silent break tomorrow.
+# shellcheck source=deploy/build-env.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/build-env.sh"
 DEPLOY_DIR="${DEPLOY_DIR:-/var/www/hushsend/dist}"
 HEALTH_URL="${HEALTH_URL:-https://hushsend.frelikh.dev/health}"
 SITE_URL="${SITE_URL:-https://hushsend.frelikh.dev}"
@@ -45,6 +48,21 @@ VITE_STUN_URLS="$VITE_STUN_URLS" \
   npm run build
 
 [ -f dist/index.html ] || { echo "✗ dist/index.html missing — build produced nothing, aborting"; exit 1; }
+
+# 3b. The hashes of exactly what is about to be published. Print them, and keep a copy beside the
+# deployed tree, so "which bytes does this host serve?" is answerable later without re-deriving it.
+#
+# These should equal the manifest the CI `build-attest` job published for the SAME commit — that
+# equality is what lets a third party verify the site without trusting this host (see
+# deploy/verify-bundle.sh and THREATMODEL.md § 1). They are not compared automatically here: this
+# script runs ON the host it would be checking, so a self-check would be circular. Compare them from
+# somewhere else.
+# NOTE the manifest is written OUTSIDE dist/ on purpose. Dropping it inside would add a file the CI
+# build does not produce, so the published tree would no longer equal the attested one — a mismatch
+# manufactured by the very step meant to detect mismatches.
+log "bundle hashes"
+bash "$REPO_ROOT/deploy/bundle-manifest.sh" dist | tee "$REPO_ROOT/MANIFEST.sha256" | sed 's/^/  /'
+echo "  (saved to $REPO_ROOT/MANIFEST.sha256 — not published, see the note above)"
 
 # 4. Publish to the nginx root. Two improvements over the original wipe-then-copy:
 #
@@ -79,3 +97,13 @@ echo "  homepage : HTTP $(curl -s -o /dev/null -w '%{http_code}' "$SITE_URL/")"
 $SUDO rm -rf "$PREVIOUS"
 
 log "done — hard-refresh the page (Ctrl+Shift+R) to confirm the new build"
+cat <<VERIFY
+
+To let someone check this deploy WITHOUT trusting this host: give them the commit, point them at the
+CI run's "reproducible build · publish + attest hashes" job for that commit, and have them run
+
+  bash deploy/verify-bundle.sh --manifest <the manifest from that run>
+
+from their own network. A mismatch is the interesting case; see deploy/verify-bundle.sh for what the
+check does and does not prove.
+VERIFY
