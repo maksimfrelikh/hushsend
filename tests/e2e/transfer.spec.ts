@@ -201,3 +201,78 @@ test('oversize file is rejected before any byte (Blob path limit)', async ({ con
   await expect(sender.getByTestId('transfer-reason')).toContainText('larger than');
   await expect(sender.getByTestId('transfer-bytes')).toHaveCount(0);
 });
+
+/**
+ * Volume padding (core/transfer/padding.ts) must actually change the BYTE COUNT ON THE WIRE, and
+ * must not change the file.
+ *
+ * Asserting the ladder in a unit test proves arithmetic; it does not prove the filler is sent, that
+ * the receiver drops it, or that the payload survives. So this counts the bytes the sender's
+ * DataChannel actually put on the wire, from the test side, and hashes what came out the other end.
+ *
+ * 300 KiB sits below the coarse threshold, so the ladder rounds it to 512 KiB — a 70% jump that no
+ * chunking accident could produce, which is why that size was chosen rather than a large one.
+ */
+test('max privacy pads the transfer volume without touching the file', async ({ context }) => {
+  // Count only BINARY sends: control frames are JSON strings and are not payload.
+  await context.addInitScript(`
+    (() => {
+      window.__sentBytes = 0;
+      const Orig = window.RTCPeerConnection;
+      const count = (ch) => {
+        const send = ch.send.bind(ch);
+        ch.send = (d) => {
+          if (typeof d !== 'string') window.__sentBytes += d.byteLength ?? d.length ?? 0;
+          return send(d);
+        };
+        return ch;
+      };
+      window.RTCPeerConnection = function (...a) {
+        const pc = new Orig(...a);
+        const cdc = pc.createDataChannel.bind(pc);
+        pc.createDataChannel = (...c) => count(cdc(...c));
+        pc.addEventListener('datachannel', (e) => count(e.channel));
+        return pc;
+      };
+      window.RTCPeerConnection.prototype = Orig.prototype;
+    })();
+  `);
+
+  const sender = await context.newPage();
+  await sender.goto('/?forceBlob=1');
+  const words = await createWords(sender);
+  const receiver = await context.newPage();
+  await receiver.goto('/?forceBlob=1');
+  await pickWords(receiver, words);
+  await expect(sender.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
+  await expect(receiver.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
+
+  const REAL = 300 * 1024;
+  const PADDED = 512 * 1024; // what the ladder must round 300 KiB up to
+  const src = join(TMP, 'padded.bin');
+  makeRandomFile(src, REAL);
+  const srcHash = sha256File(src);
+
+  await sender.getByTestId('file-input').setInputFiles(src);
+  await sender.getByTestId('send-btn').click();
+  await expect(receiver.getByTestId('transfer-phase')).toContainText('offered', { timeout: 30_000 });
+
+  const downloadPromise = receiver.waitForEvent('download', { timeout: 60_000 });
+  await receiver.getByTestId('accept-btn').click();
+  const download = await downloadPromise;
+  const out = join(TMP, 'padded.out');
+  await download.saveAs(out);
+  await expect(sender.getByTestId('transfer-phase')).toContainText('done', { timeout: 60_000 });
+
+  // 1. The file is untouched: padding must be invisible to the payload.
+  expect(sha256File(out), 'received bytes match what was sent').toBe(srcHash);
+  expect(statSync(out).size, 'the filler is NOT written to the file').toBe(REAL);
+
+  // 2. The wire carried the padded volume, not the real one — the point of the feature.
+  const sent = await sender.evaluate(() => (window as unknown as { __sentBytes: number }).__sentBytes);
+  expect(sent, `wire volume should be the padded bucket, got ${sent}`).toBeGreaterThanOrEqual(PADDED);
+  // Generous ceiling: chunking rounds up, so allow one chunk of slack over the bucket.
+  expect(sent, 'padding should stop at the bucket, not run away').toBeLessThan(PADDED + 256 * 1024);
+  // And it must be a real increase over the file — otherwise the test would pass with no padding.
+  expect(sent).toBeGreaterThan(REAL * 1.5);
+});

@@ -219,9 +219,18 @@ test('path MISMATCH is shown differently from "could not check", and does not bl
  *   E2E_STUN_URLS=stun:127.0.0.1:3478,stun:127.0.0.1:3479
  * CI's engine matrix starts one coturn; a second is a second `--listening-port`.
  */
-test('stun cross-check reaches a verdict when two servers are configured', async ({ browser }) => {
+test('stun cross-check reaches a verdict when two servers are configured', async ({ browser, browserName }) => {
   const urls = (process.env.E2E_STUN_URLS ?? '').split(',').filter(Boolean);
   test.skip(urls.length < 2, `needs two STUN URLs, got ${urls.length} — see this test's header`);
+  // FIREFOX CANNOT ANSWER THIS, and that is a finding rather than a flake. Measured 2026-09-17: it
+  // reports NO server-reflexive candidate here and exposes no `url` field on local candidates, so
+  // the cross-check has nothing to compare and correctly returns `unknown`. On loopback that is even
+  // defensible — the reflexive address equals the host address and is legitimately pruned — so this
+  // is not yet evidence about Firefox on a REAL network, which is what the device pass has to settle
+  // (BACKLOG § Security audit). Skipped rather than weakened to "any verdict will do": that weaker
+  // assertion would pass against a completely broken implementation, which is the whole thing this
+  // test exists to prevent.
+  test.skip(browserName === 'firefox', 'firefox reports no srflx candidate here — measured, see comment');
 
   const page = await openIsolatedTab(browser);
   // Two honest servers on the same host see the same address, so `agree` is the expected answer.

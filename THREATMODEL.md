@@ -163,8 +163,9 @@ source's ISP sees the reverse. Establishing that two people communicated needs d
 only, with no cooperation from the other. Content can be denied; a connection record cannot.
 
 Note the trade: Max privacy protects content from the relay operator at the cost of making the link
-between the two people visible to the network. Traffic is not padded either — chunks are 16–256 KiB
-over DTLS, so ciphertext volume ≈ file size.
+between the two people visible to the network. **Volume is padded since 2026-09-17** — the byte count
+lands on a bucket edge rather than naming the file (`core/transfer/padding.ts`) — but duration, the
+fact of a transfer, and how many there were are all still visible.
 
 **Status: not addressable inside the app.** The honest mitigation is Tor or a VPN on both sides, and
 users for whom this matters should be told so plainly rather than reassured.
@@ -242,4 +243,8 @@ guarantee is worse than an honest limitation: people calibrate their behaviour t
    engine pair.
 4. **Path attestation as a control**, decided from that data rather than from a loopback run.
 5. **An independent security audit.**
-6. Optional, if file size is considered sensitive: volume padding.
+6. ✅ **Done 2026-09-17 — volume padding.** Was listed as optional; it is now on in Max privacy.
+   Transfers are padded to a bucket edge, so the byte count an observer reads names a RANGE rather
+   than the file: powers of two below 1 MiB, then ≤12.5% overhead above it. It does NOT hide
+   duration, that a transfer happened, or how many there were — see `core/transfer/padding.ts` for
+   the ladder and the full list of what it does not buy.

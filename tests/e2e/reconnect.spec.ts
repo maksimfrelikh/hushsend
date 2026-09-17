@@ -25,6 +25,24 @@ import { BASE, enrollViaSas, forwardConsole, resetBoth, startReconnect } from '.
 
 const TMP = join(process.cwd(), 'e2e-tmp-reconnect');
 
+/**
+ * How long these assertions wait — deliberately LONGER than the app's own 120 s reconnect deadline
+ * (`DEFAULT_RECONNECT_TIMEOUT_MS`), and the per-test budget is raised to fit.
+ *
+ * It used to be 60 s, which is SHORTER than that deadline, and it cost three debugging sessions: the
+ * test gave up before the app could report its own verdict, so "the re-auth stalled forever" and
+ * "the app failed correctly at its deadline" produced the IDENTICAL failure — `Received: "pairing"` —
+ * and nothing distinguished them. Raising it was deliberately NOT done while the stall was
+ * unexplained, because raising a timeout mid-hunt is how a real hang gets hidden. With the cause
+ * found and fixed (an early `reconnect-init` dropped for good — BACKLOG § Third pass), it now makes
+ * the next failure informative rather than ambiguous: a stall that survives the app's own deadline is
+ * a different bug from one the deadline catches, and this is what tells them apart.
+ */
+const RECONNECT_ASSERT_TIMEOUT_MS = 140_000;
+// The default per-test budget (180 s) is not enough to WAIT OUT the deadline and still report, so the
+// whole file gets room. Only failures are slow; a healthy reconnect finishes in a couple of seconds.
+test.describe.configure({ timeout: 300_000 });
+
 function sha256(buf: Buffer): string {
   return createHash('sha256').update(buf).digest('hex');
 }
@@ -78,8 +96,8 @@ test('happy reconnect: enrolled peers re-auth via the pinned key (no SAS) → co
   await startReconnect(a, b);
 
   // Both reach connected WITHOUT any SAS comparison — the pinned-key signatures authenticated it.
-  await expect(a.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
-  await expect(b.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
+  await expect(a.getByTestId('status')).toHaveText('connected', { timeout: RECONNECT_ASSERT_TIMEOUT_MS });
+  await expect(b.getByTestId('status')).toHaveText('connected', { timeout: RECONNECT_ASSERT_TIMEOUT_MS });
   await expect(a.getByTestId('auth-state')).toContainText('reconnect');
   await expect(b.getByTestId('auth-state')).toContainText('reconnect');
 
@@ -93,7 +111,7 @@ test('happy reconnect: enrolled peers re-auth via the pinned key (no SAS) → co
   await a.getByTestId('send-btn').click();
   await expect(b.getByTestId('transfer-phase')).toContainText('offered');
 
-  const downloadPromise = b.waitForEvent('download', { timeout: 60_000 });
+  const downloadPromise = b.waitForEvent('download', { timeout: RECONNECT_ASSERT_TIMEOUT_MS });
   await b.getByTestId('accept-btn').click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe('note.bin');
@@ -161,10 +179,10 @@ test('key-changed hard-stop: a peer presenting a different key under the same pa
 
   // A's check (1) sees B's presented key ≠ the pinned key → a VISIBLE key-changed hard stop (not a
   // toast). The other side goes down on the torn-down channel. No side reaches `connected`.
-  await expect(a.getByTestId('status')).toHaveText('failed', { timeout: 60_000 });
+  await expect(a.getByTestId('status')).toHaveText('failed', { timeout: RECONNECT_ASSERT_TIMEOUT_MS });
   await expect(a.getByTestId('key-changed')).toBeVisible();
   await expect(a.getByTestId('error')).toContainText('key changed');
-  await expect(b.getByTestId('status')).toHaveText('failed', { timeout: 60_000 });
+  await expect(b.getByTestId('status')).toHaveText('failed', { timeout: RECONNECT_ASSERT_TIMEOUT_MS });
 
   // No DataChannel transfer happened on EITHER side — not just "the banner is shown". The transfer
   // surface (the file picker AND the transfer panel/plaque + send control) renders ONLY at status
@@ -207,8 +225,8 @@ test('reconnect-init arriving before channel-open is held, not dropped', async (
   await startReconnect(a, b);
 
   // Against the old code both sides sit in `pairing` here until the 120 s deadline and then fail.
-  await expect(a.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
-  await expect(b.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
+  await expect(a.getByTestId('status')).toHaveText('connected', { timeout: RECONNECT_ASSERT_TIMEOUT_MS });
+  await expect(b.getByTestId('status')).toHaveText('connected', { timeout: RECONNECT_ASSERT_TIMEOUT_MS });
   await expect(a.getByTestId('auth-state')).toContainText('reconnect');
   await expect(b.getByTestId('auth-state')).toContainText('reconnect');
 

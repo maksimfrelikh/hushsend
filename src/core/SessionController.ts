@@ -1757,7 +1757,14 @@ export class SessionController {
     // firefox↔webkit pair on one LAN failed it with no attacker present — see startPathAttestation
     // for why that is structural (mDNS host candidates) rather than a bug to fix.
     this.dispatch(transferActions.reset());
-    this.sender = startSend(this.wire(), files, (e) => this.onSendEvent(e));
+    // Volume padding in MAX PRIVACY only (see transfer/padding.ts). That mode already trades
+    // reliability for privacy — it refuses to connect rather than relay — so trading a bounded slice
+    // of bandwidth for "the byte count names a range, not the file" is the same bargain. Reliable is
+    // the mode the user picked for convenience, and it relays, so its volume is visible to the relay
+    // regardless; padding there would cost bandwidth for much less. Flipping that is one argument.
+    this.sender = startSend(this.wire(), files, (e) => this.onSendEvent(e), {
+      pad: this.privacyMode === 'max',
+    });
   }
 
   /** Accept the pending inbound offer. MUST be called from a user gesture (FSA save picker). */

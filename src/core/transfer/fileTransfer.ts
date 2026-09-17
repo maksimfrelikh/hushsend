@@ -28,6 +28,7 @@
  * is pure (no React, no store); SessionController drives it and projects events to the UI.
  */
 import { z } from 'zod';
+import { padBytesFor } from './padding';
 import { makeZip, predictLength } from 'client-zip';
 
 // ── tuning constants ────────────────────────────────────────────────────────
@@ -215,7 +216,12 @@ export interface ActiveSend {
  * Begin a send: packs a zip when given >1 file, emits `offered`, and sends the
  * `offer-file` control. Returns immediately; the actual byte pump starts on `accept`.
  */
-export function sendFiles(wire: TransferWire, files: File[], emit: (e: SendEvent) => void): ActiveSend {
+export function sendFiles(
+  wire: TransferWire,
+  files: File[],
+  emit: (e: SendEvent) => void,
+  opts: { pad?: boolean } = {},
+): ActiveSend {
   const source = prepareSource(files);
   let phase: 'offering' | 'sending' | 'ended' = 'offering';
   let aborted = false;
@@ -256,6 +262,28 @@ export function sendFiles(wire: TransferWire, files: File[], emit: (e: SendEvent
         await wire.send(piece);
         sent += piece.length;
         emit({ t: 'progress', transferredBytes: sent });
+      }
+      if (aborted) return;
+      // Volume padding (see ./padding.ts): filler AFTER the real bytes, so the number of bytes an
+      // observer counts lands on a bucket edge instead of naming the file. The receiver stops writing
+      // at the size we DECLARED in the offer and discards the rest, so no field is added to the wire
+      // protocol and the two sides need not agree on the ladder.
+      //
+      // Progress is deliberately NOT emitted for the filler: the UI computes a percentage against the
+      // real size, and reporting more than 100% would be worse than briefly sitting at it. Above
+      // 1 MiB the tail is at most 12.5% of the transfer.
+      if (opts.pad) {
+        let left = padBytesFor(source.size);
+        if (left > 0) {
+          // Zeros, not CSPRNG bytes: this rides inside DTLS, which neither compresses nor reveals
+          // plaintext structure, so random filler would cost CPU and buy nothing.
+          const filler = new Uint8Array(Math.min(CHUNK, left));
+          while (!aborted && left > 0) {
+            const piece = left >= filler.length ? filler : filler.subarray(0, left);
+            await wire.send(piece);
+            left -= piece.length;
+          }
+        }
       }
       if (aborted) return;
       await wire.send(JSON.stringify({ t: 'eof' }));
@@ -420,9 +448,23 @@ export async function openReceive(
       tail = tail.then(async () => {
         if (ended) return;
         try {
-          await sink.write(data);
-          received += data.byteLength;
-          emit({ t: 'progress', transferredBytes: received });
+          // Write AT MOST the size the sender declared in its offer, and silently drop the rest.
+          //
+          // Two things depend on this. It is what makes volume padding invisible to the user: the
+          // filler after the real bytes (see sendFiles) is simply not written. And it closes a hole
+          // that predates padding — the size guard ran BEFORE accept, against the DECLARED size, and
+          // nothing enforced it afterwards, so on the streaming path (Chromium File System Access,
+          // which has no RAM ceiling to stop it) a sender could declare 2 MB and write whatever it
+          // liked to the user's disk. The peer is authenticated and the humans trust each other, so
+          // this was never a stranger attack — but "you accepted 2 MB" must not be able to become
+          // 50 GB on disk.
+          const room = Math.max(0, offer.size - received);
+          if (room > 0) {
+            const usable = data.byteLength <= room ? data : data.slice(0, room);
+            await sink.write(usable);
+            received += usable.byteLength;
+            emit({ t: 'progress', transferredBytes: received });
+          }
         } catch (err) {
           await sink.abort().catch(() => {});
           sendCancel();

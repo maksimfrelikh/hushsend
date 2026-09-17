@@ -54,8 +54,8 @@ export const STR = {
   },
   privacyTitle: { en: 'Max privacy', ru: 'Макс. приватность' },
   privacyDesc: {
-    en: 'On: always direct, peer-to-peer. Your peer sees your IP; never relayed through a server — even if that means not connecting.',
-    ru: 'Вкл: всегда напрямую, точка-точка. Собеседник видит ваш IP; никогда через сервер — даже если соединиться не выйдет.',
+    en: 'On: always direct, peer-to-peer. Your peer sees your IP; never relayed through a server — even if that means not connecting. Transfers are padded so their size shows a range, not the exact file (costs up to 12% extra data).',
+    ru: 'Вкл: всегда напрямую, точка-точка. Собеседник видит ваш IP; никогда через сервер — даже если соединиться не выйдет. Объём передачи выравнивается, чтобы виден был диапазон, а не точный размер файла (до 12% лишнего трафика).',
   },
   privacyDescReliable: {
     en: 'Off (reliable): may relay through a server if a direct path fails. Your IP stays hidden from your peer; the relay only carries end-to-end-encrypted traffic.',

@@ -338,7 +338,14 @@ the same pass as CLAUDE.md when items land.
 - **Two measurements were left half-finished** when the ladder ran on a Mac: WebKit's 1792 MB rung was
   interrupted by hand before the stall watchdog could name a percentage, and Chromium's ceiling is
   only bracketed as "2 GB OK, 3 GB fails" — the boundary between them is unmeasured. Neither blocks
-  anything; both are a single ladder run away (`E2E_LIMITS_SIZES=2304,2560,2816`).
+  anything.
+  **Do NOT run the remaining rungs on the deploy host** (checked 2026-09-17, and the earlier "a single
+  ladder run away" was misleading). The Blob receive path is RAM-bound, so the rung that fails is a
+  property of the MACHINE as much as the engine: this box has 6 GB plus 3 GB of swap, and the
+  unmeasured rungs are 2304/2560/2816 MB held in a browser heap. It would either thrash or produce a
+  ceiling that describes this server rather than the Mac the rest of the ladder was measured on —
+  a number worse than no number. Finish it on the same class of machine as the original run, and
+  record which machine beside the result.
 
 ## Nice-to-have / future
 - **coturn `turns:` (TURN over TLS on :5349)** *(deferred — agreed at deploy 2026-06-20)*. The live
@@ -972,6 +979,36 @@ Also fixed in the same pass, from the same audit:
 - [ ] **`pairingId` disclosure to whoever wins the reconnect join race** — unchanged from the first
   pass (a blinded `HMAC(pairingId, fp_min‖fp_max)` announcement). Note finding (4) made this worse
   before it was fixed; with the enrollment gate in place it is back to linkability + nuisance.
+
+### Volume padding + a receiver bound (2026-09-17)
+
+- ✅ **Volume padding — BUILT, on in Max privacy.** THREATMODEL road-map item 6, previously marked
+  optional. Without it the contents are unreadable but the VOLUME is not hidden: chunks are
+  16–256 KiB and the total is ≈ the file size, so anyone on the path reads "4,723,811 bytes in 12 s",
+  and against a known candidate set an exact byte count identifies a document about as well as its
+  name would. `core/transfer/padding.ts` sends filler after the real bytes so the total lands on a
+  bucket edge: powers of two below 1 MiB (small files are the most identifiable and the cheapest to
+  hide), then steps of an eighth of the leading power of two above it.
+  **The ladder is a stated trade, not a default that happened.** Powers of two throughout would hide
+  the most and cost up to 2× bandwidth — unacceptable for people on metered and slow links, which is
+  this product's audience. The ceiling is therefore 12.5%, and the cost is resolution: above 1 MiB an
+  observer still learns the size to within 12.5%, which against a SMALL candidate set may still
+  identify a document. `BUCKETS_PER_OCTAVE` is the one constant to change if that trade should go the
+  other way.
+  **What it does NOT hide, in the module header so nobody reads more into it:** duration and timing,
+  the fact that a transfer happened or between whom, and the number of transfers.
+  **Max privacy only.** That mode already refuses to connect rather than relay, so trading bandwidth
+  for privacy is the same bargain; Reliable was chosen for convenience and relays anyway.
+  No wire-protocol field was added — both sides derive the bucket from the declared size, and the
+  receiver simply stops writing at it. 8 unit tests pin the ladder (monotonic, never truncating,
+  overhead capped); an e2e counts the bytes the DataChannel actually put on the wire and hashes what
+  arrived, because unit tests prove arithmetic and not that the filler is sent, dropped and harmless.
+- ✅ **The receiver now writes at most the size the sender DECLARED.** Found while building the above.
+  The size guard ran BEFORE accept, against the declared size, and nothing enforced it afterwards — so
+  on the streaming path (Chromium File System Access, which has no RAM ceiling to stop it) a sender
+  could declare 2 MB and write whatever it liked to the user's disk. The peer is authenticated and the
+  two humans trust each other, so this was never a stranger attack; but "you accepted 2 MB" must not
+  be able to become 50 GB on disk, and the bound is what makes padding invisible anyway.
 
 ### Doc corrections made in the same pass
 
