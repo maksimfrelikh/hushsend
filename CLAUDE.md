@@ -1228,6 +1228,32 @@ fingerprint binding stops it at the SAS / key-confirmation step.
   reaches `ok` on every engine — `unknown` is allowed, so a broken implementation would otherwise
   look exactly like a working one.
 
+## Early frames and the channel-open window
+
+The DataChannel starts delivering peer frames BEFORE this controller has processed channel-open:
+`PeerConnection.setupChannel` wires `onmessage` synchronously, while `onopen` runs the Max-privacy
+relay gate, which awaits `getStats()` (and, since 2026-09-13, polls it for up to
+`SELECTED_PAIR_TIMEOUT_MS`). Anything the peer sends in that window arrives while our per-method state
+is still half-built.
+
+**Every control frame that can arrive early must be HELD and replayed — never dropped.** A dropped
+frame is unrecoverable: no sender in this protocol resends, so the pair simply waits out its deadline.
+Three paths now do this, and they are the pattern to copy for a fourth:
+
+| frame | held in | replayed by |
+|---|---|---|
+| `enroll-*` | `pendingEnrollFrame` | `startEnrollment` (at settle) |
+| `path-attest` | `pendingPathAttest` | `startPathAttestation` |
+| `reconnect-*` | `pendingReconnectFrame` | `onReconnectChannelOpen` (before it decides to send or wait) |
+
+The reconnect one was missing until 2026-09-17 and cost a 120 s stall on roughly 1 CI engine-matrix
+night in 5 — see BACKLOG § Third pass for the full chain, including how it was finally proved with the
+DEV-only `?gateDelayMs=N` knob that makes the window deterministic.
+
+**Corollary, learned the hard way: no branch on these paths may return silently.** A frame dropped for
+a good reason and a frame never sent look identical from the outside, and both end in a deadline with
+an empty log. Log which guard fired; fail closed on states that should be unreachable.
+
 ## Cross-cutting invariants
 - No file bytes before the connection is authenticated (`connected` / `established`). Path
   attestation is ADVISORY and deliberately does NOT extend this gate — see § Path attestation.

@@ -412,6 +412,34 @@ function forcePathMismatchEnabled(): boolean {
   }
 }
 
+/**
+ * DEV-only: hold the open DataChannel back from this controller for N ms (`?gateDelayMs=N` /
+ * `window.__HUSHSEND_GATE_DELAY_MS__`), widening the window in which the channel already delivers
+ * messages but `onChannelOpen` has not run.
+ *
+ * That window is NOT an artifact: `PeerConnection.setupChannel` wires `onmessage` synchronously while
+ * `onopen` runs the Max-privacy relay gate, which awaits `getStats()`. A peer's `reconnect-init`
+ * landing inside it used to be dropped permanently — the sender never resends — leaving both sides in
+ * `pairing` until the 120 s deadline with nothing logged. In the wild that is a rare,
+ * engine-dependent flake (measured ~1 night in 5 on the CI engine matrix); this knob makes it
+ * deterministic, which is the only way to have a regression test for it. Tree-shaken in production,
+ * like every knob here.
+ */
+function gateDelayMs(): number {
+  if (!import.meta.env.DEV) return 0;
+  try {
+    const w = window as unknown as { __HUSHSEND_GATE_DELAY_MS__?: unknown };
+    if (typeof w.__HUSHSEND_GATE_DELAY_MS__ === 'number' && w.__HUSHSEND_GATE_DELAY_MS__ > 0) {
+      return w.__HUSHSEND_GATE_DELAY_MS__;
+    }
+    const q = new URLSearchParams(window.location.search).get('gateDelayMs');
+    const n = q ? Number(q) : 0;
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  } catch {
+    return 0; // no window (non-browser) — never delay
+  }
+}
+
 function forceIceFailEnabled(): boolean {
   if (!import.meta.env.DEV) return false;
   try {
@@ -609,6 +637,16 @@ export class SessionController {
    *  (see onEnrollFrame) but we must not drop it either, or that pair would silently never pin and
    *  could never reconnect. Held here and replayed by startEnrollment at settle. */
   private pendingEnrollFrame: EnrollFrame | null = null;
+  /** A reconnect frame that arrived BEFORE our own channel-open handler set `rc.fps`.
+   *
+   *  That window is real and not small: `PeerConnection.setupChannel` wires `onmessage` SYNCHRONOUSLY,
+   *  while `onopen` runs the Max-privacy relay gate, which AWAITS `getStats()` before handing the
+   *  channel to this controller. So the peer's `reconnect-init` can be delivered while we are still
+   *  inside that await. The frame used to be dropped there and the sender never resends, so both
+   *  sides sat in `pairing` until the 120 s deadline, with nothing logged anywhere — see BACKLOG
+   *  § Third pass. Held here and replayed by `onReconnectChannelOpen`, exactly as
+   *  {@link pendingEnrollFrame} and `pendingPathAttest` do for the same class of race. */
+  private pendingReconnectFrame: ReconnectFrame | null = null;
 
   private selfId: string | null = null;
   private peerId: string | null = null;
@@ -1073,6 +1111,7 @@ export class SessionController {
         filterRelay: this.privacyMode === 'max',
         forceIceFail: forceIceFailEnabled(),
         forceRelayedPath: forceRelayPathEnabled(),
+        gateDelayMs: gateDelayMs(),
       },
     );
     this.peer.start(initiator);
@@ -2439,20 +2478,62 @@ export class SessionController {
       return;
     }
     rc.fps = { local, remote };
-    if (rc.role === 'initiator' && !rc.initSent && rc.pairingId) {
-      rc.initSent = true;
-      this.sendReconnect({
-        kind: 'reconnect-init',
-        pairingId: bytesToHex(rc.pairingId),
-        challenge: bytesToHex(rc.myChallenge),
-      });
+    // Replay first: the held frame may BE the `reconnect-init` we are about to start waiting for.
+    const held = this.pendingReconnectFrame;
+    this.pendingReconnectFrame = null;
+    if (held) {
+      this.dispatch(devActions.appendLog(`reconnect: replaying held ${held.kind}`));
+      void this.onReconnectFrame(held).catch((err) =>
+        this.dispatch(devActions.appendLog(`reconnect: ${errText(err)}`)),
+      );
     }
+    if (rc.role !== 'initiator') {
+      this.dispatch(devActions.appendLog('reconnect: channel open, responder — waiting for reconnect-init'));
+      return;
+    }
+    if (rc.initSent) return; // one-shot; already announced
+    if (!rc.pairingId) {
+      // Unreachable by construction: createReconnectSession only builds an INITIATOR state when it
+      // found a pin, and the responder is built with role 'responder'. If it ever happens anyway the
+      // old code returned silently and the pair sat in `pairing` for 120 s with an empty log — the
+      // worst possible way to report a wiring bug. Fail closed and say so.
+      this.failReconnect('reconnect: initiator has no pairingId to announce (wiring bug)');
+      return;
+    }
+    rc.initSent = true;
+    this.dispatch(devActions.appendLog('reconnect: channel open, initiator — sending reconnect-init'));
+    this.sendReconnect({
+      kind: 'reconnect-init',
+      pairingId: bytesToHex(rc.pairingId),
+      challenge: bytesToHex(rc.myChallenge),
+    });
   }
 
   /** Route an inbound reconnect frame (already zod-validated to exact lengths). */
   private async onReconnectFrame(frame: ReconnectFrame): Promise<void> {
     const rc = this.reconnect;
-    if (!rc || rc.settled || rc.fellBack || !rc.fps) return; // only meaningful after channel-open
+    // A DROPPED frame here is indistinguishable, from the outside, from one that was never sent:
+    // both leave the pair sitting in `pairing` until the 120 s deadline, with nothing written
+    // anywhere. That ambiguity cost a whole debugging session, so every drop now says which guard
+    // did it. `!rc.fps` is the interesting one — it means the frame beat our own channel-open
+    // handler, which is a RACE rather than a benign state, and the peer will not resend.
+    if (!rc) {
+      this.dispatch(devActions.appendLog(`reconnect: dropped ${frame.kind} — not a reconnect session`));
+      return;
+    }
+    if (rc.settled || rc.fellBack) {
+      this.dispatch(
+        devActions.appendLog(`reconnect: dropped ${frame.kind} — already ${rc.settled ? 'settled' : 'fell back'}`),
+      );
+      return;
+    }
+    if (!rc.fps) {
+      // NOT a drop any more. The frame beat our own channel-open handler (see pendingReconnectFrame);
+      // the peer will not resend, so discarding it stalled the pair for 120 s. Hold and replay.
+      this.dispatch(devActions.appendLog(`reconnect: holding ${frame.kind} — arrived before channel-open`));
+      this.pendingReconnectFrame = frame;
+      return;
+    }
     switch (frame.kind) {
       case 'reconnect-init':
         return this.onReconnectInit(frame.pairingId, frame.challenge);
@@ -2965,6 +3046,7 @@ export class SessionController {
     this.enrollInitiated = false;
     this.enrollPinned = false;
     this.pendingEnrollFrame = null;
+    this.pendingReconnectFrame = null;
     this.clearPathAttest();
     this.dispatch(devActions.setPinnedPeer(null));
     await this.publishIdentity(); // generate + show a fresh identity
@@ -3025,6 +3107,7 @@ export class SessionController {
     this.enrollInitiated = false;
     this.enrollPinned = false;
     this.pendingEnrollFrame = null;
+    this.pendingReconnectFrame = null;
     this.clearPathAttest();
     this.dispatch(connectionActions.reset());
     this.dispatch(transferActions.reset());

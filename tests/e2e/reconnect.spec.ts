@@ -177,3 +177,42 @@ test('key-changed hard-stop: a peer presenting a different key under the same pa
     await expect(page.getByTestId('status')).not.toHaveText('connected');
   }
 });
+
+/**
+ * REGRESSION (2026-09-17): a `reconnect-init` that arrives BEFORE the receiving side has processed
+ * channel-open must be held and replayed, not dropped.
+ *
+ * THE WINDOW IS REAL AND IS NOT A TEST ARTIFACT. `PeerConnection.setupChannel` wires `onmessage`
+ * synchronously, while `onopen` runs the Max-privacy relay gate, which AWAITS `getStats()` before
+ * handing the channel to the SessionController. So the peer's first reconnect frame can land while we
+ * are still inside that await. It used to hit `if (!rc.fps) return` and be discarded — and the sender
+ * never resends, because it considers itself announced. Both sides then sat in `pairing` until the
+ * 120 s deadline with NOTHING written to the dev log, which is what made this cost a full debugging
+ * session: measured at roughly 1 CI engine-matrix night in 5, and ~4 failures in 8 local webkit runs,
+ * but never reproducible on demand.
+ *
+ * `?gateDelayMs=N` (DEV-only, tree-shaken) widens that window on ONE side only, which turns the race
+ * into a deterministic test. It stubs nothing else: the drop/hold decision, the replay, the deadline
+ * and the state machine are all production code.
+ *
+ * Applied to the RESPONDER, because the responder is the side that must already be ready when the
+ * initiator's announcement lands.
+ */
+test('reconnect-init arriving before channel-open is held, not dropped', async ({ browser }) => {
+  const a = await openTab(browser); // creator → reconnect INITIATOR, announces immediately
+  const b = await openTab(browser, 'gateDelayMs=3000'); // joiner → responder, deliberately late
+
+  await enrollViaSas(a, b);
+  await resetBoth(a, b);
+  await startReconnect(a, b);
+
+  // Against the old code both sides sit in `pairing` here until the 120 s deadline and then fail.
+  await expect(a.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
+  await expect(b.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
+  await expect(a.getByTestId('auth-state')).toContainText('reconnect');
+  await expect(b.getByTestId('auth-state')).toContainText('reconnect');
+
+  // And it authenticated by the PIN, not by silently falling back to a fresh SAS comparison.
+  await expect(b.locator('.hs-diag')).toContainText('holding reconnect-init');
+  await expect(b.locator('.hs-diag')).toContainText('replaying held reconnect-init');
+});

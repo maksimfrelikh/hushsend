@@ -713,62 +713,61 @@ Four things did not hold. Three are fixed below; the fourth is new scope and is 
 
 **The e2e flake, chased to a cause rather than rerun away:**
 
-- [ ] **Reconnect assertions intermittently time out at `pairing` — ONE CONTRIBUTOR FIXED, THE FLAKE
-  SURVIVES (2026-09-13).** Read the status line carefully: a measurable contributor was found and
-  removed, and the flake then reproduced anyway on webkit. It is NOT closed. First logged here as
-  "observed once, not reproduced"; that entry was right to refuse to dismiss it and wrong about
-  almost everything else, so it is replaced rather than amended.
-  **Reproduction, which was the whole difficulty:** `taskset -c 0,1` — two cores, like a GitHub
-  runner. It never reproduced on an idle 8-core host and never in an isolated run of the spec; it
-  needs the FULL suite on constrained cores.
-  **Not a regression, established by matched experiment rather than argument:** baseline `6d11d1c`
-  (before the day's changes, built in a separate worktree) failed 1 run in 3 on two cores with the
-  same signature; the changed tree failed 1 in 3. Independently, two commits that touched **no `src/`
-  at all** — `3687c81` (BACKLOG.md only) and `0cdcb14` (docs + a shell script) — failed the same CI
-  job. And the job ran 3.0 min against a 25-min limit, so it was never a job-level timeout.
-  **Not slowness either, which was the obvious theory:** under three busy-loops pinned to the same two
-  cores, the reconnect spec ran in 5–12 s and passed 6/6. CPU starvation alone does not do it.
-  **What it actually was: browser processes accumulating across the run.** `reconnect.spec.ts` was the
-  ONLY spec closing the contexts it opened — and its own comment already described this failure mode
-  ("six tabs were competing — which is how a 3-second test turned into a 60-second timeout on a loaded
-  machine"). Six other specs created contexts and never closed them, and Playwright disposes those at
-  WORKER exit, not test or file exit. Each abandoned context keeps a live PeerConnection running ICE
-  keepalives. Measured over a full chromium suite: **31 browser processes at peak, climbing
-  monotonically** — which is why it bit the specs that run later.
-  **Fix:** the `afterEach` cleanup `reconnect.spec.ts` already used, applied to every spec that opens
-  a context (`identity-enroll`, `privacy`, `relax`, `smoke`, `ws-close` — `limits` and `interop`
-  already cleaned up). Re-measured: **peak 12 processes, and flat instead of climbing.** Flatness is
-  the property that matters, not the number.
-  **Evidence for the fix, stated at its real strength:** 5/5 clean full chromium runs on two cores
-  afterwards (1.9 min each, versus 2.9–3.0 min for the runs that failed), against 1-in-3 before. At a
-  prior rate of ~1/3, five clean runs would happen by luck about 13% of the time — support, not proof.
-  **AND THEN IT FAILED AGAIN.** A full four-project pass (chromium + firefox + webkit + interop, 106
-  tests, 8.5 min, all 8 cores) failed `reconnect.spec.ts:70` on **webkit** with the identical
-  signature: `connected` expected, `pairing` for 122 polls over 60 s. chromium 34/34, firefox 34/34,
-  webkit 33/34.
-  **So what is actually known:** process accumulation was real, is gone, and mattered (measured
-  31→12, climbing→flat). It was not the whole cause. What remains is a stall between `pairing` and
-  `connected` in the reconnect flow, now seen on webkit specifically, and it is the same test and the
-  same signature every time — which is a narrow enough target to be worth the next session.
-  **Rate on a REAL runner, measured 2026-09-17 over four nights of untouched code.** The nightly
-  engine matrix ran five times on the SAME commit (`9571439f`): 13 Sep ✓, 14 Sep ✓, 15 Sep ✓,
-  16 Sep ✓, **17 Sep ✗**. The failing job is `e2e (firefox · webkit · interop · phone profile)`
-  (6.3 min); `e2e (chromium)` was green on every one of those nights, as it has been on every push
-  since the context cleanup landed. So: **the cleanup appears to have closed the chromium half, and
-  the engine matrix still fails about 1 night in 5.** Note what this costs to observe — the matrix is
-  skipped on push, so a push-green CI says nothing about it, and the only signal is the nightly.
-  **Where to start, so the next attempt does not re-derive today's work:** `taskset -c 0,1` plus the
-  FULL suite is the cheap reproduction for chromium; webkit reproduces without core constraint in a
-  multi-project run. The stall is AFTER both peers meet (`pairing` means `pairingStarted` already
-  fired), so it is in offer/answer, ICE, DTLS, DataChannel open, or the reconnect proof exchange — not
-  in rendezvous. Note the deadline mismatch in the next item: the test cannot currently tell a stall
-  from a correctly-handled failure, so aligning that first would make the next failure informative.
-  **The single most informative next experiment** — cheap, and it answers the question the current
-  test cannot: raise the reconnect-spec expects past the app's own 120 s deadline and re-run until it
-  reproduces. If the side that sits in `pairing` reaches `failed` at ~120 s, the re-auth genuinely
-  stalled and `armReconnectTimeout` is doing its job — the bug is upstream, in offer/answer, ICE,
-  DTLS or channel-open. If it sits in `pairing` past 120 s, the deadline did not arm for that path,
-  which is a real liveness hole and a different (and more serious) bug than a flaky test.
+- ✅ **Reconnect stalled at `pairing` for 120 s — ROOT CAUSE FOUND AND FIXED 2026-09-17.** Took three
+  sessions, two wrong theories and one broken experiment, so the whole chain is recorded here rather
+  than the conclusion alone.
+
+  **The bug.** `PeerConnection.setupChannel` wires `onmessage` SYNCHRONOUSLY, while `onopen` runs the
+  Max-privacy relay gate, which AWAITS `getStats()` before handing the channel to the
+  SessionController. Between those two moments the channel already delivers peer frames but
+  `rc.fps` is not set yet — so the initiator's `reconnect-init`, landing in that window, hit
+  `if (!rc.fps) return` in `onReconnectFrame` and was discarded **permanently**. The sender never
+  resends (it considers itself announced), so both sides sat in `pairing` until the 120 s deadline,
+  with NOTHING written to the dev log. Confidentiality was never affected; what broke was
+  reconnecting to an already-known device — roughly 1 CI engine-matrix night in 5, and 4 of 8 local
+  webkit runs.
+
+  **Fix:** hold the early frame and replay it once `rc.fps` is set (`pendingReconnectFrame`). Not an
+  invention — `pendingEnrollFrame` and `pendingPathAttest` already do exactly this for the same class
+  of race; reconnect was the one path without the guard.
+
+  **How it was proved, after hunting failed.** Chasing the flake did not work: with instrumentation in
+  place it went 6 full webkit runs without reproducing. So the window was made controllable instead —
+  `?gateDelayMs=N` (DEV-only, tree-shaken, verified `function aA(){return 0}` in the built bundle)
+  holds the channel back from the owner on ONE side. It stubs nothing else: the drop/hold decision,
+  the deadline and the state machine are all production code. With the window widened and the fix
+  removed, the failure is **deterministic — 5 of 5** — and its signature is the production one
+  verbatim: `Expected: "connected", Received: "pairing"`, 123 polls. Regression test:
+  `reconnect.spec.ts` "reconnect-init arriving before channel-open is held, not dropped".
+
+  **A wrong experiment worth recording.** The first old-vs-new comparison showed the OLD code passing,
+  which nearly produced the conclusion "hypothesis refuted". The flaw was in the experiment: removing
+  the fix by stashing `SessionController.ts` also removed the `gateDelayMs` wiring declared in the
+  same file, so the "old code" ran with no delay at all and had no race to lose to. Revert the
+  BEHAVIOUR under test, never the instrument that creates the condition.
+
+  **Evidence for the fix, at its real strength.** Full webkit suite after: **0 failures in 6 runs**,
+  against 4 in 8 before. All engines green afterwards (79 passed, chromium/firefox/interop/mobile).
+  That is strong, not conclusive: in the wild the window is a few event-loop turns rather than 3 s, so
+  whether this accounts for EVERY nightly failure is for the nightly matrix to say over the coming
+  days. Watch it.
+
+  **Contributing, and stated plainly: the F1 gate widened the window.** `SELECTED_PAIR_TIMEOUT_MS`
+  turned the await into a bounded poll of up to 15 s, so a change made for Max-privacy correctness
+  very likely made this pre-existing race more frequent. The race predates it (baseline `6d11d1c`
+  failed identically), but the honest statement is that the two interacted.
+
+  **Related fix in the same pass: the silent branches now speak.** Every drop on the reconnect path
+  logs which guard did it, channel-open logs what it decided, and the unreachable
+  "initiator without a pairingId" now fails closed with a reason instead of 120 s of silence. That
+  ambiguity is what made this expensive to find: a dropped frame and a never-sent frame looked
+  identical from outside.
+
+  **Earlier contributor, fixed separately (2026-09-13) and still worth keeping:** browser processes
+  accumulated across a run because `reconnect.spec.ts` was the only spec closing its contexts —
+  measured 31 at peak and climbing, now 12 and flat. That closed the chromium half; it was never the
+  whole cause, and this entry is the rest of it.
+
 - **Test-design note found in passing, not fixed:** the reconnect deadline in the app is 120 s
   (`DEFAULT_RECONNECT_TIMEOUT_MS`) while `reconnect.spec.ts` waits 60 s. The test gives up before the
   app's own safety net can fire, so "the app stalled" and "the app would have failed correctly at its

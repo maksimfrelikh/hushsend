@@ -90,6 +90,15 @@ export interface PeerConfig {
    * only the verdict is stubbed. Set by SessionController from `?forceRelayPath=1`.
    */
   forceRelayedPath?: boolean;
+  /**
+   * DEV/TEST only: milliseconds to hold the open channel back from the owner, AFTER the relay gate
+   * has passed. Widens the window in which the channel already delivers `onmessage` but the owner has
+   * not processed channel-open — a window that exists in production (the gate awaits `getStats()`) and
+   * in which an arriving peer frame used to be dropped for good. Normally a few event-loop turns, so
+   * the resulting bug looked like a rare engine-dependent flake; this makes it deterministic.
+   * Production passes 0 and the branch is tree-shaken.
+   */
+  gateDelayMs?: number;
 }
 
 // Inbound signal payloads come from an UNTRUSTED relay — validate before touching the PC.
@@ -128,6 +137,8 @@ export class PeerConnection {
   private readonly simulateIceFail: boolean;
   /** DEV/TEST: answer the channel-open gate as if the selected path terminated on a relay. */
   private readonly simulateRelayedPath: boolean;
+  /** DEV/TEST only: ms to hold the channel back from the owner after the relay gate passes. */
+  private readonly gateDelayMs: number;
   /** one-shot guard so the Max-privacy ICE-failure is reported (onIceFailed) at most once. */
   private iceFailureReported = false;
   /** Endpoints (`address|port`) of every relay candidate the filter dropped. ICE can still LEARN one
@@ -144,6 +155,7 @@ export class PeerConnection {
     this.filterRelay = config.filterRelay ?? false;
     this.simulateIceFail = config.forceIceFail ?? false;
     this.simulateRelayedPath = config.forceRelayedPath ?? false;
+    this.gateDelayMs = config.gateDelayMs ?? 0;
   }
 
   /**
@@ -382,6 +394,16 @@ export class PeerConnection {
       }
     }
     if (this.closed) return; // the await above yields — the owner may have torn us down meanwhile
+    // DEV/TEST: widen the window between "the channel is open and already delivering messages" and
+    // "the owner has processed channel-open". That window is REAL — `setupChannel` wires `onmessage`
+    // synchronously while this gate awaits `getStats()` — and a peer frame landing inside it used to
+    // be dropped for good. It is normally a few event-loop turns, so the bug behaved as a rare
+    // engine-dependent flake; this knob turns it into a deterministic test. Production always passes
+    // 0 and the whole branch is tree-shaken (see gateDelayMs in SessionController).
+    if (this.gateDelayMs > 0) {
+      await new Promise((r) => setTimeout(r, this.gateDelayMs));
+      if (this.closed) return;
+    }
     this.handlers.onOpen?.();
   }
 
