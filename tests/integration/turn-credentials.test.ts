@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { spawn, type ChildProcess } from 'node:child_process';
+import net from 'node:net';
 import { createHmac } from 'node:crypto';
 
 /**
@@ -92,6 +93,38 @@ function client(port: number, query: string): TestClient {
   return c;
 }
 
+/**
+ * Refuse to run against a server we did not spawn.
+ *
+ * `waitForHealth` asks `/health` and takes `ok` for "my server is up" — but ANY server on that port
+ * answers it. When the port is already taken (a stray `E2E_SIGNALING_PORT`, a leftover run, or the
+ * other integration file: 8099/8100 were duplicated across two files that Vitest runs in PARALLEL),
+ * our own spawn dies with EADDRINUSE into `stdio: 'ignore'`, the health check passes against the
+ * STRANGER, and every assertion then fails as `timeout waiting for 'welcome'` — a message that
+ * describes neither the cause nor the fix. Observed for real on 2026-09-17.
+ *
+ * This is the same hazard playwright.config.ts documents for its own `reuseExistingServer`; the
+ * integration suite simply had no equivalent guard. Fail loudly and say what to do instead.
+ */
+async function assertPortFree(port: number): Promise<void> {
+  const srv = net.createServer();
+  await new Promise<void>((resolve, reject) => {
+    srv.once('error', (err: NodeJS.ErrnoException) =>
+      reject(
+        new Error(
+          err.code === 'EADDRINUSE'
+            ? `port ${port} is already in use — this test spawns its OWN signaling server and would ` +
+              `silently attach to the stranger instead. Stop whatever holds ${port} (a dev/e2e run?) ` +
+              `and retry.`
+            : `cannot probe port ${port}: ${err.message}`,
+        ),
+      ),
+    );
+    srv.once('listening', () => srv.close(() => resolve()));
+    srv.listen(port, '127.0.0.1');
+  });
+}
+
 async function waitForHealth(port: number, timeoutMs = 10000): Promise<void> {
   const start = Date.now();
   for (;;) {
@@ -106,6 +139,7 @@ async function waitForHealth(port: number, timeoutMs = 10000): Promise<void> {
 }
 
 async function startServer(port: number, extraEnv: Record<string, string>): Promise<ChildProcess> {
+  await assertPortFree(port);
   const proc = spawn(process.execPath, ['server/signaling-server.js'], {
     env: { ...process.env, NODE_ENV: 'development', HOST: '127.0.0.1', PORT: String(port), ...extraEnv },
     stdio: 'ignore',
@@ -123,7 +157,7 @@ async function createRoom(port: number): Promise<TestClient> {
 }
 
 describe('turn-request → turn-credentials (configured)', () => {
-  const PORT = 8099;
+  const PORT = 8101; // was 8099 — collided with room-server.test.ts, which Vitest runs in parallel
   const SECRET = 'test-shared-secret-deadbeef';
   const URLS = 'turn:turn.example.org:3478?transport=udp,turn:turn.example.org:3478?transport=tcp';
   const TTL = '7200';
@@ -166,7 +200,7 @@ describe('turn-request → turn-credentials (configured)', () => {
 });
 
 describe('turn-request → turn-credentials (unconfigured)', () => {
-  const PORT = 8100;
+  const PORT = 8102; // was 8100 — collided with room-server.test.ts, which Vitest runs in parallel
   let server: ChildProcess;
   beforeAll(async () => {
     // No TURN_SECRET → relay disabled. The server must still answer gracefully (empty), never error.

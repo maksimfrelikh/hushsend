@@ -310,22 +310,27 @@ the same pass as CLAUDE.md when items land.
 - ✅ **HTTP/2 is ON on the live vhost — CORRECTED 2026-09-12.** The earlier note (and DEPLOY.md § 0)
   claimed it was off, read off the plain `listen 443 ssl;` line while missing the standalone
   `http2 on;` directive below it. `curl` against the live host negotiates HTTP/2. Nothing to do.
-- **Security headers are silently dropped on `/assets/` and `.wasm`.** Verified live: the HTML gets
-  all five, the JS bundle gets only `cache-control`. nginx applies inherited `add_header` directives
-  ONLY when the current level defines none, and both of those locations define their own
-  `add_header Cache-Control`. Impact is low (the DOCUMENT's CSP is what governs script execution and
-  it is intact; CSP/HSTS/frame-ancestors on a subresource are inert), but `nosniff` goes missing and,
-  worse, the next header anyone adds at server level will vanish the same way — and
-  `nginx.conf.example:53` asserts the opposite. Repeat the five headers inside both blocks (or move
-  the caching to `expires`/`map` so neither block needs an `add_header`). **Needs root** — hand the
-  edit + `nginx -t && systemctl reload nginx` to the operator.
-- **`/ws` and `/` are logged with nginx's default `combined` format**, so every connection writes the
-  client IP, the full User-Agent and the rendezvous code (`?room=…`) to disk. That quietly undoes the
-  coarse-device-label design, which exists precisely so the server does not learn the UA. Add
-  `access_log off;` (or a stripped `log_format`) to both locations. **Needs root.**
+- ✅ **Security headers were silently dropped on `/assets/` and `.wasm` — FIXED, re-verified live
+  2026-09-17.** nginx applies inherited `add_header` directives ONLY when the current level defines
+  none, and both locations defined their own `add_header Cache-Control`, so the server-level block
+  vanished for them. The live site now repeats all six inside each block. Measured today against
+  production: **6/6 on the HTML, 6/6 on the JS bundle, 6/6 on the `.wasm`** — and that is after an
+  nginx package upgrade on 2026-09-15 (1.28.3-2ubuntu1.10 → .11), so the config survived it.
+- ✅ **`/ws` and `/` were logged with nginx's default `combined` format — FIXED, re-verified live
+  2026-09-17.** The default wrote the client IP, the full User-Agent and the rendezvous code
+  (`?room=…`) to disk, quietly undoing the coarse-device-label design. `access_log off;` is now set in
+  all six location blocks of the live vhost. Measured today: **0 hushsend lines in the current
+  `access.log`** across four days of uptime.
+  **Residual, small but worth naming rather than leaving implicit:** the ROTATED logs still hold 56
+  pre-fix lines (03–10 Sep, 23 unique IPs with full User-Agents). Inspected: they are `POST /` 405
+  bot noise matched by the *Referer* header — **no `?room=` rendezvous codes and no `/ws` lines** — so
+  no rendezvous or pairing metadata was ever retained. They age out with logrotate. Nothing to do
+  unless the retention itself is considered sensitive.
 - **Scheduled CI expires on a quiet repo.** GitHub disables `schedule:` workflows after 60 days with
-  no commits, which would silently stop the nightly engine matrix. If the repo goes quiet, re-enable
-  it (or run the matrix from the Actions tab before a release).
+  no commits, which would silently stop the nightly engine matrix — the only thing that exercises
+  firefox/webkit/interop, since that job is skipped on push. Last commit 2026-09-13, so **the nightly
+  stops around 2026-11-12** unless something lands before then. Re-enable it (or run the matrix from
+  the Actions tab) before any release.
 - **Two measurements were left half-finished** when the ladder ran on a Mac: WebKit's 1792 MB rung was
   interrupted by hand before the stall watchdog could name a percentage, and Chromium's ceiling is
   only bracketed as "2 GB OK, 3 GB fails" — the boundary between them is unmeasured. Neither blocks
@@ -371,15 +376,20 @@ reconnect role create/join → id-order) remain **deferred (post-audit)**.
 
 The two failure modes (both now fail-closed / less likely, not yet fully fixed):
 
-- **Mismatched entry → permanent "agreeing on keys" hang.** If one side takes the **reconnect** path
-  (pin-based auto-pair, protocol role create/join, NO SAS) while the other joins the same code via
-  the **regular room join** (→ lobby → manual pick → always a *fresh* SAS, role by id-order), the two
-  run *different* handshakes over the same channel: one sends `reconnect-init` and waits for
-  `reconnect-proof`, the other sends `pair-request` / `sas-commit`. SDP/DTLS negotiate fine
-  (fingerprints exchange), but the app-level key step never converges → both sit in `pairing`
-  ("agreeing on keys") indefinitely. Note there is **no timeout-to-failed in this combination** — the
-  pre-SAS deadline guards the SAS side, not a stalled `reconnect-init`, so the mismatch hangs forever
-  instead of failing.
+- ✅ **Mismatched entry → permanent "agreeing on keys" hang — FIXED (verified 2026-09-17, the text
+  below had gone stale).** If one side takes the **reconnect** path (pin-based auto-pair, role
+  create/join, NO SAS) while the other joins the same code via the **regular room join** (→ lobby →
+  manual pick → a fresh SAS, role by id-order), the two run *different* handshakes over the same
+  channel: one sends `reconnect-init` and waits for `reconnect-proof`, the other sends
+  `pair-request` / `sas-commit`. SDP/DTLS negotiate fine, but the app-level key step never converges.
+  This entry used to end "there is **no timeout-to-failed in this combination** … so the mismatch
+  hangs forever instead of failing" — that is no longer true. `armReconnectTimeout` is armed in
+  `beginPairing` for **either** side that is on the reconnect path (`SessionController`, guarded by
+  `this.reconnect && !this.reconnect.fellBack`), independently of the pre-SAS timer, and the plain-SAS
+  side is covered by `armSasTimeout`. A stalled re-auth ends in `failed` at 120 s. Covered by
+  `reconnect.spec.ts:107` ("reconnect liveness deadline FIRES"), whose own comment names this residual
+  as the thing it closes. The remaining UX complaint — that the two entry points are easy to mix up —
+  is real and is the item below, but it is no longer a hang.
 - **Both sides press `reconnect` → two separate rooms, no rendezvous.** `reconnect` is
   reconnect-**create** (allocates its own room/code); pressing it on both peers makes two independent
   rooms that never meet. Same create/join asymmetry as every method, but the single "reconnect" label
@@ -740,12 +750,25 @@ Four things did not hold. Three are fixed below; the fourth is new scope and is 
   31→12, climbing→flat). It was not the whole cause. What remains is a stall between `pairing` and
   `connected` in the reconnect flow, now seen on webkit specifically, and it is the same test and the
   same signature every time — which is a narrow enough target to be worth the next session.
+  **Rate on a REAL runner, measured 2026-09-17 over four nights of untouched code.** The nightly
+  engine matrix ran five times on the SAME commit (`9571439f`): 13 Sep ✓, 14 Sep ✓, 15 Sep ✓,
+  16 Sep ✓, **17 Sep ✗**. The failing job is `e2e (firefox · webkit · interop · phone profile)`
+  (6.3 min); `e2e (chromium)` was green on every one of those nights, as it has been on every push
+  since the context cleanup landed. So: **the cleanup appears to have closed the chromium half, and
+  the engine matrix still fails about 1 night in 5.** Note what this costs to observe — the matrix is
+  skipped on push, so a push-green CI says nothing about it, and the only signal is the nightly.
   **Where to start, so the next attempt does not re-derive today's work:** `taskset -c 0,1` plus the
   FULL suite is the cheap reproduction for chromium; webkit reproduces without core constraint in a
   multi-project run. The stall is AFTER both peers meet (`pairing` means `pairingStarted` already
   fired), so it is in offer/answer, ICE, DTLS, DataChannel open, or the reconnect proof exchange — not
   in rendezvous. Note the deadline mismatch in the next item: the test cannot currently tell a stall
   from a correctly-handled failure, so aligning that first would make the next failure informative.
+  **The single most informative next experiment** — cheap, and it answers the question the current
+  test cannot: raise the reconnect-spec expects past the app's own 120 s deadline and re-run until it
+  reproduces. If the side that sits in `pairing` reaches `failed` at ~120 s, the re-auth genuinely
+  stalled and `armReconnectTimeout` is doing its job — the bug is upstream, in offer/answer, ICE,
+  DTLS or channel-open. If it sits in `pairing` past 120 s, the deadline did not arm for that path,
+  which is a real liveness hole and a different (and more serious) bug than a flaky test.
 - **Test-design note found in passing, not fixed:** the reconnect deadline in the app is 120 s
   (`DEFAULT_RECONNECT_TIMEOUT_MS`) while `reconnect.spec.ts` waits 60 s. The test gives up before the
   app's own safety net can fire, so "the app stalled" and "the app would have failed correctly at its

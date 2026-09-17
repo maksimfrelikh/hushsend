@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { spawn, type ChildProcess } from 'node:child_process';
+import net from 'node:net';
 
 /**
  * Integration coverage for the 4-digit ROOM hardening in server/signaling-server.js (step 6a). The
@@ -105,6 +106,38 @@ afterEach(() => {
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Refuse to run against a server we did not spawn.
+ *
+ * `waitForHealth` asks `/health` and takes `ok` for "my server is up" — but ANY server on that port
+ * answers it. When the port is already taken (a stray `E2E_SIGNALING_PORT`, a leftover run, or the
+ * other integration file: 8099/8100 were duplicated across two files that Vitest runs in PARALLEL),
+ * our own spawn dies with EADDRINUSE into `stdio: 'ignore'`, the health check passes against the
+ * STRANGER, and every assertion then fails as `timeout waiting for 'welcome'` — a message that
+ * describes neither the cause nor the fix. Observed for real on 2026-09-17.
+ *
+ * This is the same hazard playwright.config.ts documents for its own `reuseExistingServer`; the
+ * integration suite simply had no equivalent guard. Fail loudly and say what to do instead.
+ */
+async function assertPortFree(port: number): Promise<void> {
+  const srv = net.createServer();
+  await new Promise<void>((resolve, reject) => {
+    srv.once('error', (err: NodeJS.ErrnoException) =>
+      reject(
+        new Error(
+          err.code === 'EADDRINUSE'
+            ? `port ${port} is already in use — this test spawns its OWN signaling server and would ` +
+              `silently attach to the stranger instead. Stop whatever holds ${port} (a dev/e2e run?) ` +
+              `and retry.`
+            : `cannot probe port ${port}: ${err.message}`,
+        ),
+      ),
+    );
+    srv.once('listening', () => srv.close(() => resolve()));
+    srv.listen(port, '127.0.0.1');
+  });
+}
+
 /** Open a client to a given port. `realIp` (optional) is sent as X-Real-IP (only honored when the
  *  server runs with TRUST_PROXY=1; otherwise clientIp falls back to the loopback socket address). */
 function client(port: number, query: string, realIp?: string): TestClient {
@@ -130,6 +163,7 @@ async function waitForHealth(port: number, timeoutMs = 10000): Promise<void> {
 
 /** Spawn an isolated signaling server (own port + env) and wait until it is healthy. */
 async function startServer(port: number, extraEnv: Record<string, string>): Promise<ChildProcess> {
+  await assertPortFree(port);
   const proc = spawn(process.execPath, ['server/signaling-server.js'], {
     env: { ...process.env, NODE_ENV: 'development', HOST: '127.0.0.1', PORT: String(port), ...extraEnv },
     stdio: 'ignore',
