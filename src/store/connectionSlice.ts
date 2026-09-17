@@ -61,6 +61,11 @@ export interface ConnectionState {
    * `null` until the attestation settles (or off the authenticated paths).
    */
   pathCheck: PathVerdict | null;
+  /** True once two or more STUN servers have DISAGREED about our public address (see
+   *  `core/stunCheck.ts`). Only the disagreement is projected: "they agree" and "there was nothing to
+   *  compare" are both unremarkable, and a badge that is always green teaches people to ignore
+   *  badges — the lesson of F2. Advisory: nothing is gated on it. */
+  stunDisagreed: boolean;
   /** Mesh-lobby roster (room method): everyone currently in the 4-digit room EXCEPT us. The human
    *  picks whom to raise a 1:1 channel with. Maintained from welcome (set) / peer-joined (add) /
    *  peer-left (remove). Empty/unused for words/link/qr (they auto-pair with a single peer). */
@@ -82,6 +87,7 @@ const initialState: ConnectionState = {
   sas: null,
   sasRole: null,
   pathCheck: null,
+  stunDisagreed: false,
   roster: [],
   notice: null,
   error: null,
@@ -171,6 +177,10 @@ const slice = createSlice({
      *  why `unknown` is benign by design. Still advisory: nothing downstream gates bytes on this. */
     pathSettled(state, action: PayloadAction<{ verdict: PathVerdict }>) {
       state.pathCheck = action.payload.verdict;
+    },
+    /** Several STUN servers disagreed about our public address — see the field's note. */
+    stunDisagreement(state) {
+      state.stunDisagreed = true;
     },
 
     // --- mesh-lobby roster (room method) — serializable projections, NOT FSM transitions ---

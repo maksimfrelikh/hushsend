@@ -204,3 +204,31 @@ test('path MISMATCH is shown differently from "could not check", and does not bl
   await expect(receiver.getByTestId('path-state')).toHaveClass(/hs-badge--verified/);
   await expect(receiver.getByTestId('path-hint')).toHaveCount(0);
 });
+
+/**
+ * STUN cross-check (core/stunCheck.ts) must actually REACH a verdict when two servers are
+ * configured, not sit at `unknown`.
+ *
+ * Same argument as the path-attestation test above: `unknown` is benign by design — an engine that
+ * reports no server-reflexive candidate cannot be forced to — which means a wholly broken
+ * implementation would be indistinguishable from a working one from the outside. This is the test
+ * that tells them apart.
+ *
+ * Skipped unless the run supplies TWO STUN URLs, because the default e2e environment has none and a
+ * single one is `unknown` BY DESIGN (a lone operator cross-checks nothing). Locally:
+ *   E2E_STUN_URLS=stun:127.0.0.1:3478,stun:127.0.0.1:3479
+ * CI's engine matrix starts one coturn; a second is a second `--listening-port`.
+ */
+test('stun cross-check reaches a verdict when two servers are configured', async ({ browser }) => {
+  const urls = (process.env.E2E_STUN_URLS ?? '').split(',').filter(Boolean);
+  test.skip(urls.length < 2, `needs two STUN URLs, got ${urls.length} — see this test's header`);
+
+  const page = await openIsolatedTab(browser);
+  // Two honest servers on the same host see the same address, so `agree` is the expected answer.
+  // `disagree` here would be a real finding about the environment, not a flaky test.
+  await expect(page.getByTestId('stun-verdict')).toHaveText('agree', { timeout: 30_000 });
+  await expect(page.getByTestId('stun-addresses')).not.toHaveText('—');
+
+  // And nothing is shown to the user, because agreement is unremarkable — only a disagreement is.
+  await expect(page.getByTestId('stun-state')).toHaveCount(0);
+});

@@ -943,11 +943,32 @@ Also fixed in the same pass, from the same audit:
   **Not yet wired in:** `VITE_STUN_URLS` still points at the existing coturn on the app host, and
   during development all three services share one machine — which buys no separation at all, one
   operator. The property only starts to exist when STUN runs under a DIFFERENT party.
-- [ ] **Cross-check several independent STUN servers in the client.** The stronger form of the above,
-  and the one that needs no single operator to be trustworthy: `VITE_STUN_URLS` is already a list, so
-  the browser gathers a reflexive candidate from each. If two independent servers agree on our public
-  address and a third disagrees, the liar is visible — and it still works when one of them is ours.
-  Needs a comparison in `localCandidateAddresses`/`iceServers` plus a way to surface the disagreement.
+- ✅ **Cross-check several independent STUN servers in the client — BUILT 2026-09-17.**
+  `core/stunCheck.ts`: one throwaway `RTCPeerConnection` per configured STUN URL, each with only that
+  URL, then compare the public addresses they report. `agree` / `disagree` / `unknown`, projected to
+  the DEV strip always and to the USER only on `disagree` — a badge that is always green is a badge
+  people stop reading (the F2 lesson). Advisory: nothing is gated on it.
+  **The obvious design does not work, which is why this was measured before it was written.** Putting
+  several STUN URLs in ONE `iceServers` entry does not give one result per server: ICE prunes
+  redundant candidates before the application sees them, so chromium and webkit both yield a SINGLE
+  srflx candidate attributed to the first URL, and a disagreement is invisible. Separate probe
+  connections were verified to give per-server views with `url` attribution on chromium and webkit.
+  **Firefox reported no srflx candidate at all** in that measurement and exposes no `url` field on
+  local candidates — on loopback, where the reflexive address equals the host address and is
+  legitimately pruned, so this is not yet evidence about Firefox on a real network. `unknown` is
+  benign by design, so the feature degrades rather than breaks there. Worth recording properly in the
+  real-device pass.
+  **Limits, stated up front:** address only, never the port (each probe uses its own socket, so even
+  an honest NAT varies the port); a multi-WAN or CGNAT client can disagree HONESTLY, so a
+  disagreement is shown and never acted on; and it says nothing at all while one server is
+  configured — which is today's deployment.
+  8 unit tests (`stunCheck.test.ts`) pin the policy, including that `unknown` and `disagree` stay
+  distinct. e2e in `privacy.spec.ts` asserts a real verdict is reached with two servers rather than
+  silently sitting at `unknown`; the nightly CI matrix now starts a SECOND coturn so it actually runs
+  there instead of skipping forever.
+  **Still open, and it is the operational half:** this is the client side of a property that only
+  starts to exist when the STUN servers are run by DIFFERENT people. Today app, signaling and STUN
+  are one IP (the repos are separate, the machines are not).
 - [ ] **`pairingId` disclosure to whoever wins the reconnect join race** — unchanged from the first
   pass (a blinded `HMAC(pairingId, fp_min‖fp_max)` announcement). Note finding (4) made this worse
   before it was fixed; with the enrollment gate in place it is back to linkability + nuisance.

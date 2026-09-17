@@ -266,6 +266,14 @@ export const STR = {
     en: 'Your files are still encrypted end-to-end and unreadable to anyone in between. What could not be confirmed here is WHICH route they took: one of the two browsers did not report enough to check. Safari never does.',
     ru: 'Файлы всё равно зашифрованы сквозным образом и нечитаемы для любого посредника. Не удалось подтвердить только МАРШРУТ: один из двух браузеров не сообщил достаточно данных для проверки. Safari не сообщает их никогда.',
   },
+  /** Shown ONLY when two or more STUN servers disagreed about our public address. Never shown for
+   *  "they agree" or "nothing to compare": a badge that is always green is a badge people stop
+   *  reading, which is the lesson F2 taught. Names the honest cause first, like the path copy. */
+  stunDisagree: { en: 'address servers disagree', ru: 'серверы адреса расходятся' },
+  stunDisagreeHint: {
+    en: 'The servers that tell this browser its own public address gave different answers. That can be honest — a connection with two providers, or a large carrier NAT, genuinely has more than one. It can also mean one of them is not telling the truth, which matters because the route check below trusts that address. Your files are encrypted either way.',
+    ru: 'Серверы, которые сообщают браузеру его собственный публичный адрес, ответили по-разному. Это бывает честно — при двух провайдерах или крупном операторском NAT адресов действительно несколько. А бывает, что один из них говорит неправду, и это важно: проверка маршрута ниже опирается на этот адрес. Файлы зашифрованы в любом случае.',
+  },
   pathMismatch: { en: 'route did not match', ru: 'маршрут не совпал' },
   pathMismatchHint: {
     en: 'The address this connection actually used is not one your correspondent listed. Your files are still encrypted end-to-end and unreadable to anyone in between — this is about the ROUTE, not the contents. Two things cause it: some browsers (Safari above all) cannot report the address they were reached on, or something is carrying your connection through itself. If that distinction matters to you, stop here and reconnect over a different network.',

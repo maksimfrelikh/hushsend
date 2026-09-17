@@ -20,6 +20,7 @@ import {
 import { generateLinkSecret, buildLinkUrl } from './link/link';
 import { sasRoleFrom } from './sasRole';
 import { pathVerdict } from './pathAttest';
+import { probeStunViews } from './stunCheck';
 import { pairingRoleFor } from './pairingRole';
 import { peerLeftAbortsPairing } from './livenessGate';
 import {
@@ -767,6 +768,9 @@ export class SessionController {
     // it's ready by the time a connection reaches `connected`. Non-fatal if the keystore is
     // unavailable (e.g. no IndexedDB) — enrollment just won't run.
     void this.publishIdentity();
+    // Once per session, independent of any pairing: ask the configured STUN servers what our public
+    // address is and compare them (see crossCheckStun). Fire-and-forget; never gates anything.
+    void this.crossCheckStun();
   }
 
   /**
@@ -2920,6 +2924,37 @@ export class SessionController {
       return;
     }
     this.dispatch(devActions.appendLog(`path: ${verdict === 'ok' ? `verified (${selected})` : 'UNVERIFIABLE on this engine'}`));
+  }
+
+  /**
+   * Ask every configured STUN server, once per session, what our public address is, and compare.
+   *
+   * WHY IT IS WORTH RUNNING EVEN THOUGH IT IS ADVISORY. Path attestation rests on each peer naming
+   * the address it can be reached at, and behind NAT that address comes from STUN. An operator that
+   * runs BOTH signaling and STUN can therefore lie consistently on both — inject its own candidate
+   * AND tell the peer to attest that same address — and the attestation passes with an attacker in
+   * the middle. Two independent STUN servers make that lie visible. Today the deployment has ONE, so
+   * this reports `unknown` and buys nothing yet; it is the client half of a property that starts to
+   * exist when the servers are run by different people (BACKLOG § Security audit).
+   *
+   * Fire-and-forget, never gating: a disagreement can also be an honest multi-WAN or CGNAT client,
+   * so it is surfaced and not acted on — the same rule as `mismatch` in path attestation, for the
+   * same reason.
+   */
+  private async crossCheckStun(): Promise<void> {
+    try {
+      const result = await probeStunViews(configuredStunUrls());
+      this.dispatch(devActions.setStun({ verdict: result.verdict, addresses: result.addresses }));
+      if (result.verdict === 'disagree') {
+        this.dispatch(
+          devActions.appendLog(`stun: servers DISAGREE on our address — ${result.addresses.join(' vs ')}`),
+        );
+        this.dispatch(connectionActions.stunDisagreement());
+      }
+    } catch (err) {
+      // Never let a diagnostic break a session.
+      if (import.meta.env.DEV) console.debug('[session] stun cross-check failed:', errText(err));
+    }
   }
 
   /** Disarm + forget the attestation (teardowns). */

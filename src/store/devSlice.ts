@@ -40,6 +40,12 @@ export interface DevState {
    *  failure), `mismatch` = something is on the path (the session is torn down). Non-secret: both
    *  values are addresses the two peers already know about each other. */
   pathVerdict: 'ok' | 'unknown' | 'mismatch' | null;
+  /** Cross-check of what several STUN servers say our public address is (see core/stunCheck.ts).
+   *  `unknown` while fewer than two answer — which is every deployment with a single STUN operator,
+   *  i.e. today's. Advisory like the path verdict: it is shown, it gates nothing. */
+  stunVerdict: 'agree' | 'disagree' | 'unknown' | null;
+  /** The distinct addresses the servers reported, so a disagreement can be read rather than guessed. */
+  stunAddresses: string[];
   /** The remote address we actually selected — shown beside the verdict for the real-device pass. */
   pathSelected: string | null;
   /** What the PEER attested to. Shown beside the verdict so a mismatch can be read at a glance
@@ -52,6 +58,8 @@ const initialState: DevState = {
   localFingerprint: null,
   remoteFingerprint: null,
   pathVerdict: null,
+  stunVerdict: null,
+  stunAddresses: [],
   pathSelected: null,
   pathPeerAddrs: [],
   log: [],
@@ -69,6 +77,10 @@ const slice = createSlice({
   reducers: {
     setSelfId(state, action: PayloadAction<string>) {
       state.selfId = action.payload;
+    },
+    setStun(state, action: PayloadAction<{ verdict: 'agree' | 'disagree' | 'unknown'; addresses: string[] }>) {
+      state.stunVerdict = action.payload.verdict;
+      state.stunAddresses = action.payload.addresses;
     },
     setPath(
       state,

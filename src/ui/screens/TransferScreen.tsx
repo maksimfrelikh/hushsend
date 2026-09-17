@@ -27,6 +27,7 @@ export function TransferScreen(): ReactElement {
   const method = useAppSelector((s) => s.connection.method);
   const reconnectOutcome = useAppSelector((s) => s.dev.reconnect.outcome);
   const pathCheck = useAppSelector((s) => s.connection.pathCheck);
+  const stunDisagreed = useAppSelector((s) => s.connection.stunDisagreed);
   const transfer = useAppSelector((s) => s.transfer);
   const [files, setFiles] = useState<File[]>([]);
 
@@ -76,7 +77,18 @@ export function TransferScreen(): ReactElement {
           {pathCheck === 'ok' ? `✓ ${t('pathOk')}` : pathCheck === 'mismatch' ? `⚠ ${t('pathMismatch')}` : `· ${t('pathUnknown')}`}
         </span>
       )}
+      {/* Only ever rendered on a DISAGREEMENT — see i18n stunDisagree for why there is no green twin. */}
+      {stunDisagreed && (
+        <span className="hs-badge hs-badge--alert" data-testid="stun-state">
+          ⚠ {t('stunDisagree')}
+        </span>
+      )}
       <h2 className="hs-h2">{t('trTitle')}</h2>
+      {stunDisagreed && (
+        <p className="hs-sub hs-path__hint hs-path__hint--alert" data-testid="stun-hint">
+          {t('stunDisagreeHint')}
+        </p>
+      )}
       {pathCheck !== null && pathCheck !== 'ok' && (
         <p
           className={`hs-sub hs-path__hint${pathCheck === 'mismatch' ? ' hs-path__hint--alert' : ''}`}

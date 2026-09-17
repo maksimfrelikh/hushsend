@@ -185,12 +185,17 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y coturn
           turnserver -n --listening-port=3478 --no-auth --no-tls --no-dtls --log-file=stdout &
-          for i in $(seq 1 10); do ss -lun | grep -q ':3478' && break; sleep 1; done
-          ss -lun | grep ':3478' || { echo 'STUN did not come up'; exit 1; }
+          # A SECOND one, so the STUN cross-check test has something to cross-check against. With a
+          # single server the check is `unknown` BY DESIGN (one operator verifies nothing) and the
+          # test skips — which would leave core/stunCheck.ts unexercised in CI forever.
+          turnserver -n --listening-port=3479 --no-auth --no-tls --no-dtls --log-file=stdout &
+          for i in $(seq 1 10); do ss -lun | grep -q ':3478' && ss -lun | grep -q ':3479' && break; sleep 1; done
+          ss -lun | grep ':3478' || { echo 'STUN 3478 did not come up'; exit 1; }
+          ss -lun | grep ':3479' || { echo 'STUN 3479 did not come up'; exit 1; }
       - run: npx playwright test --project=firefox --project=webkit --project=mobile-webkit --project=interop
         env:
           E2E_CHROME_CHANNEL: ''
-          E2E_STUN_URLS: stun:127.0.0.1:3478
+          E2E_STUN_URLS: stun:127.0.0.1:3478,stun:127.0.0.1:3479
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

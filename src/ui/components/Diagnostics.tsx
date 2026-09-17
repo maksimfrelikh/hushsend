@@ -43,6 +43,10 @@ export function Diagnostics(): ReactElement | null {
         <span data-testid="path-peer-addrs">{dev.pathPeerAddrs.join(',') || '—'}</span>
       </p>
       <p>
+        stun: <span data-testid="stun-verdict">{dev.stunVerdict ?? '—'}</span> ·{' '}
+        <span data-testid="stun-addresses">{dev.stunAddresses.join(',') || '—'}</span>
+      </p>
+      <p>
         ice mode: <span data-testid="ice-mode">{dev.iceConfig?.mode ?? '—'}</span> · relay:{' '}
         <span data-testid="ice-relay">{dev.iceConfig ? String(dev.iceConfig.relay) : '—'}</span>
       </p>
