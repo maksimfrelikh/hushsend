@@ -326,6 +326,10 @@ the same pass as CLAUDE.md when items land.
   bot noise matched by the *Referer* header — **no `?room=` rendezvous codes and no `/ws` lines** — so
   no rendezvous or pairing metadata was ever retained. They age out with logrotate. Nothing to do
   unless the retention itself is considered sensitive.
+- [ ] **Delete the stale 4th signaling copy at `/var/www/hushsend/server/signaling-server.js`.**
+  Nothing runs it — the systemd unit works out of `/var/www/hush-signaling-server` — but it is old
+  enough (different hash from the other three, which now agree) to mislead someone reading it as
+  live. Noted 2026-09-13, still there on 2026-09-17. **Needs the operator** (it is under `/var/www`).
 - **Scheduled CI expires on a quiet repo.** GitHub disables `schedule:` workflows after 60 days with
   no commits, which would silently stop the nightly engine matrix — the only thing that exercises
   firefox/webkit/interop, since that job is skipped on push. Last commit 2026-09-13, so **the nightly
@@ -768,6 +772,19 @@ Four things did not hold. Three are fixed below; the fourth is new scope and is 
   measured 31 at peak and climbing, now 12 and flat. That closed the chromium half; it was never the
   whole cause, and this entry is the rest of it.
 
+- [ ] **CONFIRM the reconnect fix on the nightly matrix (opened 2026-09-17).** The root cause is
+  proved and its regression test is deterministic, but in the wild the window is a few event-loop
+  turns rather than the 3 s the test forces — so whether it accounts for EVERY nightly failure is
+  still open. Baseline to beat: the engine matrix failed 1 night in 5 (13–16 Sep green, 17 Sep red,
+  all on the same commit). **Watch `e2e (firefox · webkit · interop · phone profile)` for ~5 nights
+  from 18 Sep.** Green throughout ⇒ close it. A failure ⇒ read the dev log in the report, which now
+  names which guard dropped what; that is exactly what the logging in this commit was for.
+- [ ] **Align the reconnect spec's patience with the app's own deadline.** The app fails a stalled
+  re-auth at 120 s (`DEFAULT_RECONNECT_TIMEOUT_MS`); `reconnect.spec.ts` waits 60 s. So the test gives
+  up first and "the app stalled" is indistinguishable from "the app failed correctly" — which is why
+  three sessions of failure reports said nothing useful. Deliberately NOT done while the stall was
+  unexplained (raising a timeout mid-hunt is how a real hang gets hidden); now that the cause is
+  known, raising it above 120 s makes the next failure informative instead of ambiguous.
 - **Test-design note found in passing, not fixed:** the reconnect deadline in the app is 120 s
   (`DEFAULT_RECONNECT_TIMEOUT_MS`) while `reconnect.spec.ts` waits 60 s. The test gives up before the
   app's own safety net can fire, so "the app stalled" and "the app would have failed correctly at its
