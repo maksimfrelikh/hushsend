@@ -45,7 +45,9 @@ pairing is an SSH-style hard stop, never a dismissable toast.
 
 - **Max privacy (default)** — direct only. Your own STUN, never a relay; the peer learns your IP,
   nothing else carries your traffic. If a direct path cannot come up, the connection **fails** with a
-  hint rather than quietly relaying.
+  hint rather than quietly relaying. Transfers are **padded** so the byte count on the wire shows a
+  range rather than the exact file (≤12.5% extra above 1 MiB; see `core/transfer/padding.ts` for what
+  that does and does not hide — duration and the fact of a transfer are still visible).
 - **Reliable** — adds a TURN relay (short-lived HMAC credentials minted per session; the shared
   secret never leaves the server) so a pair behind hostile NATs still connects.
 
@@ -115,9 +117,9 @@ be verified without a reference hash.
 ## Status
 
 **Feature-complete and deployed.** All four methods, reconnect, the mesh lobby, TURN, i18n (EN/RU),
-light/dark, and the deployment are built and live. **243 vitest tests** and a Playwright e2e suite —
-**34 per engine** across chromium / firefox / webkit, plus a phone profile and 5 cross-engine pairs —
-cover the protocol paths. Counts verified 2026-09-13; refresh them here whenever the suite grows.
+light/dark, and the deployment are built and live. **268 vitest tests** and a Playwright e2e suite —
+**39 per engine** across chromium / firefox / webkit, plus a phone profile and 5 cross-engine pairs —
+cover the protocol paths. Counts verified 2026-09-18; refresh them here whenever the suite grows.
 
 A second internal audit on **2026-09-12** (modelling a fully malicious signaling server, not just a
 passive one) found and fixed three complete breaks — SAS certificate grinding, server-chosen pairing
