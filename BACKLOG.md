@@ -607,26 +607,31 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   words/link/qr path, cleared on settle/failure. Fail-closed, liveness only — no crypto change.
   (Note this does NOT affect the guessing bound above: it is the *creator* who hangs, and a hung
   creator accepts no further attempts.)
-- [ ] **`pairingId` disclosure to whoever wins the reconnect join race.** A reconnect session rendezvous
-  over the plain **4-digit** room (`createReconnectSession` → `connect({create:true})`, no codeType), is
-  NOT a lobby (`isLobby()` false — sas set AND reconnect set) and therefore **auto-pairs with the first
-  peer that joins**. A 4-digit code is enumerable (10⁴, bounded only by `IP_RL_MAX` 60/min/IP), so a
-  code-guesser that wins the race and completes the channel receives the initiator's `reconnect-init`
-  and learns its **`pairingId`** — a stable per-pair identifier — before any authentication. It cannot
-  forge a proof (hard stop / fallback), so this is **linkability + nuisance, not an auth break**.
-  **Possible fix:** announce a *blinded* id instead of the raw one — e.g. `HMAC(pairingId, fp_min‖fp_max)`
-  — which a peer holding the pin can recognise by recomputation while a stranger learns nothing
-  correlatable across sessions. Folds naturally into the reconnect-in-lobby work.
-
-### Third pass, 2026-09-13 — verification against the live host (findings + fixes)
-
-This pass checked the DEPLOYMENT and the SERVED bundle rather than the source, on the reasoning that
-the previous two passes both found breaks where the prose was most confident. Most claims held and
-are now backed by evidence rather than assertion (served bundle == a fresh rebuild, byte-identical;
-DEV knobs genuinely tree-shaken; TURN pushed only in Reliable; signaling logs 3 lines since boot;
-nginx logs 0 lines for this vhost; the socket-close and `ok`-verdict claims driven on a real engine).
-Four things did not hold. Three are fixed below; the fourth is new scope and is listed under § Ops.
-
+- ✅ **`pairingId` disclosure to whoever wins the reconnect join race — FIXED 2026-09-18.**
+  A reconnect rendezvous is a plain 4-digit room (`createReconnectSession` → `connect({create:true})`,
+  no codeType), NOT a lobby, so it auto-pairs with the first peer that joins. 10⁴ is enumerable —
+  bounded only by `IP_RL_MAX` — so a code-guesser that won the race and reached the open channel
+  received the initiator's `reconnect-init` carrying the raw **`pairingId`**, a stable per-pair
+  identifier, before any authentication. It could never forge a proof, which is exactly why this sat
+  as "linkability + nuisance, not an auth break" through two audits; for this product's users,
+  something that links two anonymous rendezvous to one relationship is not a nuisance.
+  **Fix:** the initiator now announces `HMAC(key = pairingId, DOMAIN ‖ fp_min ‖ fp_max)` truncated to
+  the id's own length (`blindPairingId`, `crypto/reconnect.ts`). Keyed by the secret both peers
+  already share and bound to THIS session's DTLS fingerprints, so a peer holding the pin recognises
+  it by RECOMPUTING (`matchBlindedPairingId` scans its pins — there is no way to invert it), while a
+  stranger sees 16 bytes that differ every session and correlate with nothing. Nothing in the crypto
+  changed: the signature transcript still binds the REAL pairingId, which both sides know.
+  **Truncation is about compatibility, not size.** Keeping the wire field the same length means a
+  peer on an older bundle still PARSES the frame, fails to match, and sends `reconnect-fallback` — so
+  a mixed pair degrades to the SAS comparison instead of failing schema validation and hanging until
+  the 120 s deadline. Verified by accident and then on purpose: reverting only the sender produced
+  exactly that fallback, not a hang.
+  9 unit tests (`reconnect.test.ts`) pin the properties that matter — same length, both sides derive
+  it, DIFFERENT every session, channel-bound, unknown pin → null. An e2e reads the frames the
+  DataChannel actually sent and asserts the pinned id appears in none of them, because unit tests
+  prove the tag differs from the id and not that the tag is what goes out. **Negative control run:
+  with both halves reverted the e2e fails on precisely that assertion while the reconnect itself
+  still succeeds**, so the test isolates the leak rather than the feature.
 - ✅ **(F1) The Max-privacy channel-open gate read "cannot tell" as "no relay" — FIXED 2026-09-13.**
   `openChannelUnlessRelayed` asked `selectedPathIsRelayed()`, which took `isForbiddenRemoteCandidate`'s
   `!remote → false` branch for an answer. But `selectedRemoteCandidate` returns null until ICE

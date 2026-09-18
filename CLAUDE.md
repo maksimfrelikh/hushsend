@@ -467,7 +467,16 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
   `pairingId` (from a prior enrollment), they reconnect with **NO human step** — a mutual signature
   under the pinned keys replaces SAS/words. It reuses the room rendezvous and rides on top of the
   SAS state, which stays primed as the fallback. Path selection: the initiator announces the
-  pairingId (`reconnect-init`); both look up their pin. Both-have-pin → reconnect-auth; a pin
+  pairingId (`reconnect-init`); both look up their pin.
+  **What is actually announced is a BLINDED tag, not the pairingId (since 2026-09-18).** The
+  rendezvous is a plain 4-digit room and auto-pairs, so a code-guesser can reach the open channel
+  before any authentication and used to be handed a stable per-pair identifier. The initiator now
+  sends `HMAC(key = pairingId, DOMAIN ‖ fp_min ‖ fp_max)` truncated to the id's own length
+  (`blindPairingId`); the responder recognises it by RECOMPUTING it against each pin it holds
+  (`matchBlindedPairingId`) rather than looking it up. The wire field keeps its historical name and
+  length on purpose — an older peer still parses the frame, matches nothing and falls back to SAS,
+  instead of failing validation and hanging. The signing transcript below is UNCHANGED: it still
+  binds the real pairingId, which both sides know. Both-have-pin → reconnect-auth; a pin
   missing on either side → `reconnect-fallback` → the normal first connect (SAS + enrollment).
   **Reconnect's `role` is the EXCEPTION to the per-pairing rule: it stays create/join** (creator =
   reconnect initiator = the side that announces the pairingId and is the verifier-first), NOT the

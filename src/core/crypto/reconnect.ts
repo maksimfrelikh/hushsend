@@ -39,6 +39,8 @@
  */
 import { z } from 'zod';
 import { concatBytes, randomBytes, utf8ToBytes } from '@noble/hashes/utils.js';
+import { hmac } from '@noble/hashes/hmac.js';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { equalBytes, hexToBytes } from '@noble/curves/utils.js';
 import { verifySignature, type IdentityKey } from './identity';
 import { PAIRING_ID_BYTES } from './enrollment';
@@ -98,6 +100,71 @@ export function reconnectTranscript(
     lv(utf8ToBytes(fpMax)),
     lv(utf8ToBytes(role)),
   );
+}
+
+/** Domain separation for the blinded announcement — distinct from the signing transcript. */
+const PAIRING_BLIND_DOMAIN = utf8ToBytes('hushsend/identity/reconnect-id');
+
+/**
+ * The value the initiator ANNOUNCES instead of the raw `pairingId`.
+ *
+ * WHY. A reconnect rendezvous is a plain 4-digit room, which is enumerable (10⁴, bounded only by the
+ * server's per-IP rate limit). A code-guesser that wins the race and reaches the open channel used to
+ * receive the initiator's `reconnect-init` — carrying the raw `pairingId` — BEFORE any authentication.
+ * It cannot forge a proof, so this was never an auth break; what it was is a **stable per-pair
+ * identifier handed to a stranger**, correlatable across sessions, which for this product's users is
+ * the kind of thing that links two anonymous rendezvous to one relationship.
+ *
+ * WHAT THIS IS. `HMAC(key = pairingId, DOMAIN ‖ fp_min ‖ fp_max)`, truncated to the same
+ * {@link PAIRING_ID_BYTES} the raw id occupied. Keyed by the secret both peers already share (the
+ * pairingId itself) and bound to THIS session's DTLS fingerprints, so:
+ *   - a peer holding the pin recognises it by RECOMPUTING it — no lookup by the announced value;
+ *   - a stranger sees 16 bytes that are different every session, correlating nothing;
+ *   - it is not a secret and is not treated as one: authentication is still the signature that
+ *     follows, over a transcript that binds the REAL pairingId. Nothing in the crypto changed.
+ *
+ * TRUNCATION IS DELIBERATE, and it is about compatibility rather than size. Keeping the wire field
+ * exactly as long as before means a client on an older bundle still parses the frame: it looks the
+ * tag up as a pairingId, finds nothing, and sends `reconnect-fallback` — so a mixed pair degrades to
+ * the SAS comparison (a human step) instead of failing schema validation and hanging until the 120 s
+ * deadline. Same in the other direction. 128 bits is ample for recognition among a handful of pins.
+ */
+export function blindPairingId(
+  pairingId: Uint8Array,
+  localFingerprint: string,
+  remoteFingerprint: string,
+): Uint8Array {
+  // Canonical (lexicographic) fingerprint order — identical to every other transcript here, so both
+  // sides derive the same value whichever of them is local.
+  const [fpMin, fpMax] =
+    localFingerprint <= remoteFingerprint
+      ? [localFingerprint, remoteFingerprint]
+      : [remoteFingerprint, localFingerprint];
+  const msg = concatBytes(lv(PAIRING_BLIND_DOMAIN), lv(utf8ToBytes(fpMin)), lv(utf8ToBytes(fpMax)));
+  return hmac(sha256, pairingId, msg).slice(0, PAIRING_ID_BYTES);
+}
+
+/**
+ * Responder: which of our pinned pairingIds does an announced tag correspond to? Recomputes the tag
+ * for each pin — there is no way to invert it, and there should never be more than a handful.
+ * Returns the matching pairingId hex, or null when we hold no pin for this pair (→ SAS fallback).
+ */
+export function matchBlindedPairingId(
+  announced: Uint8Array,
+  pinnedPairingIdsHex: readonly string[],
+  localFingerprint: string,
+  remoteFingerprint: string,
+): string | null {
+  for (const hex of pinnedPairingIdsHex) {
+    let id: Uint8Array;
+    try {
+      id = hexToBytes(hex);
+    } catch {
+      continue; // a malformed key in the store must not abort the scan
+    }
+    if (equalBytes(blindPairingId(id, localFingerprint, remoteFingerprint), announced)) return hex;
+  }
+  return null;
 }
 
 /** Sign the channel-bound reconnect transcript for `role` under our long-term identity. */

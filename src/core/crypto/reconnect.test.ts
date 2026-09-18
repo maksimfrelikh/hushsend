@@ -3,14 +3,7 @@ import { ed25519 } from '@noble/curves/ed25519.js';
 import { bytesToHex, concatBytes, utf8ToBytes } from '@noble/hashes/utils.js';
 import { restoreIdentity } from './identity';
 import { PAIRING_ID_BYTES } from './enrollment';
-import {
-  RECONNECT_CHALLENGE_BYTES,
-  reconnectTranscript,
-  signReconnect,
-  verifyReconnect,
-  presentedKeyMatchesPin,
-  generateChallenge,
-} from './reconnect';
+import { RECONNECT_CHALLENGE_BYTES, reconnectTranscript, signReconnect, verifyReconnect, presentedKeyMatchesPin, generateChallenge, blindPairingId, matchBlindedPairingId } from './reconnect';
 
 const FP_A = 'sha-256 11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00';
 const FP_B = 'sha-256 AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89';
@@ -158,5 +151,59 @@ describe('presentedKeyMatchesPin (check 1 — key-change detection in the keysto
   it('treats malformed hex as "does not match" (rejected before crypto)', () => {
     const pinned = bytesToHex(makeIdentity(1).publicKey);
     expect(presentedKeyMatchesPin(pinned, 'not-hex')).toBe(false);
+  });
+});
+
+describe('blindPairingId / matchBlindedPairingId — the announced value (2026-09-18)', () => {
+  const ID_A = new Uint8Array(PAIRING_ID_BYTES).map((_, i) => (i + 1) & 0xff);
+  const ID_B = new Uint8Array(PAIRING_ID_BYTES).fill(0x77);
+  const FP1 = 'sha-256 AA:BB:CC';
+  const FP2 = 'sha-256 11:22:33';
+
+  it('is the same length as the raw id it replaces — so an older peer still parses the frame', () => {
+    expect(blindPairingId(ID_A, FP1, FP2)).toHaveLength(PAIRING_ID_BYTES);
+  });
+
+  it('both sides derive it, whichever of them is "local"', () => {
+    expect(blindPairingId(ID_A, FP1, FP2)).toEqual(blindPairingId(ID_A, FP2, FP1));
+  });
+
+  it('REVEALS NOTHING CORRELATABLE: the same pair announces a different value every session', () => {
+    const session1 = blindPairingId(ID_A, FP1, FP2);
+    const session2 = blindPairingId(ID_A, 'sha-256 DE:AD:BE', 'sha-256 EF:00:11');
+    expect(session1).not.toEqual(session2); // the whole point — this is the leak being closed
+    expect(session1).not.toEqual(ID_A); // and it is not the id itself
+  });
+
+  it('different pairs announce different values in the same session', () => {
+    expect(blindPairingId(ID_A, FP1, FP2)).not.toEqual(blindPairingId(ID_B, FP1, FP2));
+  });
+
+  it('a peer holding the pin recognises it by recomputation', () => {
+    const announced = blindPairingId(ID_B, FP1, FP2);
+    const hex = bytesToHex(ID_B);
+    expect(matchBlindedPairingId(announced, [bytesToHex(ID_A), hex], FP1, FP2)).toBe(hex);
+  });
+
+  it('a stranger holding no pin for this pair matches nothing → SAS fallback', () => {
+    const announced = blindPairingId(ID_B, FP1, FP2);
+    expect(matchBlindedPairingId(announced, [bytesToHex(ID_A)], FP1, FP2)).toBeNull();
+    expect(matchBlindedPairingId(announced, [], FP1, FP2)).toBeNull();
+  });
+
+  it('the right pin under the WRONG session fingerprints does not match — it is channel-bound', () => {
+    const announced = blindPairingId(ID_B, FP1, FP2);
+    expect(matchBlindedPairingId(announced, [bytesToHex(ID_B)], 'sha-256 99:99:99', FP2)).toBeNull();
+  });
+
+  it('a malformed entry in the keystore does not abort the scan', () => {
+    const announced = blindPairingId(ID_B, FP1, FP2);
+    expect(matchBlindedPairingId(announced, ['nothex!!', bytesToHex(ID_B)], FP1, FP2)).toBe(bytesToHex(ID_B));
+  });
+
+  it('an OLD peer announcing a raw pairingId matches nothing → SAS fallback, never a hang', () => {
+    // The compatibility path: the field is the same length, so the frame parses; it simply is not a
+    // tag we can recognise, and the responder falls back exactly as it would for an unknown pair.
+    expect(matchBlindedPairingId(ID_B, [bytesToHex(ID_B)], FP1, FP2)).toBeNull();
   });
 });

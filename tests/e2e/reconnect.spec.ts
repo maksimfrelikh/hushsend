@@ -234,3 +234,67 @@ test('reconnect-init arriving before channel-open is held, not dropped', async (
   await expect(b.locator('.hs-diag')).toContainText('holding reconnect-init');
   await expect(b.locator('.hs-diag')).toContainText('replaying held reconnect-init');
 });
+
+/**
+ * REGRESSION (2026-09-18): the raw `pairingId` must NOT appear on the wire.
+ *
+ * A reconnect rendezvous is a plain 4-digit room — enumerable, bounded only by the server's per-IP
+ * rate limit — so a code-guesser that wins the race reaches the open channel BEFORE any
+ * authentication and used to be handed the initiator's `pairingId`: a stable per-pair identifier,
+ * correlatable across sessions. It could never forge a proof, so this was linkability rather than an
+ * auth break, which is exactly why it survived two audits as "small".
+ *
+ * The announcement is now `HMAC(pairingId, fp_min || fp_max)` truncated to the same length, so a
+ * peer holding the pin recognises it by recomputing while a stranger sees bytes that differ every
+ * session. This test reads the frames the DataChannel actually sent — asserting the crypto in a unit
+ * test proves the tag differs from the id, not that the tag is what goes out.
+ */
+test('the raw pairingId never goes on the wire', async ({ browser }) => {
+  const a = await openTab(browser);
+  const b = await openTab(browser);
+
+  await enrollViaSas(a, b);
+  // The pinned pairingId, read from A's own diagnostics — the value that must NOT be announced.
+  const pinnedId = (await a.getByTestId('pinned-peer-id').textContent())?.trim() ?? '';
+  expect(pinnedId, 'enrollment should have pinned a pairingId').toMatch(/^[0-9a-f]{32}$/);
+
+  // Capture every control frame A puts on the channel, from the test side.
+  //
+  // Patched with `evaluate` on the LIVE page, not `addInitScript`: the tab is already open, and an
+  // init script only applies to pages loaded afterwards — `resetBoth` disposes the session but does
+  // not reload. The reconnect builds a FRESH RTCPeerConnection, which is the one this catches.
+  await a.evaluate(`
+    (() => {
+      window.__sentFrames = [];
+      const Orig = window.RTCPeerConnection;
+      const watch = (ch) => { const s = ch.send.bind(ch);
+        ch.send = (d) => { if (typeof d === 'string') window.__sentFrames.push(d); return s(d); }; return ch; };
+      window.RTCPeerConnection = function (...a) {
+        const pc = new Orig(...a);
+        const cdc = pc.createDataChannel.bind(pc);
+        pc.createDataChannel = (...c) => watch(cdc(...c));
+        pc.addEventListener('datachannel', (e) => watch(e.channel));
+        return pc;
+      };
+      window.RTCPeerConnection.prototype = Orig.prototype;
+    })();
+  `);
+
+  await resetBoth(a, b);
+  await startReconnect(a, b);
+  await expect(a.getByTestId('status')).toHaveText('connected', { timeout: RECONNECT_ASSERT_TIMEOUT_MS });
+  await expect(b.getByTestId('status')).toHaveText('connected', { timeout: RECONNECT_ASSERT_TIMEOUT_MS });
+  // It still authenticated by the PIN — the point is to hide the id, not to lose the feature.
+  await expect(a.getByTestId('auth-state')).toContainText('reconnect');
+
+  const frames = await a.evaluate(() => (window as unknown as { __sentFrames?: string[] }).__sentFrames ?? []);
+  const init = frames.map((f) => { try { return JSON.parse(f); } catch { return null; } })
+    .find((f) => f && f.kind === 'reconnect-init');
+  expect(init, 'A should have announced itself with a reconnect-init').toBeTruthy();
+
+  // THE ASSERTION. The announced value is present, the right shape, and NOT the pinned id.
+  expect(init.pairingId).toMatch(/^[0-9a-f]{32}$/);
+  expect(init.pairingId, 'the raw pairingId must not be announced').not.toBe(pinnedId);
+  // And it appears nowhere else in anything A sent.
+  expect(frames.join('|'), 'the pairingId must not leak in any other frame either').not.toContain(pinnedId);
+});

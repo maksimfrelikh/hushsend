@@ -55,6 +55,8 @@ import {
 } from './crypto/enrollment';
 import {
   generateChallenge,
+  blindPairingId,
+  matchBlindedPairingId,
   signReconnect,
   verifyReconnect,
   presentedKeyMatchesPin,
@@ -2515,7 +2517,12 @@ export class SessionController {
     this.dispatch(devActions.appendLog('reconnect: channel open, initiator — sending reconnect-init'));
     this.sendReconnect({
       kind: 'reconnect-init',
-      pairingId: bytesToHex(rc.pairingId),
+      // A BLINDED tag, not the raw pairingId — see crypto/reconnect.ts blindPairingId. The
+      // rendezvous is a 4-digit room, so a code-guesser can reach this channel before any
+      // authentication; it used to receive a stable per-pair identifier it could correlate across
+      // sessions. The wire FIELD keeps its historical name and length so a peer on an older bundle
+      // still parses the frame and degrades to the SAS fallback rather than hanging.
+      pairingId: bytesToHex(blindPairingId(rc.pairingId, local, remote)),
       challenge: bytesToHex(rc.myChallenge),
     });
   }
@@ -2567,10 +2574,26 @@ export class SessionController {
     const rc = this.reconnect;
     if (!rc || rc.role !== 'responder' || rc.peerChallenge || rc.fellBack || rc.settled || !rc.fps) return;
     rc.peerChallenge = hexToBytes(challengeHex);
-    rc.pairingId = hexToBytes(pairingIdHex);
-    const pin = await this.keystore.getPin(pairingIdHex);
-    if (!pin) {
+    // The announced value is a BLINDED tag (crypto/reconnect.ts), so it cannot be looked up as a
+    // key. Recompute it for each pin we hold and see which one it belongs to — the tag is derived
+    // from the pairingId we ALREADY share, bound to this session's fingerprints. No match means we
+    // hold no pin for this pair (or the peer is on an older bundle and sent a raw id): fall back to
+    // SAS, exactly as before.
+    const pins = await this.keystore.listPins();
+    const matchedHex = matchBlindedPairingId(
+      hexToBytes(pairingIdHex),
+      pins.map((p) => p.pairingId),
+      rc.fps.local,
+      rc.fps.remote,
+    );
+    if (!matchedHex) {
       this.reconnectFallback(true); // tell the initiator to fall back too
+      return;
+    }
+    rc.pairingId = hexToBytes(matchedHex);
+    const pin = await this.keystore.getPin(matchedHex);
+    if (!pin) {
+      this.reconnectFallback(true); // raced with a wipe between listPins and getPin
       return;
     }
     this.dispatch(connectionActions.confirmStarted()); // pairing → confirming

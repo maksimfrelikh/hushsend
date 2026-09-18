@@ -185,10 +185,16 @@ engine — is essentially unverified outside a headless Linux box.
 
 ### 6. Smaller, tracked
 
-`pairingId` is disclosed to whoever wins a reconnect join race (linkability, not an auth break); the
-identity key falls back to a raw seed in IndexedDB on engines without WebCrypto Ed25519 (older
+The identity key falls back to a raw seed in IndexedDB on engines without WebCrypto Ed25519 (older
 Safari/Firefox); the path check runs once at channel-open and is not re-run on mid-session
 re-nomination. All in `BACKLOG.md`.
+
+**Closed 2026-09-18:** the `pairingId` disclosure that used to sit here. A code-guesser winning the
+4-digit reconnect race was handed a stable per-pair identifier before any authentication — never an
+auth break, but a link between two anonymous rendezvous and one relationship, which for this
+audience is not the small thing the old wording implied. The initiator now announces an
+HMAC blinded under the pairingId itself and bound to the session's DTLS fingerprints: the peer
+holding the pin recognises it by recomputation, a stranger sees a value that differs every session.
 
 ---
 
