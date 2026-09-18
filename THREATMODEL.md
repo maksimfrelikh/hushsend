@@ -14,9 +14,10 @@ Read this file, then `BACKLOG.md` § Security audit for the live list. `CLAUDE.m
 and § Crypto carry the mechanisms. Do not answer the readiness question from `README.md` alone — it
 is written for a general audience, not for someone whose safety depends on the details.
 
-**Do not trust this file over the code.** Claims below were verified on 2026-09-12 and re-verified
-against the LIVE HOST and the SERVED bundle on 2026-09-13; the repo rule is that docs which drift are
-bugs. If you are about to rely on something here, re-check it — the audits that produced this document
+**Do not trust this file over the code.** Claims below were verified on 2026-09-12, re-verified
+against the LIVE HOST and the SERVED bundle on 2026-09-13, and reviewed again on 2026-09-18 (when
+volume padding, the STUN cross-check and the `pairingId` blinding landed); the repo rule is that docs
+which drift are bugs. If you are about to rely on something here, re-check it — the audits that produced this document
 found three complete breaks in claims that had been written down confidently, and the 2026-09-13 pass
 found three more (F1/F2/F4, all fixed — `BACKLOG.md` § Third pass) plus one unlisted exposure (F3,
 below). The pattern is stable enough to plan around: **the breaks are where the prose is most
