@@ -326,10 +326,11 @@ the same pass as CLAUDE.md when items land.
   bot noise matched by the *Referer* header — **no `?room=` rendezvous codes and no `/ws` lines** — so
   no rendezvous or pairing metadata was ever retained. They age out with logrotate. Nothing to do
   unless the retention itself is considered sensitive.
-- [ ] **Delete the stale 4th signaling copy at `/var/www/hushsend/server/signaling-server.js`.**
-  Nothing runs it — the systemd unit works out of `/var/www/hush-signaling-server` — but it is old
-  enough (different hash from the other three, which now agree) to mislead someone reading it as
-  live. Noted 2026-09-13, still there on 2026-09-17. **Needs the operator** (it is under `/var/www`).
+- ✅ **Stale 4th signaling copy deleted (2026-09-17).** `/var/www/hushsend/server/` held an old
+  checkout that nothing ran — the systemd unit works out of `/var/www/hush-signaling-server` — but it
+  was old enough to mislead someone reading it as live. Removed; services stayed up, and the three
+  remaining copies (repo, `~/projects/hush-signaling-server`, the running one) all hash the same.
+  Note for the next person: it did NOT need root, only the deploy user.
 - **Scheduled CI expires on a quiet repo.** GitHub disables `schedule:` workflows after 60 days with
   no commits, which would silently stop the nightly engine matrix — the only thing that exercises
   firefox/webkit/interop, since that job is skipped on push. Last commit 2026-09-13, so **the nightly
@@ -786,111 +787,16 @@ Four things did not hold. Three are fixed below; the fourth is new scope and is 
   all on the same commit). **Watch `e2e (firefox · webkit · interop · phone profile)` for ~5 nights
   from 18 Sep.** Green throughout ⇒ close it. A failure ⇒ read the dev log in the report, which now
   names which guard dropped what; that is exactly what the logging in this commit was for.
-- [ ] **Align the reconnect spec's patience with the app's own deadline.** The app fails a stalled
-  re-auth at 120 s (`DEFAULT_RECONNECT_TIMEOUT_MS`); `reconnect.spec.ts` waits 60 s. So the test gives
-  up first and "the app stalled" is indistinguishable from "the app failed correctly" — which is why
-  three sessions of failure reports said nothing useful. Deliberately NOT done while the stall was
-  unexplained (raising a timeout mid-hunt is how a real hang gets hidden); now that the cause is
-  known, raising it above 120 s makes the next failure informative instead of ambiguous.
-- **Test-design note found in passing, not fixed:** the reconnect deadline in the app is 120 s
-  (`DEFAULT_RECONNECT_TIMEOUT_MS`) while `reconnect.spec.ts` waits 60 s. The test gives up before the
-  app's own safety net can fire, so "the app stalled" and "the app would have failed correctly at its
-  deadline" are indistinguishable to it. Worth aligning if these assertions are ever load-bearing
-  again — deliberately NOT changed here, because raising a timeout while chasing a stall is how a
-  real hang gets hidden.
-- ✅ **Gate deadline 5 s → 15 s (refinement of F1, same day).** 5 s came from a measurement on an idle
-  8-core host; the same codebase shows the worst case is not that (`verifyPath` polls up to 5 s for the
-  same resolver because it was measured returning null on firefox↔webkit). A deadline set AT a measured
-  worst case is where spurious failures come from, and the asymmetry is one-sided: waiting longer only
-  delays a doomed connection, while refusing early breaks an HONEST transfer on exactly the cheap phone
-  and congested network this product exists for. Now matches `PATH_ATTEST_TIMEOUT_MS`.
-
-### Second pass, 2026-09-12 — a FULLY MALICIOUS server (findings + fixes)
-
-The first pass modelled a server that lies. This one modelled a server that plays: an active attacker
-that forges, drops, reorders and replays any frame, joins as a peer, and shows the two peers different
-realities. Three complete breaks and one persistent hole came out of it. **All four are fixed**, with
-regressions in `SessionController.auditFixes.test.ts` (§1–§4) and `sasRole.test.ts`.
-
-- ✅ **(1) SAS certificate grinding — COMPLETE MITM of the room method. FIXED.** The commit-reveal
-  locks the two NONCES, but the SAS transcript is `nonces ‖ fp_min ‖ fp_max` — four inputs, two
-  committed. The nonces ride SIGNALING, so the relay controlled their ordering and could finish both
-  commit-reveal exchanges while its own certificate on each leg was still unchosen; then sample ~2^16
-  certificates per leg, meet in the middle, and hand both humans the SAME three words. Reproduced
-  against the repo's own `computeSasWords`: **65536 candidates/leg, 4.25 s**, against a 120 s
-  deadline — and the certificate pool is session-independent, so it precomputes offline and the online
-  cost is a sub-second HKDF search. Both humans confirm, every byte flows through the server in
-  cleartext, and the enrollment that follows pins the ATTACKER's identity key, so the compromise
-  survives into future reconnects with no key-change warning. **Fix:**
-  `SessionController.maybeRevealSasNonce` holds every reveal until `sas.fps` is set, so the attacker's
-  certificate is inside our transcript before it learns our nonce — back to one online shot at ~2^-31.
-- ✅ **(2) The server chose the pairing roles. FIXED for the SAS split.** `pairingRoleFor` and
-  `sasRoleFor` were both `selfId < peerId` over ids the server assigns to each peer independently, and
-  the ids appear in NO transcript — so inconsistent views were undetectable by construction. It could
-  make both peers `reader` (which, with (1), meant both read the SAME grinded phrase) or both `picker`
-  (nobody reads; two humans guessing 1-in-3). The fail-closed check covered only `role === null`, not
-  the reachable "both sides same non-null role". **Fix:** the reader/picker split is now
-  `sasReaderIsFpMin` — an HKDF bit over the SAME material as the words, under its own label — resolved
-  in `trySasReady`. No id is an input, and because the nonces are revealed after the fingerprints are
-  pinned, a MITM cannot steer it either. The TRANSPORT role stays id-derived: it only picks who offers,
-  and a disagreement there now shows up as a SAS mismatch.
-- ✅ **(3) A second `welcome` flipped the role mid-handshake → key-confirmation tag reflection. FIXED.**
-  `onWelcome` had no once-guard and no phase check, though `beginPairing`'s own docstring makes de-dup
-  the caller's job and every other caller checks `this.peer || this.role`. An injected second welcome
-  rewrote `selfId` and flipped `this.role` while leaving `sessionKey`/`linkSecret`/`confirmFps`/
-  `peerConfirmTag` in place — and since the only anti-reflection defence is the role label (the
-  expected peer role is derived as the opposite of ours), flipping it after we emit our tag lets the
-  server echo our own tag back and have it verify. That MITMs **words without knowing the 4 secret
-  words** and **link/qr without knowing S**, consuming no guess from the attempt cap. **Fix:**
-  `if (this.selfId) return;` — one welcome per session.
-- ✅ **(4) TOFU enrollment ran BEFORE authentication. FIXED.** `onEnrollFrame` gated on
-  `isAuthenticatedMethod()` — a check on the METHOD, true from the first moment of every session — and
-  the fingerprints it needs exist at channel-open. Any peer reaching the open DataChannel could plant a
-  pin (its own key, verified against itself) and receive our long-term Ed25519 identity key in the ack:
-  a "known device" that reconnects with no SAS and no human step, plus the strongest cross-session
-  tracker in the system. **Fix:** gate on `this.established`; hold a frame that arrives in the settle
-  gap (`pendingEnrollFrame`) and replay it, so an honest early arrival is not lost; and refuse to
-  OVERWRITE a `pairingId` already pinned to a different key (first-write-wins) — the upsert there
-  silently erased the key-change hard stop.
-
-Also fixed in the same pass, from the same audit:
-
-- ✅ **Three DEV knobs shipped in the production bundle** (`?maxAttempts=N`, `?forceBlob=1`,
-  `__HUSHSEND_MAX_BYTES__`) — they lacked the `import.meta.env.DEV` gate their seven siblings had.
-  `?maxAttempts=` lifted the ≤10-guess bound on the ~41-bit spoken secret from a link the victim
-  opens. Verified against the SERVED bundle, not the source; TESTPLAN § 0 now carries the check.
-- ✅ **The receive side of "no bytes before authentication"** — `handleIncomingOffer` and
-  `acceptIncoming` now gate on `established` like `sendFiles` always did. An unauthenticated peer's
-  offer used to reach the store and SURVIVE a failed attempt (neither `teardownPeerOnly` nor
-  `resetPairingToLobby` cleared `pendingOffer`), so attacker-chosen text rendered under the NEXT,
-  honest pairing's verified badge — and the stale offer silently blocked `sendFiles` forever. Both
-  teardowns now clear it and reset the transfer projection.
-- ✅ **Relay candidates hidden inside the SDP** bypassed the filter entirely (`shouldDropCandidate`
-  only ever sees TRICKLED candidates), so a Max-privacy client sent STUN checks to a relay — leaking
-  its IP to the party the strict model exists to exclude — before the channel-open gate could refuse
-  the path. `stripRelayCandidates` (pure, in `relax.ts`) removes those lines and records their
-  endpoints into the same set the peer-reflexive check reads.
-- ✅ **Server-triggered renegotiation.** The offer branch applied ANY inbound offer at ANY time with no
-  state check, so the server could move the path at a moment of its choosing, after the channel-open
-  relay check had run and would not run again. A re-offer is now refused once the transport is up.
-- ✅ **The step-1 unauthenticated path is gone.** `createRoom`/`joinRoom`/`sendPing` and the ping/echo
-  handler are deleted, and the `onChannelOpen` fallthrough that set `established = true` with no
-  authentication now fails closed. It was dead in the UI but live on a shipped class, one call site
-  from a total bypass; the echo was also a pre-auth reflection/RTT oracle.
-- ✅ **Unbounded server-controlled strings** (`selfId`, `room`, `from`, `peerId`, `device`, `reason`,
-  the roster array) now carry `.max()` at the zod boundary that exists for exactly this.
-- ✅ **The human step.** Both refusals ("None of these match", "They don't have this phrase") were faint
-  text links under full-width primary confirms — the safe action was the quietest element on the
-  screen. They now carry the same weight as the confirm, the copy says what the click means, the
-  reader gets an explicit warning that nothing on screen can tell them whether the peer actually read
-  the phrase back, and a REJECT is now accepted even after our own approval (up to settle), so a
-  reader who clicked too early is no longer trapped.
-- ✅ **`stark-ui-kit` pinned to its commit** in `package.json` (it was `github:…` with no ref — the
-  only dependency of 354 without an integrity hash, injecting JS into every screen).
-- ✅ **Two `console.info` calls** logging DTLS fingerprints unconditionally are now DEV-gated.
-
-**Still open from this pass — deliberately not rushed, both are protocol work, not one-liners:**
-
+  **Night 1 of ~5 — 18 Sep, GREEN** (commit `9b42ccad`, engine matrix 5.6 min). Worth almost nothing
+  on its own, and recorded as such: the matrix was green 4 nights in 5 BEFORE the fix, so one green
+  night is the expected outcome about 80% of the time either way. The load-bearing evidence is still
+  the deterministic reproduction (5/5 failures without the fix, passes with it) and 0-in-6 webkit
+  suite runs after. This is corroboration accumulating, not a result.
+- ✅ **Reconnect spec's patience raised above the app's own deadline (2026-09-17).** The app fails a
+  stalled re-auth at 120 s (`DEFAULT_RECONNECT_TIMEOUT_MS`) while the spec waited 60 s, so the test
+  gave up first and "the app stalled" was indistinguishable from "the app failed correctly" — the
+  ambiguity that cost three debugging sessions. Now 140 s, with the per-test budget at 300 s to fit.
+  Deliberately not done while the stall was unexplained; safe once the cause was found.
 - [ ] **Path attestation over the authenticated channel — BUILT, but ADVISORY ONLY (2026-09-12).**
   The mechanism is in the tree and working; what is NOT done is making it a control, and the blocker
   is measured rather than guessed. **It fails on honest Safari.** With the gate in place (`mismatch`
@@ -976,9 +882,10 @@ Also fixed in the same pass, from the same audit:
   **Still open, and it is the operational half:** this is the client side of a property that only
   starts to exist when the STUN servers are run by DIFFERENT people. Today app, signaling and STUN
   are one IP (the repos are separate, the machines are not).
-- [ ] **`pairingId` disclosure to whoever wins the reconnect join race** — unchanged from the first
-  pass (a blinded `HMAC(pairingId, fp_min‖fp_max)` announcement). Note finding (4) made this worse
-  before it was fixed; with the enrollment gate in place it is back to linkability + nuisance.
+- **`pairingId` disclosure to whoever wins the reconnect join race** — tracked as ONE open entry,
+  under the first pass above. It was duplicated here and two copies can drift apart; nothing has
+  changed since, except that finding (4) made it worse before it was fixed and the enrollment gate
+  put it back to linkability + nuisance.
 
 ### Volume padding + a receiver bound (2026-09-17)
 
