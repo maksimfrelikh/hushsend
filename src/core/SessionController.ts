@@ -659,9 +659,10 @@ export class SessionController {
   private method: 'room' | 'words' | 'link' | 'qr' | null = null;
 
   // --- link / qr method (step 5b) — high-entropy URL-fragment secret, NO PAKE, NO SAS.
-  //     Rendezvous is a 4-digit room (same as room method); the secret S authenticates the
-  //     channel via the same key-confirmation as words, under the LINK domain. Lives ONLY in
-  //     the core; the encoded form is surfaced to the creator's own screen as the link to share. ---
+  //     Rendezvous is a server-allocated 128-bit TOKEN (codeType=token), NOT the 4-digit room —
+  //     the link already carries it, so an unguessable rendezvous costs no UX. The secret S
+  //     authenticates the channel via the same key-confirmation as words, under the LINK domain.
+  //     Lives ONLY in the core; the encoded form is surfaced to the creator's own screen. ---
   /** The 16-byte one-time secret S (key-confirmation IKM). Non-null iff this is a link/qr session. */
   private linkSecret: Uint8Array | null = null;
   /** base64url(S) for building the shareable link (creator side only). Never sent to the server. */
@@ -1976,10 +1977,13 @@ export class SessionController {
   // STEP 5b — link / qr method (high-entropy URL-fragment secret, NO PAKE, NO SAS).
   // The secret S (≥16 CSPRNG bytes) is not offline-guessable, so it authenticates the
   // channel on its own — there is no human comparison and no reader/picker. Rendezvous
-  // is a 4-digit room (the SAME server allocate as the room method; the server is
-  // untrusted and unchanged). The link `<origin>/#<roomCode>.<S>` carries BOTH the public
-  // room code and the secret in the fragment; the joiner reads the fragment, SCRUBS it,
-  // and sends only the room code to the server. qr is identical — the link is just
+  // is a server-allocated 128-bit TOKEN (codeType=token), NOT the 4-digit room: the link
+  // already carries the rendezvous, so an unguessable one costs nothing in UX and a stranger
+  // cannot enumerate/squat it the way the 10k 4-digit space can be scanned. The seat cap is
+  // 1:1 (server ONE_TO_ONE_MAX_PEERS), so a forwarded link still reaches a single receiver.
+  // The link `<origin>/#<token>.<S>` carries BOTH the public token and the secret in the
+  // fragment; the joiner reads the fragment, SCRUBS it, and sends only the token to the
+  // server. qr is identical — the link is just
   // rendered/scanned as a QR. Flow: rendezvous → SDP/ICE → DTLS → key-confirmation over S
   // → connected (mapped onto creating/joining → pairing → confirming → connected|failed;
   // no new FSM states). TOFU enrollment runs after `connected` exactly as for words/room.
@@ -1987,8 +1991,8 @@ export class SessionController {
 
   /**
    * A-side: start a link or qr session. Generate the one-time secret S locally (it becomes the
-   * key-confirmation IKM and NEVER reaches the server), then ask the server to allocate a 4-digit
-   * rendezvous room. On `welcome` we surface the shareable link (rendezvous + S in the fragment);
+   * key-confirmation IKM and NEVER reaches the server), then ask the server to allocate a 128-bit
+   * rendezvous TOKEN. On `welcome` we surface the shareable link (rendezvous + S in the fragment);
    * on `peer-joined` we initiate WebRTC and run key-confirmation over S at channel-open. `method`
    * only tags the projection (link vs qr) — the auth/transport are identical.
    */
