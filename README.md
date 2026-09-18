@@ -135,7 +135,7 @@ user. In short:
    reproducible build with published hashes, an independent mirror, or a pre-delivered client.
 2. **A real-device pass** — transport, file-save fallbacks, QR scanning and camera permissions on
    actual iOS Safari / Firefox / Android, plus a cross-network TURN relay check. The plan is
-   [TESTPLAN.md](TESTPLAN.md); **none of its 45 cases has been run on a device yet.**
+   [TESTPLAN.md](TESTPLAN.md); **none of its 49 cases has been run on a device yet.**
 3. **STUN under a different operator**, which is the precondition for path attestation becoming an
    enforced control rather than an advisory one.
 4. **An independent security audit.** Two internal passes are done; the second found three complete
