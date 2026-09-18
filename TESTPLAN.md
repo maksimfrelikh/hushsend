@@ -19,18 +19,37 @@ what remains is **behaviour on real browsers, real networks, and real NAT**.
 ## 0. Read this before starting
 
 **The production build has no in-app diagnostics.** `Diagnostics` is `import.meta.env.DEV`-gated and
-the DEV query knobs (`?forceIceFail=1`, `?stallSasNonce=1`, `?preSasTimeoutMs=N`,
-`?reconnectTimeoutMs=N`, `?stallReconnect=1`, `?maxAttempts=N`, `?forceBlob=1`, `__HUSHSEND_*__`
-globals) are tree-shaken out. **Verify this rather than assume it** — the 2026-09-12 audit found
-three of them (`maxAttempts`, `forceBlob`, `__HUSHSEND_MAX_BYTES__`) shipping live in the deployed
-bundle because they lacked the gate their siblings had, and this very paragraph asserted otherwise.
-The check is one command against the SERVED bundle, not the source:
+so is every DEV knob — 13 query params (`?forceBlob=1`, `?forceIceFail=1`, `?forcePathMismatch=1`,
+`?forceRelayPath=1`, `?forgeReconnectKey=1`, `?gateDelayMs=N`, `?maxAttempts=N`, `?preSasTimeoutMs=N`,
+`?reconnectTimeoutMs=N`, `?sasTimeoutMs=N`, `?signalingUrl=…`, `?stallReconnect=1`,
+`?stallSasNonce=1`) and their 13 `__HUSHSEND_*__` global twins. **Verify this rather than assume it**
+— the 2026-09-12 audit found three of them (`maxAttempts`, `forceBlob`, `__HUSHSEND_MAX_BYTES__`)
+shipping live in the deployed bundle because they lacked the gate their siblings had, and this very
+paragraph asserted otherwise.
+
+**Grepping for a knob's NAME is what cries wolf.** `forceIceFail`, `forceRelayedPath` and
+`gateDelayMs` are ALSO `PeerConfig` field names, so they survive minification as class fields
+(`B(this,"gateDelayMs")`) and as the properties `SessionController` hands `PeerConnection` — carrying
+the constant `false`/`0` that the tree-shaken reader now returns. The name proves nothing either way;
+what proves it is that the READER is gone. Two commands against the SERVED bundle, not the source:
 
 ```bash
-grep -roE 'maxAttempts|forceBlob|__HUSHSEND_[A-Z_]+__|forceIceFail|stall[A-Z][a-zA-Z]*' /var/www/hushsend/dist/assets/ | sort -u
+grep -roE '__HUSHSEND_[A-Z_]+__' /var/www/hushsend/dist/assets/
 ```
 
-It must print nothing. So:
+Must print nothing. No production path touches those globals, so a single survivor means some knob
+kept its whole body. Then:
+
+```bash
+grep -ohE 'URLSearchParams|location\.search' /var/www/hushsend/dist/assets/*.js | sort | uniq -c
+```
+
+Must print **exactly `1 URLSearchParams` and `1 location.search`**. Every knob reads the query string,
+and production reads the URL in exactly two places: `SignalingClient.connect`, building the socket's
+query (`app` / `room` / `codeType` / `device`), and the link-join scrub that rewrites the address to
+`pathname + search` to strip the secret fragment. A third occurrence is a knob that shipped.
+
+Measured 2026-09-18 against the live `index-CzAol4fb.js`: no globals, and 1 + 1. So:
 
 - **Failure injection is NOT available on prod** — those paths are covered by e2e. This pass observes
   *real* behaviour only. If a fault path needs driving deliberately, do it against `npm run dev`
