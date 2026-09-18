@@ -6,7 +6,24 @@
 # SEPARATELY from the signaling server; this file is the relay's config.
 #
 # The signaling server (server/signaling-server.js) hands clients SHORT-LIVED
-# HMAC credentials derived from `static-auth-secret` (the `use-auth-secret`
+# HMAC credentials derived from `static-auth-secret` (the `# ⚠️ THIS COTURN CURRENTLY SERVES BOTH STUN AND TURN, and that is the thing the separation work is
+# meant to end. coturn answers STUN binding requests inherently — there is no switch to turn that
+# off — so as long as clients' `VITE_STUN_URLS` points here (it does: see deploy/build-env.sh), the
+# app operator is also the address-lookup operator. That is exactly the position that lets one party
+# both inject a candidate onto the path AND tell the peer to attest that address, which is why path
+# attestation cannot become a control yet (THREATMODEL § 2, § 3).
+#
+# WHEN THE SEPARATE STUN HOST GOES LIVE (repo: hushsend-stun-server, scheduled post-release), two
+# things must change TOGETHER or the separation is cosmetic:
+#   1. point `VITE_STUN_URLS` in deploy/build-env.sh at the new host (and rebuild — it is compiled
+#      into the bundle, so the hash changes and the site must be redeployed), and
+#   2. leave THIS coturn as TURN-only in practice: it will still answer STUN to anyone who asks, but
+#      no hushsend client should be configured to ask it. Ideally also cross-check against a second
+#      independent STUN (core/stunCheck.ts is already in the client and needs ≥2 URLs to say
+#      anything).
+# Until both are done, moving the config to another repo has changed the filing, not the trust.
+
+use-auth-secret`
 # scheme below). The secret is SHARED between this file and the signaling
 # server's TURN_SECRET env var; it NEVER reaches the browser — clients only
 # receive a per-session username+credential that coturn recomputes and
