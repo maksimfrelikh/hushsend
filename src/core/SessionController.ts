@@ -1589,7 +1589,7 @@ export class SessionController {
   /**
    * The credential to surface to the creator's OWN screen, or null if not yet known. For words it
    * is the full 5-word phrase (rendezvous + 4 secret) to read aloud; for link/qr it is a
-   * single-element array holding the shareable link `<origin>/#<roomCode>.<S>` (the secret lives in
+   * single-element array holding the shareable link `<origin>/#<token>.<S>` (the secret lives in
    * the fragment and is shown only to the creator — it never reaches the server). Consistent with
    * how the words method surfaces its secret words to the creator for display.
    */
