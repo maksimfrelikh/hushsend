@@ -177,7 +177,7 @@ lying one — found three complete breaks in a system the first pass had already
 argument for an external audit, not against it: the failure mode here is confident documentation, and
 it has already happened twice.
 
-`TESTPLAN.md` holds 45 cases, of which 2 are ticked — and those two are deployment preconditions
+`TESTPLAN.md` holds 49 cases, of which 2 are ticked — and those two are deployment preconditions
 verified on the server, not device tests. **No testing on a real device has happened at all.** Safari
 and iOS behaviour — the file-save
 fallbacks, QR scanning, camera permissions, cross-network TURN, and the attestation verdict per
@@ -239,7 +239,7 @@ guarantee is worse than an honest limitation: people calibrate their behaviour t
    stated in the interface**, not only in this file, with the Tor/VPN-on-both-sides advice. Cheapest
    honesty available, and it was missing: the privacy toggle only ever said the PEER sees your IP,
    which is a far smaller claim than either of these.
-3. **The real-device pass** — `TESTPLAN.md`, all 43 cases, with the attestation verdict recorded per
+3. **The real-device pass** — `TESTPLAN.md`, all 49 cases, with the attestation verdict recorded per
    engine pair.
 4. **Path attestation as a control**, decided from that data rather than from a loopback run.
 5. **An independent security audit.**

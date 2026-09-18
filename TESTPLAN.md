@@ -10,6 +10,12 @@ what remains is **behaviour on real browsers, real networks, and real NAT**.
 - **Out of scope:** the three deferred security-audit items and lobby-pick reconnect (BACKLOG
   § Security audit). Do not mix reconnect with a plain room join except where a case says so.
 
+> **Plan currency.** Cases B7, B8, C6 and E6 were added on 2026-09-18 for behaviour that landed
+> after this plan was first written (STUN cross-check, the network-exposure disclosure, volume
+> padding, and the reconnect early-frame fix). If you are reading this after further changes, check
+> `git log --oneline -- src/` against the date above before trusting the coverage: a device pass that
+> silently skips a new feature is worse than one that has not run.
+
 ## 0. Read this before starting
 
 **The production build has no in-app diagnostics.** `Diagnostics` is `import.meta.env.DEV`-gated and
@@ -180,6 +186,24 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       **paste-the-link fallback**, no crash, no dead screen. Re-allow and confirm the scanner recovers.
 - [ ] **B5 · share / copy** — on IPH and AND-1 the **Share** button uses the native sheet; on MBP-A
       Firefox (no `navigator.share`) it must be **absent**, with Copy still present and working.
+- [ ] **B7 · STUN cross-check verdict per engine — NEW 2026-09-17, and the device pass is what
+      decides it.** The client asks every configured STUN server what our public address is, using one
+      throwaway PeerConnection per server, and compares (`core/stunCheck.ts`). Read `stun-verdict` /
+      `stun-addresses` in the DEV strip on EVERY engine in the matrix. **This needs two STUN URLs in
+      `VITE_STUN_URLS`** — with one it is `unknown` by design and the case proves nothing, so run the
+      dev build against two servers (a second coturn on another port is enough).
+      Expected on chromium and webkit: `agree`, with a real address. **Firefox measured `unknown`
+      headlessly** — it reported no server-reflexive candidate and exposes no `url` on local
+      candidates — but that was on LOOPBACK, where the reflexive address equals the host address and
+      is legitimately pruned. **Whether Firefox can answer on a real network is an open question only
+      this pass can settle**, and it decides whether the feature covers two engines or three. Record
+      the verdict, not just pass/fail.
+- [ ] **B8 · the network-exposure disclosure renders — NEW 2026-09-13.** On the landing, the collapsed
+      "What your network can still see" block (testid `network-exposure`) must be present, **closed by
+      default**, readable in EN and RU, and open on tap on a phone. It states the two things
+      cryptography does not hide (cleartext SNI; the direct connection to your correspondent) and the
+      Tor/VPN-on-both-sides advice. Check the text is not clipped at 390 px — it is the longest prose
+      in the app.
 - [ ] **B6 · theme / language / layout** — check the app in light+dark and EN+RU on the iPhone and on a
       MacBook: no clipped text, no horizontal scroll, tap targets reachable, the 4-digit code and word
       slots legible.
@@ -214,6 +238,18 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       table and reopen BACKLOG § Security audit / Findings.
       Worth pairing with a control: the same Max ↔ Reliable run where the direct path DOES work must
       still connect normally (the gate must not reject a legitimate `prflx` from a NAT mapping).
+- [ ] **C6 · volume padding, and what it costs on a real link — NEW 2026-09-17.** In Max privacy the
+      transfer is padded so its byte count lands on a bucket edge instead of naming the file
+      (`core/transfer/padding.ts`): powers of two below 1 MiB, then ≤12.5% overhead. Send a **300 KiB**
+      file (ladder: → 512 KiB, a 70% jump no chunking accident could produce) and a **~50 MB** file
+      over **LTE**, in Max privacy. Expected: both arrive byte-identical, and the received file is the
+      REAL size — the filler is never written. In `chrome://webrtc-internals` the data-channel
+      `bytesSent` should show the padded volume, not the file size.
+      **What this case is really for is the cost.** Headless tests prove the arithmetic; only a real
+      cellular link shows whether the overhead is acceptable to someone paying per megabyte. Record
+      the wall-clock and the byte counts for both sizes, padded vs the file. If the small-file case
+      feels slow on LTE, `PAD_FLOOR` / `BUCKETS_PER_OCTAVE` are the two constants to reconsider — that
+      is a product decision the numbers should inform.
 - [ ] **C5 · mobile-to-mobile** — IPH (LTE) ↔ AND-1 (different LTE / other Wi-Fi), Reliable. The
       carrier-NAT-to-carrier-NAT case the desktop pair never exercises.
 
@@ -246,6 +282,15 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
 - [ ] **E4 · mismatched entry fails closed** — one side **Start (reconnect)**, the other joins the same
       code via the **regular room join**. Expected: the reconnect side ends in **`failed` within ~120 s**
       (the liveness deadline), NOT an endless "agreeing on keys". Time it.
+- [ ] **E6 · reconnect over a SLOW link — the case the 2026-09-17 race lived in.** An early
+      `reconnect-init` used to be dropped for good when it arrived before the receiving side had
+      processed channel-open, leaving both peers in "agreeing on keys" until the 120 s deadline. It is
+      fixed (held and replayed), and the window widens when the channel-open path is slow — which is
+      exactly what a phone on a weak cellular signal produces. So: reconnect **IPH on LTE with one
+      bar (or with the Network Link Conditioner on a bad profile) ↔ MBP-A**, five times. Expected:
+      `connected` without a SAS screen, every time. Any run that sits in "agreeing on keys" and then
+      fails at ~120 s is the same bug returning — capture the DEV log, which now names which guard
+      dropped what (`reconnect: dropped …` / `holding …` / `replaying held …`).
 - [ ] **E5 · key change** — on IPH press **forget** (clears pins), then reconnect from MBP-A using the
       stale pin. Expected: the key-changed hard stop on the pinned side, or a clean fall back to a fresh
       SAS — whichever the design says, but never a silent auto-accept.
