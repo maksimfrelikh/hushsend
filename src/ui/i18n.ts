@@ -58,8 +58,8 @@ export const STR = {
     ru: 'Вкл: всегда напрямую, точка-точка. Собеседник видит ваш IP; никогда через сервер — даже если соединиться не выйдет. Объём передачи выравнивается, чтобы виден был диапазон, а не точный размер файла (до 12% лишнего трафика).',
   },
   privacyDescReliable: {
-    en: 'Off (reliable): may relay through a server if a direct path fails. Your IP stays hidden from your peer; the relay only carries end-to-end-encrypted traffic.',
-    ru: 'Выкл (надёжно): может идти через сервер, если напрямую не вышло. Ваш IP скрыт от собеседника; relay видит только сквозь-шифрованный трафик.',
+    en: 'Off (reliable): if a direct path fails it falls back through a server, so it connects where Max privacy would give up. Your peer still sees your IP either way; the relay only carries end-to-end-encrypted traffic it cannot read.',
+    ru: 'Выкл (надёжно): если напрямую не вышло — идёт через сервер, поэтому соединяется там, где «Макс. приватность» сдалась бы. Собеседник всё равно видит ваш IP; relay несёт только сквозь-шифрованный трафик и прочитать его не может.',
   },
   he1: { en: 'end-to-end encrypted', ru: 'сквозное шифрование' },
   he2: { en: 'no logs', ru: 'без логов' },

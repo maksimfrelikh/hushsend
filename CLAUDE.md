@@ -564,8 +564,10 @@ see **Max-privacy strict model** below.
   - **Max-privacy (`max`, default)**: `iceServers = [{urls: <STUN>}]` (or `[]` if no STUN) — **STUN
     only, NO TURN, and creds are NEVER requested** (the relay is never contacted; the peer sees your IP).
   - **Reliable (`reliable`)**: `[{urls: <STUN>}, {urls: <TURN urls>, username, credential}]` — STUN +
-    TURN, so a pair that can't connect directly relays through coturn (your IP stays hidden from the
-    peer; the relay only carries E2E-encrypted bytes). TURN is added **ONLY when the fetched `urls` is
+    TURN, so a pair that can't connect directly relays through coturn (the relay carries only
+    E2E-encrypted bytes). It does NOT hide your IP from the PEER — we signal our srflx candidate in
+    every mode, so the peer learns the address whichever pair ICE selects; the relay moves the ROUTE
+    (the peer's ISP sees coturn, not us — THREATMODEL § 4), not what the peer is told. TURN is added **ONLY when the fetched `urls` is
     non-empty** — empty urls (TURN undeployed) ⇒ STUN-only (we IGNORE username/credential then; relay
     availability is keyed off `urls.length`, never off a credential being present).
 - **STUN config**: build-time `VITE_STUN_URLS` (comma-separated → array; `parseStunUrls`). Empty in

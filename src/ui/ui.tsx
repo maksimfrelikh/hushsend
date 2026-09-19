@@ -89,8 +89,13 @@ export function ShareButton({ value }: { value: string }): ReactElement | null {
 /**
  * The "Max privacy" toggle from the mockups (step 6d, now FUNCTIONAL). ON = Max privacy: connections
  * stay direct (peer-to-peer), never relayed — the peer sees your IP, nothing transits a server. OFF =
- * Reliable: if a direct path fails the connection may fall back through a TURN relay — your IP stays
- * hidden from the peer, and the relay only carries end-to-end-encrypted traffic (it can't read it).
+ * Reliable: if a direct path fails the connection may fall back through a TURN relay, so it connects
+ * where Max privacy gives up. It does NOT hide your IP from the PEER, and the copy used to say it did:
+ * we signal our srflx candidate in every mode, so the peer's browser learns the address whichever pair
+ * ICE selects (measured 2026-09-19 against the prod STUN — the host candidate is mDNS-obfuscated, the
+ * srflx one is not). What the relay moves is the ROUTE: with it, the peer's ISP sees a connection to
+ * coturn rather than to us, which is the THREATMODEL § 4 linkage — paid for by the operator seeing
+ * volume and timing. The relay carries only end-to-end-encrypted traffic (it can't read it).
  *
  * The state is a persisted pref (prefs.tsx, default Max); it is read at pairing start to assemble the
  * iceServers, so flipping it mid-session affects the NEXT connection, not the live one. Max-privacy is
