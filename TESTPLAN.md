@@ -103,6 +103,38 @@ Last run 2026-09-19: no globals, and 1 + 1. **Re-run it after any deploy** — d
   key-confirmation wait** (words / link / QR — added 2026-09-12; before it, that path had no client
   deadline at all and depended on the untrusted server's room TTL to rescue it).
 - Path attestation: advisory, **15 s** to hear the peer's attestation. Never tears anything down.
+- **Relay throughput (Reliable mode), measured 2026-09-19** against the live coturn with a real
+  relay-only `RTCPeerConnection` pair (`iceTransportPolicy: 'relay'`, selected pair confirmed
+  `local=relay remote=relay`), hushsend's own wire settings (ordered channel, 256 KiB chunks, 1 MiB
+  high-water drain):
+  | path | throughput |
+  |---|---|
+  | live coturn via `turn.hushsend.frelikh.dev` (router hairpins BOTH legs) | **1.86 MB/s** (14.9 Mbit/s) |
+  | live coturn reached on loopback (router out of the client leg) | **3.84 MB/s** (30.7 Mbit/s) |
+  | control: local coturn with `max-bps=0` | **24.81 MB/s** (198.5 Mbit/s) |
+
+  So on a fast path the binding constraint is coturn's own **`max-bps=5000000`** (confirmed in
+  `/etc/turnserver.conf`), not the WebRTC stack — the uncapped control is ~6.5× faster. The hairpin
+  halves it again because every byte crosses the router twice (client→coturn, coturn→client). C5 is
+  a CROSS-NETWORK case, so neither number is the one you will see there: expect the slower peer's
+  uplink to bind long before 5 MB/s does. Use these to tell "the relay is slow" apart from "this
+  link is slow". At the loopback figure the 1 GiB desktop cap takes ~4.7 min end to end.
+- **`TURN_CRED_TTL_S` (3600 s) bounds when a relayed transfer may START, not how long it may RUN**
+  — measured 2026-09-19, because the opposite reading is the natural one and would have made every
+  transfer slower than ~2.4 Mbit/s unsafe at the 1 GiB cap. Drove a relayed transfer with a
+  credential deliberately expiring after **20 s**: it delivered **70 MB over 388 s**, and coturn's log
+  shows the session's `CREATE_PERMISSION` + `CHANNEL_BIND` renewal at **t=242 s** (before the 300 s
+  permission lifetime) accepted with that same expired username, plus `REFRESH` accepted at t=22 s in
+  a shorter run. The expiry gates the INITIAL authentication only; relayed data itself rides bound
+  channels with no per-packet auth. So a long relayed transfer does not die at the one-hour mark.
+  *(An earlier attempt at this test stalled and looked like a finding — it was an artifact: forcing
+  `permission-lifetime=30` outran Chromium's refresh cadence, which is built for the 300 s default.
+  Run it with DEFAULT lifetimes or the result means nothing.)*
+- **Relay capacity: ~41 concurrent allocations**, not the 1200 `total-quota` advertises — coturn
+  takes one UDP port per allocation from `min-port=49160..max-port=49200` (live config, verified
+  2026-09-19), and a relayed pair where BOTH sides relay costs two. `user-quota=12` is also a
+  per-SECOND bucket rather than per-user here, because the signaling server mints the username as
+  the bare expiry second with no per-user part.
 - Words: **4 secret words** + 1 rendezvous word (~41 bits of secret), **≤10 pairing attempts**;
   the words room TTL runs **from create** and is never re-armed (`WORD_ROOM_TTL_MS`, 180 s).
 - Lobby: 4-digit code, up to **8 peers** (`FILETRANSFER_MAX_PEERS`); words/link/QR rendezvous are

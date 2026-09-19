@@ -82,6 +82,13 @@ user-quota=12
 # while the quota still looks untouched.
 total-quota=1200
 # Per-session bandwidth ceiling in BYTES/sec (0 = unlimited). e.g. 5 MB/s.
+# MEASURED 2026-09-19, so the trade is stated rather than guessed. A real relay-only WebRTC
+# DataChannel pair (hushsend's own chunking + backpressure) through the live coturn got 3.84 MB/s of
+# file payload reaching it on loopback; the SAME benchmark against a local coturn with max-bps=0 got
+# 24.81 MB/s. So this line — not the WebRTC stack — is what binds on a fast path, at roughly a 6.5x
+# cost. That is the intended trade (a leaked credential cannot drain the uplink) and 5 MB/s is still
+# well above a residential uplink, so real cross-network pairs will be bound by their own links long
+# before they reach it. Raise it only if you actually serve peers faster than 40 Mbit/s.
 max-bps=5000000
 # Optional aggregate ceiling across all sessions, bytes/sec (0 = unlimited).
 # bps-capacity=0

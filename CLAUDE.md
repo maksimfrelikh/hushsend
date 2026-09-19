@@ -691,6 +691,14 @@ enforce it in Max-privacy, then a direct failure is **terminal**:
   it (coturn answers `Cannot complete Allocation`), which is what stops the check from passing against
   a relay with authentication switched off. CI installs coturn on every push and sets
   `REQUIRE_RELAY_TEST=1`, which turns "coturn missing" from a skip into a hard failure.
+  **Measured ceiling (2026-09-19)** — a real relay-only `RTCPeerConnection` pair through the LIVE
+  coturn, selected pair confirmed `relay`/`relay`, hushsend's own chunking + backpressure: **3.84 MB/s**
+  of payload reached on loopback, **1.86 MB/s** via the public name (the home router hairpins BOTH
+  legs, so every byte crosses it twice), against **24.81 MB/s** for the same benchmark on a local
+  coturn with `max-bps=0`. So coturn's `max-bps=5000000` is what binds on a fast path, deliberately —
+  it is still far above a residential uplink, which is what will bind a real cross-network pair.
+  Numbers + the capacity note (~41 concurrent allocations from the 49160-49200 port range, NOT the
+  1200 `total-quota` advertises) are in TESTPLAN § 0.3.
 
 ## QR (built — step 5b; WASM self-hosted — step 6e)
 `barcode-detector` + `qrcode` are installed. Generation: `qrcode` → an SVG QR rendered locally
