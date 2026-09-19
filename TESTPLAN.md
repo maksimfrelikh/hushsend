@@ -68,6 +68,11 @@ Measured 2026-09-19 against the live `index-C2OzFRpe.js`: no globals, and 1 + 1.
       device runs the cached old bundle. Confirm the asset hash in devtools matches the deployed one.
 - [ ] `curl -s https://hushsend.frelikh.dev/health` → `ok`; nginx / hushsend-signaling / coturn all
       `active`.
+- [ ] **The relay actually relays:** `bash deploy/verify-relay.sh` → OK. `coturn` being `active` does
+      NOT mean Reliable mode works — if its `static-auth-secret` and the signaling server's
+      `TURN_SECRET` have drifted, the mint still succeeds and only the allocation fails, so case C5
+      (cross-network relay) would fail for a reason that has nothing to do with the devices in front
+      of you. Verified 2026-09-19: 16 messages relayed, 0 lost.
 - [ ] **Hairpin NAT check** — the box is behind a residential NAT, so LAN devices reach the public
       hostname only if the router hairpins. Open the site on one LAN device and one LTE device before
       starting; if a LAN device cannot load it, that is a router issue, not an app bug.

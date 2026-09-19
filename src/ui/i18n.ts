@@ -211,6 +211,12 @@ export const STR = {
     ru: 'Не удалось соединиться напрямую. Переключитесь на Reliable, чтобы разрешить relay через сервер.',
   },
 
+  // --- Reliable mode: the relay we were promised was not there (see connectionSlice.relayUnavailable) ---
+  relayUnavailableHint: {
+    en: 'Reliable mode found no relay, so this attempt ran direct-only — the fallback you chose this mode for was not there. If it keeps happening the relay is down or misconfigured, not your network.',
+    ru: 'Надёжный режим не получил реле, поэтому попытка шла только напрямую — запасного пути, ради которого вы выбрали этот режим, не было. Если это повторяется — дело в реле (не работает или настроено неверно), а не в вашей сети.',
+  },
+
   // --- SAS (picker side — joiner is BLIND, identifies the phrase by listening) ---
   sasEyebrow: { en: 'verify over a second channel', ru: 'проверка по второму каналу' },
   sasTitle: { en: 'Which phrase is your peer reading?', ru: 'Какую фразу называет собеседник?' },

@@ -34,9 +34,21 @@ jobs:
       # The integration suite spawns that server directly, so unlike the e2e harness it cannot
       # self-heal — install it explicitly.
       - run: npm ci --prefix server --omit=dev
+      # coturn, for tests/integration/turn-relay.test.ts. That file is the ONLY check anywhere that
+      # the signaling server's TURN_SECRET is the same string as coturn's static-auth-secret — every
+      # other TURN test stops at the wire format, and playwright.config.ts states outright that the
+      # e2e suite never runs a real relay. It belongs on EVERY push rather than in the nightly engine
+      # matrix: a drift here silently downgrades Reliable mode to direct-only for every user whose
+      # direct path fails, and needs no browser to catch.
+      - name: Install coturn (real TURN relay for the integration suite)
+        run: sudo apt-get update -qq && sudo apt-get install -y coturn
       - run: npm run typecheck
       - run: npm run lint
+      # REQUIRE_RELAY_TEST=1 turns "coturn is missing" from a skip into a hard failure, so the check
+      # above cannot be quietly lost if the install step is ever dropped or renamed.
       - run: npx vitest run
+        env:
+          REQUIRE_RELAY_TEST: '1'
 
   # ---------------------------------------------------------------------------------------------
   # The build whose hashes are PUBLISHED. This is the cheapest available reduction of the largest

@@ -117,9 +117,9 @@ be verified without a reference hash.
 ## Status
 
 **Feature-complete and deployed.** All four methods, reconnect, the mesh lobby, TURN, i18n (EN/RU),
-light/dark, and the deployment are built and live. **268 vitest tests** and a Playwright e2e suite —
+light/dark, and the deployment are built and live. **273 vitest tests** and a Playwright e2e suite —
 **39 per engine** across chromium / firefox / webkit, plus a phone profile and 5 cross-engine pairs —
-cover the protocol paths. Counts verified 2026-09-18; refresh them here whenever the suite grows.
+cover the protocol paths. Counts verified 2026-09-19; refresh them here whenever the suite grows.
 
 A second internal audit on **2026-09-12** (modelling a fully malicious signaling server, not just a
 passive one) found and fixed three complete breaks — SAS certificate grinding, server-chosen pairing

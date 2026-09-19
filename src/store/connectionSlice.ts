@@ -66,6 +66,14 @@ export interface ConnectionState {
    *  compare" are both unremarkable, and a badge that is always green teaches people to ignore
    *  badges — the lesson of F2. Advisory: nothing is gated on it. */
   stunDisagreed: boolean;
+  /**
+   * Reliable mode only: the relay we were promised is NOT there. Set when a `turn-request` comes back
+   * with no urls (TURN undeployed, a misconfigured secret, or the 5 s fetch timing out), which makes
+   * this session direct-only — exactly what Max privacy does, but chosen by a user who asked for the
+   * fallback. Nothing downstream is gated on it; it exists so a failure can SAY the fallback was
+   * missing instead of reading as ordinary bad luck. Always false in Max privacy, which never asks.
+   */
+  relayUnavailable: boolean;
   /** Mesh-lobby roster (room method): everyone currently in the 4-digit room EXCEPT us. The human
    *  picks whom to raise a 1:1 channel with. Maintained from welcome (set) / peer-joined (add) /
    *  peer-left (remove). Empty/unused for words/link/qr (they auto-pair with a single peer). */
@@ -88,6 +96,7 @@ const initialState: ConnectionState = {
   sasRole: null,
   pathCheck: null,
   stunDisagreed: false,
+  relayUnavailable: false,
   roster: [],
   notice: null,
   error: null,
@@ -181,6 +190,10 @@ const slice = createSlice({
     /** Several STUN servers disagreed about our public address — see the field's note. */
     stunDisagreement(state) {
       state.stunDisagreed = true;
+    },
+    /** Reliable mode asked for a relay and got none — see the field's note. */
+    relayUnavailable(state) {
+      state.relayUnavailable = true;
     },
 
     // --- mesh-lobby roster (room method) — serializable projections, NOT FSM transitions ---

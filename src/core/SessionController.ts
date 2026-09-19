@@ -1156,6 +1156,13 @@ export class SessionController {
               : 'turn: relay unavailable — staying direct-only',
           ),
         );
+        // The line above is the DEV diagnostics strip, which is tree-shaken out of production — so on
+        // the live site the one fact a Reliable user needs (the fallback they picked this mode FOR is
+        // not there) was invisible, and a failure that followed read as ordinary bad luck. Project it
+        // into real connection state so FailedScreen can name the cause. Empty `urls` is the only
+        // signal we have: an undeployed relay, a secret that drifted from coturn's, and a fetch that
+        // timed out at 5 s all arrive here identically as NO_TURN.
+        if (creds.urls.length === 0) this.dispatch(connectionActions.relayUnavailable());
       })();
     }
     return this.turnFetch;

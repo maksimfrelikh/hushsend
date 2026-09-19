@@ -587,7 +587,15 @@ see **Max-privacy strict model** below.
   `SessionController.ensureTurnReady()` is kicked off at the START of `beginPairing` (runs in parallel
   with CPace/SAS) and `startPeer` awaits the SAME memoized fetch before building the PC. Never throws —
   a closed socket / timeout / absent relay resolves to **NO_TURN (empty urls)** → direct-only. Creds are
-  reset per session (`openSignaling`) since they are bound to the live socket. The built ICE config is
+  reset per session (`openSignaling`) since they are bound to the live socket.
+  **Empty urls is now PROJECTED to the user** (`connection.relayUnavailable`, set from
+  `ensureTurnReady`; added 2026-09-19): Reliable silently degrading to direct-only was visible ONLY in
+  the DEV diagnostics log, which is tree-shaken out of production — so a user who picked Reliable FOR
+  the fallback got Max-privacy connectivity with no indication, and the failure that followed read as
+  ordinary bad luck. `FailedScreen` renders `relayUnavailableHint` (EN/RU, testid
+  `relay-unavailable-hint`) so the failure names the missing fallback. Always false in Max privacy,
+  which never requests creds. `SessionController.relayUnavailable.test.ts` pins it, with both negative
+  controls (a relay that IS there, and Max privacy). The built ICE config is
   published to the DEV diagnostics (`dev.iceConfig` — mode/relay/urls/username/credential) for the e2e.
 - **Pre-PC WebRTC-signal buffer (mixed-privacy / link-qr deadlock fix)**: because `startPeer` `await`s
   `ensureTurnReady()` BEFORE building the PeerConnection, a **Reliable-mode answerer** is still fetching
@@ -675,7 +683,14 @@ enforce it in Max-privacy, then a direct failure is **terminal**:
 - **Tests**: `relax.test.ts` (the relay-candidate filter: drops `typ relay` only while filtering, off
   in Reliable, safe on null/empty); `tests/e2e/relax.spec.ts` (`forceIceFail` Max-privacy → both sides
   reach `failed` with the `direct-fail-hint`, no relay offer, no hang). Reliable's relay actually
-  carrying bytes needs coturn → **verified at deploy**.
+  carrying bytes is **`tests/integration/turn-relay.test.ts`** (2026-09-19): it spawns a real coturn
+  in the production `use-auth-secret` mode, spawns the signaling server with the SAME secret, mints
+  over the WebSocket exactly as the client does and drives `turnutils_uclient` with the reply, so the
+  one cross-service invariant — `TURN_SECRET` == coturn `static-auth-secret` — is checked rather than
+  assumed. Its NEGATIVE CONTROL mints under a different secret and requires the same relay to refuse
+  it (coturn answers `Cannot complete Allocation`), which is what stops the check from passing against
+  a relay with authentication switched off. CI installs coturn on every push and sets
+  `REQUIRE_RELAY_TEST=1`, which turns "coturn missing" from a skip into a hard failure.
 
 ## QR (built — step 5b; WASM self-hosted — step 6e)
 `barcode-detector` + `qrcode` are installed. Generation: `qrcode` → an SVG QR rendered locally
@@ -824,7 +839,9 @@ X-Forwarded-For; binds to `127.0.0.1` (only the local nginx reaches it). Run wit
   side (the functional toggle, `requestTurnCredentials`, feeding `iceServers`, Max-privacy never
   requests) is **done** — see **Privacy mode + ICE** §. **Max-privacy is STRICT** — a live Max-privacy
   ICE failure does NOT escalate to relay; it fails terminally with a switch-to-Reliable hint (see
-  **Max-privacy strict model** there). (`tests/integration/turn-credentials.test.ts`.)
+  **Max-privacy strict model** there). (`tests/integration/turn-credentials.test.ts` for the mint;
+  `tests/integration/turn-relay.test.ts` for the mint ACTUALLY opening a relay on a real coturn —
+  the `TURN_SECRET` == `static-auth-secret` invariant, with a wrong-secret negative control.)
 
 ## Deployment / configuration (step 6f — LIVE at hushsend.frelikh.dev, deployed 2026-06-20)
 One place that ties together every knob needed to run a live instance. The **artifacts** are built

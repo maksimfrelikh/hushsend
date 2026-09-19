@@ -16,6 +16,9 @@ export function FailedScreen(): ReactElement {
   const error = useAppSelector((s) => s.connection.error) ?? '';
   const method = useAppSelector((s) => s.connection.method);
   const reconnectOutcome = useAppSelector((s) => s.dev.reconnect.outcome);
+  // Reliable only (Max privacy never requests creds, so this is always false there): the relay this
+  // mode exists to provide was not available, which is WHY the attempt behaved like Max privacy.
+  const relayUnavailable = useAppSelector((s) => s.connection.relayUnavailable);
 
   if (reconnectOutcome === 'key-changed') {
     return (
@@ -73,6 +76,11 @@ export function FailedScreen(): ReactElement {
       {desc && (
         <p className="hs-sub" data-testid={isDirectFail ? 'direct-fail-hint' : undefined}>
           {desc}
+        </p>
+      )}
+      {relayUnavailable && (
+        <p className="hs-sub hs-path__hint hs-path__hint--alert" data-testid="relay-unavailable-hint">
+          {t('relayUnavailableHint')}
         </p>
       )}
       <p className="hs-meta" data-testid="error">

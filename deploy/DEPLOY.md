@@ -284,8 +284,22 @@ Use [`nginx.conf.example`](nginx.conf.example) → `/etc/nginx/sites-available/`
    > **GOTCHA — a relay path can't be proven on one network.** Two peers on the *same* LAN connect
    > directly even in Reliable (relay is only used when direct fails). To actually verify bytes flow
    > through coturn you need two peers on **different networks** (e.g. one on mobile data) or a forced
-   > relay (`forceIceFail` is DEV-only and not in the prod build). Confirm coturn separately via
-   > `turnutils_uclient`/`trickle-ice` against your `static-auth-secret`.
+   > relay (`forceIceFail` is DEV-only and not in the prod build).
+   >
+   > **So confirm the relay itself, separately — one command, and it is not optional:**
+   >
+   > ```bash
+   > bash deploy/verify-relay.sh
+   > ```
+   >
+   > It mints a credential from the LIVE signaling server exactly as a browser does, opens a real
+   > allocation on the coturn that `TURN_URLS` advertises, and requires bytes to come back. This is
+   > the only check that catches `TURN_SECRET` drifting from coturn's `static-auth-secret` — a drift
+   > that leaves every visible symptom green (the mint succeeds, the client builds a TURN iceServer,
+   > the UI still says Reliable) and breaks the relay only for the users whose direct path already
+   > failed. Run it after every deploy and after touching either config. It never reads or prints the
+   > secret. (The same invariant is pinned in CI by `tests/integration/turn-relay.test.ts`, against a
+   > coturn it spawns itself — but CI cannot see THIS host's config.)
 6. **Per-IP accounting works (not loopback-collapsed):** the step-2 `[config]` line shows
    `trustProxy=on`; confirm distinct clients are counted per-IP (the caps/4011 limiter act
    per-client, not as one global loopback bucket).
