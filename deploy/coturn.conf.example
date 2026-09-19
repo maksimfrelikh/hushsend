@@ -69,8 +69,17 @@ max-port=49200
 # A leaked or farmed credential is time-boxed (TTL) AND capped here, so it can't
 # drain bandwidth. Tune for your link + expected load.
 # Max simultaneous allocations per username (one credential ≈ one transfer).
+# NOTE what "per username" means HERE: the signaling server mints the username as the
+# bare expiry second (`String(now + TURN_CRED_TTL_S)`), with no per-user part, so every
+# client that asks within the SAME SECOND shares one username — and therefore one quota
+# bucket. This is a per-second bucket, not a per-user one.
 user-quota=12
-# Max simultaneous allocations server-wide.
+# Max simultaneous allocations server-wide. NOT the binding limit: coturn takes one UDP
+# port per allocation out of min-port..max-port above, which is 41 ports — so the real
+# ceiling is ~41 concurrent allocations (and a relayed pair where BOTH sides relay costs
+# two), long before 1200. Raise the PORT RANGE, not this number, to serve more relayed
+# transfers; leaving them inconsistent just means allocations start failing with 508
+# while the quota still looks untouched.
 total-quota=1200
 # Per-session bandwidth ceiling in BYTES/sec (0 = unlimited). e.g. 5 MB/s.
 max-bps=5000000
