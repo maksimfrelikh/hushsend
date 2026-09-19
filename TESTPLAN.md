@@ -49,7 +49,7 @@ and production reads the URL in exactly two places: `SignalingClient.connect`, b
 query (`app` / `room` / `codeType` / `device`), and the link-join scrub that rewrites the address to
 `pathname + search` to strip the secret fragment. A third occurrence is a knob that shipped.
 
-Measured 2026-09-18 against the live `index-CzAol4fb.js`: no globals, and 1 + 1. So:
+Measured 2026-09-19 against the live `index-C2OzFRpe.js`: no globals, and 1 + 1. So:
 
 - **Failure injection is NOT available on prod** — those paths are covered by e2e. This pass observes
   *real* behaviour only. If a fault path needs driving deliberately, do it against `npm run dev`
