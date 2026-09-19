@@ -1,8 +1,14 @@
 # hushsend — real-device test pass (step 6e)
 
-The last open item before the security audit. Everything that can be verified without physical
-devices is done (unit + integration + Playwright e2e, feature-detection review, self-hosted QR WASM);
-what remains is **behaviour on real browsers, real networks, and real NAT**.
+Everything that can be verified without physical devices is done (unit + integration + Playwright
+e2e across four engine projects, feature-detection review, self-hosted QR WASM); what remains is
+**behaviour on real browsers, real networks, and real NAT**.
+
+This used to open "the last open item before the security audit" — the audit has since run twice
+internally (2026-09-12 and 2026-09-13, BACKLOG § Security audit), so that ordering is gone: the
+device pass is now the last open item before a public launch, not before the audit. **Progress: 0 of
+the 44 A–F cases have been run.** The two ticks in § 0.1 are PRECONDITIONS, not cases; do not read
+them as progress.
 
 - **Target:** the live deploy — `https://hushsend.frelikh.dev` (production build).
 - **Scope closes:** BACKLOG § Step 6 / 6e "Remaining (real devices, post-deploy)" and DEPLOY.md § 0
@@ -162,9 +168,52 @@ Last run 2026-09-19: no globals, and 1 + 1. **Re-run it after any deploy** — d
 | AND-1 | Android | | Chrome | Blob (512 MiB cap) | native BarcodeDetector |
 | AND-2 | Android | | Firefox | Blob (512 MiB cap) | zxing ponyfill |
 
+### 0.5 How this pass is actually run — three tracks
+
+This plan was written for a human holding the devices. It is now run mostly **through Claude Code**:
+desktop browsers it drives directly, plus **real handsets attached over USB** — iPhone through Safari
+Web Inspector, Android through `chrome://inspect` (both already in § 0.2). A real handset is the point:
+an iOS Simulator would give real WebKit but the Mac's RAM, no camera and the Mac's network, which
+silently falsifies B2, B3/B4 and the whole of Phase C.
+
+So the useful split is not "automated vs manual" but **who has to be physically present for the
+evidence to exist**:
+
+- **T1 — Claude Code alone.** Desktop browsers on the host, several contexts, nobody in the loop.
+  Claude opens the pages, drives the flow, reads console / Network / `chrome://webrtc-internals`.
+- **T2 — real device attached; Claude drives and observes, you perform ONE named physical act.**
+  Point the camera, toggle a radio, lock the screen, tap an OS permission prompt, click a native save
+  dialog. Everything after that act is Claude's to drive and read.
+- **T3 — your eyes.** What Web Inspector cannot see or judge at all: OS-level UI (the native share
+  sheet) and ergonomics (are tap targets truly reachable, is anything clipped on a real 390 px screen).
+
+| Track | Cases | Count |
+|---|---|---|
+| **T1** — Claude alone, closes the case outright | A4a, A4b, A6, A7 · D1–D5 · E1–E5 · F3, F5, F6, F7 | 18 |
+| **T1 + T2** — Claude closes the mechanism; the named device pairing still needs the handset | A1, A3, A4, A5, A6a · B7, B8 · E6 · F2, F8 | 10 |
+| **T2** — needs one physical act from you | A2 · B1, B2, B3, B4 · C1–C6 · F1, F4, F9 | 14 |
+| **T3** — your eyes only | B5 (the native share sheet half) · B6 (ergonomics half) | 2 |
+
+Your physical acts, in full — this is the entire manual surface of the pass:
+point the camera at a QR (A2, B3); tap **Deny**, then **Allow**, on the camera prompt (B4); click the
+native save dialog (B1, F4); turn Wi-Fi off / cellular on, and back (C1–C6, F9, and the real-radio
+variants of F2, F8); lock the phone or switch apps mid-transfer (F1); look at the share sheet (B5) and
+at a real phone screen (B6).
+
+**The traps — all three are the same trap this project keeps hitting: a tick that outran its evidence.**
+
+1. **A case that names a device pairing is not closed by running its mechanism on the desktop.** A1
+   says MBP-A Chrome → IPH Safari. Running link-pairing Chrome↔Chrome under T1 proves the mechanism
+   and catches regressions; it does **not** tick A1. Tick it when the named pairing ran.
+2. **Record WHICH pairing produced each tick**, next to the tick. Six weeks from now "A1 ✅" tells you
+   nothing, and § 0.3's measured numbers are only comparable against a stated setup.
+3. **T1 is a rehearsal as much as a result.** Run it first: it costs minutes, it closes 18 cases
+   outright, and it means the handset session is spent on what only a handset can answer instead of on
+   discovering a broken build.
+
 ---
 
-## Phase A — same-network happy path (all 4 methods)
+## Phase A — same-network happy path (all 4 methods) · mostly T1; A2 needs the camera
 
 Both peers on the home Wi-Fi, default **Max-privacy**. Baseline: if these fail, nothing below matters.
 
@@ -206,7 +255,7 @@ Both peers on the home Wi-Fi, default **Max-privacy**. Baseline: if these fail, 
 - [ ] **A7 · multi-file** — send 3 files at once. Expected: all arrive, progress is per-transfer, no
       stale filename from the previous send after "New transfer".
 
-## Phase B — browser capability matrix
+## Phase B — browser capability matrix · mostly T2 — this is the handset phase
 
 The point of 6e: every fallback path on a real engine, not a polyfilled test env.
 
@@ -269,7 +318,7 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       MacBook: no clipped text, no horizontal scroll, tap targets reachable, the 4-digit code and word
       slots legible.
 
-## Phase C — cross-network + privacy modes (the part only real networks can prove)
+## Phase C — cross-network + privacy modes (the part only real networks can prove) · entirely T2
 
 IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
 
@@ -314,7 +363,7 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
 - [ ] **C5 · mobile-to-mobile** — IPH (LTE) ↔ AND-1 (different LTE / other Wi-Fi), Reliable. The
       carrier-NAT-to-carrier-NAT case the desktop pair never exercises.
 
-## Phase D — room lobby (mesh)
+## Phase D — room lobby (mesh) · entirely T1
 
 - [ ] **D1 · roster** — MBP-A creates a room; IPH, AND-1, AND-2 join. Expected: every member sees the
       others with a sane device label and join order; leaving a device removes its row.
@@ -330,7 +379,7 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
 - [ ] **D5 · SAS mismatch** — on a fresh pair, deliberately pick the **wrong** phrase. Expected: a hard
       failure with a clear message; no transfer possible afterwards.
 
-## Phase E — reconnect (its own by-code path — do not route it through the lobby)
+## Phase E — reconnect (its own by-code path — do not route it through the lobby) · T1, except E6 on a real link
 
 - [ ] **E1 · pin created** — after any successful fresh pairing (A1–A4), both devices list the peer
       under recent devices, **once** (the dedup-by-peer-key fix — pair the same two devices 3 times and
@@ -356,7 +405,7 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       stale pin. Expected: the key-changed hard stop on the pinned side, or a clean fall back to a fresh
       SAS — whichever the design says, but never a silent auto-accept.
 
-## Phase F — real-world robustness
+## Phase F — real-world robustness · mixed: F3/F5/F6/F7 are T1, the rest need a radio or a dialog
 
 - [ ] **F1 · phone screen lock / app switch mid-transfer** — start a ≈200 MB transfer to IPH, then lock
       the screen / switch apps for ~30 s and come back. Expected: either it keeps going or it fails
@@ -392,7 +441,10 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
 
 ## Result log
 
-Record per case: `ID · device pair · browser versions · PASS/FAIL · notes`. For a failure capture:
+Record per case: `ID · track (T1/T2/T3) · device pair · browser versions · PASS/FAIL · notes`. The
+track belongs in the line because the same case can be run two ways: a T1 desktop rehearsal of A1
+proves the mechanism, a T2 run on the named MBP↔iPhone pairing is what closes it, and a log that does
+not say which produced the tick cannot tell them apart later. For a failure capture:
 the selected candidate pair (webrtc-internals / about:webrtc), the WS message trace, the console
 output, and whether it reproduced on the other engine.
 
