@@ -60,11 +60,15 @@ Last run 2026-09-19: no globals, and 1 + 1. **Re-run it after any deploy** — d
 ### 0.1 Preconditions
 
 - [x] Frontend redeployed from current `main` (`bash ~/projects/hushsend/deploy/deploy-frontend.sh`)
-      — done 2026-09-12 10:50; `/var/www/hushsend/dist` is byte-identical to the local build.
-      **Re-run it if `main` has moved since**, and re-tick.
+      — re-done 2026-09-19; `/var/www/hushsend/dist` is byte-identical to the local build and serves
+      `index-CXiHn4Vx.js`. **Re-run it if `main` has moved since**, and re-tick. It had gone stale
+      once already (ticked 2026-09-12, `main` moved, nobody re-ticked) — this tick is only worth the
+      date next to it.
 - [x] **Verify the new bundle is live:** `grep -r 'stun.l.google' /var/www/hushsend/dist` returns
-      nothing — confirmed 2026-09-12 (the pre-2026-09-12 bundle matched; this was the BACKLOG
-      "verify after redeploy" item).
+      nothing — re-confirmed 2026-09-19 (the pre-2026-09-12 bundle matched; this was the BACKLOG
+      "verify after redeploy" item). The only STUN in the served bundle is
+      `stun:turn.hushsend.frelikh.dev:3478`, i.e. our own — which is also the whole of BACKLOG's
+      "separate the STUN server" item: one operator still holds app, signaling and STUN.
 - [ ] Hard-refresh every test device (Ctrl/Cmd+Shift+R; on iOS: close the tab and reopen) so no
       device runs the cached old bundle. Confirm the asset hash in devtools matches the deployed one.
 - [ ] `curl -s https://hushsend.frelikh.dev/health` → `ok`; nginx / hushsend-signaling / coturn all
