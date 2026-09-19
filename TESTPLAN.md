@@ -7,7 +7,7 @@ e2e across four engine projects, feature-detection review, self-hosted QR WASM);
 This used to open "the last open item before the security audit" — the audit has since run twice
 internally (2026-09-12 and 2026-09-13, BACKLOG § Security audit), so that ordering is gone: the
 device pass is now the last open item before a public launch, not before the audit. **Progress: 0 of
-the 44 A–F cases have been run.** The two ticks in § 0.1 are PRECONDITIONS, not cases; do not read
+the 45 A–F cases have been run.** The two ticks in § 0.1 are PRECONDITIONS, not cases; do not read
 them as progress.
 
 - **Target:** the live deploy — `https://hushsend.frelikh.dev` (production build).
@@ -159,15 +159,19 @@ Last run 2026-09-19: no globals, and 1 + 1. **Re-run it after any deploy** — d
 
 ### 0.4 Device inventory (fill in)
 
-| Slot | Device | OS version | Browser + version | Expected receive path | Expected QR decoder |
-|---|---|---|---|---|---|
-| MBP-A | MacBook | | Chrome | FSA streaming (unbounded) | native/ponyfill |
-| MBP-A | MacBook | | Safari | Blob (1 GiB cap) | zxing ponyfill |
-| MBP-A | MacBook | | Firefox | Blob (1 GiB cap) | zxing ponyfill |
-| MBP-B | MacBook | | Chrome | FSA streaming | native/ponyfill |
-| IPH | iPhone | | Safari (WebKit) | Blob (512 MiB cap) | zxing ponyfill |
-| AND-1 | Android | | Chrome | Blob (512 MiB cap) | native BarcodeDetector |
-| AND-2 | Android | | Firefox | Blob (512 MiB cap) | zxing ponyfill |
+| Slot | Device | OS version | Browser + version | Engine | Driven by | Expected receive path | Expected QR decoder |
+|---|---|---|---|---|---|---|---|
+| MBP-A | MacBook | | Chrome | Blink | Claude (MCP) | FSA streaming (unbounded) | native/ponyfill |
+| MBP-A | MacBook | | Brave (shields up) | Blink | Claude (MCP) | FSA streaming | native/ponyfill |
+| MBP-A | MacBook | | Safari | **WebKit (the real one)** | Claude (MCP) | Blob (1 GiB cap) | zxing ponyfill |
+| MBP-A | MacBook | | Firefox | Gecko | Claude (MCP) | Blob (1 GiB cap) | zxing ponyfill |
+| MBP-B | MacBook | | Chrome | Blink | Claude (MCP) | FSA streaming | native/ponyfill |
+| IPH | iPhone | | Safari (WebKit) | WebKit + phone limits | Claude via Safari Web Inspector (USB) | Blob (512 MiB cap) | zxing ponyfill |
+| AND-1 | Android | | Chrome | Blink | Claude via `chrome://inspect` (USB) | Blob (512 MiB cap) | native BarcodeDetector |
+| AND-2 | Android | | Firefox | Gecko | Claude via `about:debugging` (USB) | Blob (512 MiB cap) | zxing ponyfill |
+
+Three engines, not four browsers: Blink (Chrome, Brave, Android Chrome), Gecko (Firefox ×2), WebKit
+(Safari ×2). Brave earns its row for hardening (B9), MBP-B for a second FSA endpoint (F4).
 
 ### 0.5 How this pass is actually run — three tracks
 
@@ -180,8 +184,19 @@ silently falsifies B2, B3/B4 and the whole of Phase C.
 So the useful split is not "automated vs manual" but **who has to be physically present for the
 evidence to exist**:
 
-- **T1 — Claude Code alone.** Desktop browsers on the host, several contexts, nobody in the loop.
-  Claude opens the pages, drives the flow, reads console / Network / `chrome://webrtc-internals`.
+- **T1 — Claude Code alone, across ALL THREE desktop engines.** Chrome, Brave, Firefox and Safari
+  are driven over MCP, so this track is not "a browser" — it is the real engine matrix:
+  **Blink** (Chrome, Brave), **Gecko** (Firefox), **WebKit** (Safari). Claude opens the pages, drives
+  the flow, reads console / Network / `chrome://webrtc-internals` / `about:webrtc`.
+  Two things follow, and they are the reason this track got much stronger:
+  **(a) desktop Safari is REAL WebKit.** Everything headless has said about WebKit so far came from
+  Playwright's WebKitGTK on Linux, which is a different port — and the one open question I would most
+  want answered is WebKit-shaped: the Max-privacy gate refuses any path it cannot classify, so an
+  engine whose `getStats()` does not publish a selected pair does not connect *at all*. Desktop Safari
+  answers that without a handset. It is not a full substitute for iOS Safari (no phone memory limits,
+  no cellular NAT), but it is the difference between a proxy and the real thing.
+  **(b) Brave is Blink — it adds no engine.** It is worth running for its HARDENING, not its renderer
+  (see B9), and nobody should read four browsers as four engines.
 - **T2 — real device attached; Claude drives and observes, you perform ONE named physical act.**
   Point the camera, toggle a radio, lock the screen, tap an OS permission prompt, click a native save
   dialog. Everything after that act is Claude's to drive and read.
@@ -190,10 +205,21 @@ evidence to exist**:
 
 | Track | Cases | Count |
 |---|---|---|
-| **T1** — Claude alone, closes the case outright | A4a, A4b, A6, A7 · D1–D5 · E1–E5 · F3, F5, F6, F7 | 18 |
-| **T1 + T2** — Claude closes the mechanism; the named device pairing still needs the handset | A1, A3, A4, A5, A6a · B7, B8 · E6 · F2, F8 | 10 |
-| **T2** — needs one physical act from you | A2 · B1, B2, B3, B4 · C1–C6 · F1, F4, F9 | 14 |
-| **T3** — your eyes only | B5 (the native share sheet half) · B6 (ergonomics half) | 2 |
+| **T1** — Claude alone, closes the case outright | A4a, A4b, A6, A7 · B7, B9 · D1–D5 · E1–E5 · F3, F5, F6, F7 | 20 |
+| **T1 + T2** — T1 closes the DESKTOP half on real engines; the handset half is a separate tick | A1, A3, A4, A5, A6a · B2, B8 · E6 · F2, F8 | 10 |
+| **T2** — needs one physical act from you | A2 · B1, B3, B4 · C1–C6 · F1, F4, F9 | 13 |
+| **T1 + T3** — T1 closes the desktop half; the rest is your eyes | B5 (native share sheet) · B6 (phone ergonomics) | 2 |
+
+**Two ticks, not one, for every case in the split rows.** A1 says "MBP-A Chrome → IPH Safari". With
+desktop Safari on MCP there is now a second, genuinely valuable run of the same case —
+**Chrome ↔ Safari on the Mac, Blink against real WebKit** — which Playwright covers only through
+WebKitGTK. That run is worth doing and worth recording, and it does not tick the handset half. Log
+both: `A1 · T1 · Chrome↔Safari desktop · PASS` and later `A1 · T2 · MBP-A Chrome↔IPH Safari · PASS`.
+
+The case this reshapes most is **A6a (path attestation per engine pair)**. Its whole purpose is the
+table BACKLOG needs to decide whether attestation can ever become a control, and the only real-engine
+datum so far is "firefox↔webkit on one LAN says `mismatch` with no attacker present". Three real
+desktop engines in six pairings, all drivable by Claude in one sitting, is most of that table.
 
 Your physical acts, in full — this is the entire manual surface of the pass:
 point the camera at a QR (A2, B3); tap **Deny**, then **Allow**, on the camera prompt (B4); click the
@@ -256,7 +282,7 @@ Both peers on the home Wi-Fi, default **Max-privacy**. Baseline: if these fail, 
 - [ ] **A7 · multi-file** — send 3 files at once. Expected: all arrive, progress is per-transfer, no
       stale filename from the previous send after "New transfer".
 
-## Phase B — browser capability matrix · mostly T2 — this is the handset phase
+## Phase B — browser capability matrix · mixed: B7/B9 are T1, the camera and phone-RAM cases are T2
 
 The point of 6e: every fallback path on a real engine, not a polyfilled test env.
 
@@ -318,6 +344,17 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
 - [ ] **B6 · theme / language / layout** — check the app in light+dark and EN+RU on the iPhone and on a
       MacBook: no clipped text, no horizontal scroll, tap targets reachable, the 4-digit code and word
       slots legible.
+- [ ] **B9 · privacy-hardened browser (Brave, shields up) — NEW 2026-09-19.** Brave is Blink, so it
+      adds **no engine coverage** — it is here for its HARDENING. This product's users skew towards
+      hardened browsers, and Brave ships WebRTC defaults Chrome does not: shields, fingerprint
+      randomisation, and a **WebRTC IP-handling policy** that can withhold local and/or
+      server-reflexive candidates. Since Max privacy is STUN-only and refuses to relay, a browser that
+      withholds srflx has nothing left to pair on. Run **A1 (link) and A5 (transfer) with shields UP at
+      the default setting, in BOTH privacy modes.** Expected: it connects, or it fails **visibly** with
+      the switch-to-Reliable hint — a silent hang is the bug. Record the WebRTC policy setting and
+      which candidate types were gathered (`chrome://webrtc-internals`). If Max privacy cannot gather
+      an srflx there, that is a real-world limit to state in the README, not a defect to fix: the
+      strict model is doing exactly what it promises.
 
 ## Phase C — cross-network + privacy modes (the part only real networks can prove) · entirely T2
 
