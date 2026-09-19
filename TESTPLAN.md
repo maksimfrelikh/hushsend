@@ -94,7 +94,8 @@ Last run 2026-09-19: no globals, and 1 + 1. **Re-run it after any deploy** — d
 |---|---|
 | Selected ICE candidate pair (`host` / `srflx` / **`relay`**) | Chrome: `chrome://webrtc-internals` · Firefox: `about:webrtc` |
 | iPhone Safari console/network | macOS Safari Web Inspector over USB (iPhone: Settings → Safari → Advanced → Web Inspector) |
-| Android Chrome console/network | `chrome://inspect` from a MacBook over USB |
+| Android Chrome console/network | `chrome://inspect` from a MacBook over USB (phone: Developer options → USB debugging) |
+| **Android Firefox** console/network | `about:debugging` → *This Firefox* → *Setup* in DESKTOP Firefox — **not** `chrome://inspect`, which only sees Chromium. Slot AND-2 is Firefox and B3/B5 name it, so without this those two have no way to be observed at all |
 | Signaling frames + WS lifecycle | devtools → Network → WS → Messages |
 | Server side | `sudo journalctl -u hushsend-signaling -f` |
 | Relay actually used | `sudo journalctl -u coturn -f` (if coturn logs to a file instead, see `log-file` in `/etc/turnserver.conf`) **plus** the `relay` candidate pair in webrtc-internals |
