@@ -98,7 +98,7 @@ Last run 2026-09-19: no globals, and 1 + 1. **Re-run it after any deploy** — d
 | **Android Firefox** console/network | `about:debugging` → *This Firefox* → *Setup* in DESKTOP Firefox — **not** `chrome://inspect`, which only sees Chromium. Slot AND-2 is Firefox and B3/B5 name it, so without this those two have no way to be observed at all |
 | Signaling frames + WS lifecycle | devtools → Network → WS → Messages |
 | Server side | `sudo journalctl -u hushsend-signaling -f` |
-| Relay actually used | `sudo journalctl -u coturn -f` (if coturn logs to a file instead, see `log-file` in `/etc/turnserver.conf`) **plus** the `relay` candidate pair in webrtc-internals |
+| Relay actually used | **The `relay` candidate pair in webrtc-internals is the primary evidence.** `sudo journalctl -u coturn -f` does NOT work here — the live config sets `no-stdout-log` with no `log-file=`, so journalctl carries only service start/stop (checked 2026-09-19). Sudo-free corroboration during a relayed transfer: `ss -uan` filtered to ports 49160-49200 shows coturn's relay ports bound on 192.168.1.19 — verified against a live allocation. Real session logs need a `log-file=` + `verbose` added and coturn restarted |
 
 ### 0.3 Reference numbers (from the code, for judging "expected")
 
@@ -327,8 +327,21 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       decides it.** The client asks every configured STUN server what our public address is, using one
       throwaway PeerConnection per server, and compares (`core/stunCheck.ts`). Read `stun-verdict` /
       `stun-addresses` in the DEV strip on EVERY engine in the matrix. **This needs two STUN URLs in
-      `VITE_STUN_URLS`** — with one it is `unknown` by design and the case proves nothing, so run the
-      dev build against two servers (a second coturn on another port is enough).
+      `VITE_STUN_URLS`** — with one it is `unknown` by design and the case proves nothing. Exact setup,
+      worked out 2026-09-19 (two flags cost a while to find: coturn REFUSES to start with
+      `--allow-loopback-peers` unless the admin CLI is secured, and its default pidfile is unwritable
+      as a normal user):
+
+      ```bash
+      for P in 3479 3480; do
+        turnserver -n --listening-ip=127.0.0.1 --listening-port=$P \
+          --no-auth --no-tls --no-dtls --no-cli --pidfile= --log-file=stdout &
+      done
+      VITE_STUN_URLS=stun:127.0.0.1:3479,stun:127.0.0.1:3480 npm run dev
+      ```
+
+      Loopback on purpose: it keeps the probe off the production coturn and off the network. Do NOT
+      reuse 3478 — the live coturn owns it on this host.
       Expected on chromium and webkit: `agree`, with a real address. **Firefox measured `unknown`
       headlessly** — it reported no server-reflexive candidate and exposes no `url` on local
       candidates — but that was on LOOPBACK, where the reflexive address equals the host address and
