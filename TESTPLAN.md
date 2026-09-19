@@ -333,15 +333,30 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       as a normal user):
 
       ```bash
+      # 1. two loopback STUN servers (NOT 3478 — the live coturn owns that here)
       for P in 3479 3480; do
         turnserver -n --listening-ip=127.0.0.1 --listening-port=$P \
           --no-auth --no-tls --no-dtls --no-cli --pidfile= --log-file=stdout &
       done
-      VITE_STUN_URLS=stun:127.0.0.1:3479,stun:127.0.0.1:3480 npm run dev
+      # 2. a LOCAL signaling server that trusts the dev origin
+      NODE_ENV=development HOST=127.0.0.1 PORT=8191 DEV_ORIGINS=http://localhost:5291 \
+        node server/signaling-server.js &
+      # 3. the dev build, pointed at BOTH of the above
+      VITE_SIGNALING_URL=ws://127.0.0.1:8191 \
+      VITE_STUN_URLS=stun:127.0.0.1:3479,stun:127.0.0.1:3480 \
+        npx vite --port 5291 --strictPort
       ```
 
-      Loopback on purpose: it keeps the probe off the production coturn and off the network. Do NOT
-      reuse 3478 — the live coturn owns it on this host.
+      Verified end to end 2026-09-19: the page loads, the DEV strip renders, and `stun-verdict` reads
+      **`agree`** with no console errors — so a `unknown` in this case is a real result about the
+      engine, not a broken harness.
+
+      **`npm run dev` on this host does NOT work, and fails in a way that wastes an hour.** Vite's
+      default 5173 is held by an unrelated app, so it silently moves to 5174; the client's dev default
+      signaling URL is `ws://localhost:8080`, which is the **live production** signaling server; and
+      production runs with an empty dev-origin allowlist, so every socket is closed with
+      **4003 `origin not allowed`** and the app just never connects. Hence all three explicit ports
+      above — the same host-safe pair the e2e suite uses (8191 / 5291).
       Expected on chromium and webkit: `agree`, with a real address. **Firefox measured `unknown`
       headlessly** — it reported no server-reflexive candidate and exposes no `url` on local
       candidates — but that was on LOOPBACK, where the reflexive address equals the host address and
