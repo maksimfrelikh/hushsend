@@ -735,7 +735,18 @@ input (`src/ui/screens/ScanScreen.tsx`).
   non-Chromium scan. Keep both pins EXACT (no `^`/`~`).
 
 ## UI / styling — stark-ui-kit (required)
-Install: `npm install github:maksimfrelikh/stark-ui-kit`.
+Dependency: `"stark-ui-kit": "github:maksimfrelikh/stark-ui-kit#<sha>"` — a private GitHub repo, pinned by
+commit (NOT on the npm registry: `npm install stark-ui-kit` fetches an unrelated package). **Current pin:
+`b23a2e5` = kit 0.1.0, the first cut.** The kit has moved on since (0.2.0 `59914b0`: the React hooks moved
+to `stark-ui-kit/react`, root entry framework-free; 0.3.0 `2a3f7ec`: `theme-mono.css` house palette,
+`controls.css` / `links.css` / `layout.css`). Bumping the pin is a small MIGRATION, not a refresh — see
+BACKLOG § Nice-to-have "stark-ui-kit 0.3.0 migration". Everything below describes the pinned 0.1.0.
+- **Design language = "Stark"**, published as a Claude Design system generated from the reference site
+  frelikh.com: https://claude.ai/artifact/Da7if9WhD7hxZjf5sL6m2F (brand book, tokens, kit + site
+  components, reference screenshots). The rules for changing the kit and how a change travels live in
+  the kit's own `CLAUDE.md`. `uploads/design-reference/_ds/` is an OLDER extracted copy of the same
+  language and drifts from it (its high-contrast hairline `#c4c4c4` is 1.74:1 on white, under the 3:1 of
+  SC 1.4.11; `src/ui/theme.css` still carries that set) — values come from the kit, never from there.
 - Import `stark-ui-kit/styles.css` once, at the app root (`src/main.tsx`).
 - **Strictly MONOCHROME — there is NO accent colour.** Emphasis / selected / danger is the single
   ink-INVERSION language: `--ink` (the strong ink) on `--ink-fg` (text on ink). Do not add any
@@ -750,7 +761,8 @@ Install: `npm install github:maksimfrelikh/stark-ui-kit`.
   spacing `--gut` / `--maxw` / `--scale`; motion `--ease-*` / `--dur-*`. (These are the ACTUAL kit
   names — NOT the prototype's `--line2` / `--inkfg` / `--sans`.)
 - For focus-trap, scroll-lock, and copy-to-clipboard use the kit's hooks/utilities —
-  `useFocusTrap`, `useScrollLock`, `copyToClipboard` — do not reimplement.
+  `useFocusTrap`, `useScrollLock`, `copyToClipboard` — do not reimplement. (On the pinned 0.1.0 all three
+  import from `stark-ui-kit`; from 0.2.0 the two hooks import from `stark-ui-kit/react`.)
 - The kit ships **tokens + a11y base CSS + headless hooks ONLY (no React components).** Screens are
   composed from the app component layer in `src/ui/app.css` (classes prefixed `.hs-*`, all built on
   the kit tokens above), imported in `src/main.tsx` AFTER the kit base + `theme.css`.
