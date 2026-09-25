@@ -6,7 +6,7 @@ import { DEFAULT_PRIVACY_MODE, type PrivacyMode } from '../core/iceServers';
  * UI preferences (language + light/dark theme + privacy mode), persisted to localStorage. These are
  * NON-secret display/transport preferences only — they never touch the connection/transfer state and
  * never reach the server. The theme is reflected onto <html data-theme> so the kit's [data-theme]
- * palette applies (see theme.css); language drives the bilingual copy table (i18n.ts). The privacy
+ * palette applies (stark-ui-kit/theme-mono.css); language drives the bilingual copy table (i18n.ts). The privacy
  * mode (`max` direct-only / `reliable` relay-allowed) is pushed into the SessionController, which
  * reads it at pairing start to assemble iceServers (see App's <PrivacyModeSync>).
  */
@@ -47,9 +47,16 @@ export function PrefsProvider({ children }: { children: ReactNode }) {
     readStored(PRIVACY_KEY, ['max', 'reliable'] as const, DEFAULT_PRIVACY_MODE),
   );
 
-  // Reflect the theme onto <html> so the kit's [data-theme="dark"] palette resolves.
+  // Reflect the theme onto <html> so the kit's [data-theme="dark"] palette resolves. The switch is a
+  // CUT, not a cross-fade: the kit zeroes every transition while data-theme-switching is present
+  // (tokens.css), so the flip commits in one frame instead of each themed property animating on its
+  // own. index.html ships data-theme="light" so the first paint already matches the default.
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
+    const html = document.documentElement;
+    html.setAttribute('data-theme-switching', '');
+    html.dataset.theme = theme;
+    void getComputedStyle(html).backgroundColor; // commit inside the no-transition window
+    requestAnimationFrame(() => html.removeAttribute('data-theme-switching'));
     try {
       localStorage.setItem(THEME_KEY, theme);
     } catch {

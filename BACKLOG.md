@@ -361,16 +361,20 @@ the same pass as CLAUDE.md when items land.
   `.hs-*` layer into the kit as real React components (props + a11y + tests). Domain pieces (SAS
   cards, word slots, code display, transfer, key-changed banner) stay app-local. Don't extract
   prematurely.
-- **stark-ui-kit 0.3.0 migration** *(open, 2026-09-25)* — the pin is still `b23a2e5` (kit 0.1.0). Bump
-  to `2a3f7ec` (0.3.0) and in the same pass: (1) import `useFocusTrap` / `useScrollLock` from
-  `stark-ui-kit/react` (`copyToClipboard` stays on the root entry); (2) replace the palette block of
-  `src/ui/theme.css` with `import 'stark-ui-kit/theme-mono.css'` — the values here are the OLD greys
-  (light `--brand-muted #6c6c6c` vs the kit's `#666666`; a high-contrast set whose hairlines sit at
-  1.74:1 on white, under the 3:1 of SC 1.4.11), keeping only the font-role overrides theme.css still
-  needs while fonts are not self-hosted; (3) `theme-mono.css` follows `prefers-color-scheme` while
-  `<html>` has no `data-theme` — `prefs.tsx` writes it from a React effect, so check the pre-hydration
-  frame on a dark-OS + light-pref browser and, if it flashes, set the attribute in `index.html` before
-  the bundle; (4) re-run unit + e2e. Then rewrite CLAUDE.md § UI / styling for the new pin.
+- ✅ **stark-ui-kit 0.3.0 migration — DONE (2026-09-25).** Pin `b23a2e5` (0.1.0) → `2a3f7ec` (0.3.0).
+  `src/ui/theme.css` is DELETED, not trimmed: `stark-ui-kit/theme-mono.css` is imported in `main.tsx`
+  between the base layer and `app.css`, and the font-role overrides the plan meant to keep turned out to
+  differ from the kit's stacks only in fallback order (`system-ui` / `Consolas`), not worth a second copy.
+  The old greys are gone from the bundle (light `--muted` is now `#666666`; `prefers-contrast: more`
+  hairlines 3.45:1 light / 3.06:1 dark, both over SC 1.4.11's 3:1). The pre-hydration frame DID flash on
+  a dark-OS browser (theme-mono's OS branch fires while `<html>` has no `data-theme`), so `index.html`
+  now ships `data-theme="light"` on `<html>`; a browser check with `colorScheme: 'dark'` boots light,
+  toggles to dark, and keeps dark across a reload. The theme flip uses the kit's `data-theme-switching`
+  cut. `useFocusTrap` / `useScrollLock` were never imported here, so step (1) of the plan was moot —
+  `copyToClipboard` stays on the root entry. Unit 290/290, e2e 129 passed / 6 skipped (the opt-in size
+  ladder + engine-gated cases) on ports 8191/5291. The 0.3.0 component stylesheets (`controls.css`,
+  `links.css`, `layout.css`, …) are NOT adopted — that is the componentization item above, after the
+  Claude Design redesign of the screen set. CLAUDE.md § UI / styling rewritten for the new pin.
 - ✅ **Transfer-history privacy — DONE** (pre-deploy). Transfer history is no longer persisted: it
   moved from a localStorage record (`persistence.ts`, now deleted) to a SESSION-ONLY in-memory Redux
   slice (`src/store/historySlice.ts`), so file names leave no local trail — the history is gone on

@@ -750,35 +750,49 @@ input (`src/ui/screens/ScanScreen.tsx`).
 ## UI / styling — stark-ui-kit (required)
 Dependency: `"stark-ui-kit": "github:maksimfrelikh/stark-ui-kit#<sha>"` — a private GitHub repo, pinned by
 commit (NOT on the npm registry: `npm install stark-ui-kit` fetches an unrelated package). **Current pin:
-`b23a2e5` = kit 0.1.0, the first cut.** The kit has moved on since (0.2.0 `59914b0`: the React hooks moved
-to `stark-ui-kit/react`, root entry framework-free; 0.3.0 `2a3f7ec`: `theme-mono.css` house palette,
-`controls.css` / `links.css` / `layout.css`). Bumping the pin is a small MIGRATION, not a refresh — see
-BACKLOG § Nice-to-have "stark-ui-kit 0.3.0 migration". Everything below describes the pinned 0.1.0.
+`2a3f7ec` = kit 0.3.0** (since 2026-09-25; the same sha frelikh pins). Bumping the pin needs `npm install`
+with the TPM SSH agent (`SSH_AUTH_SOCK=/run/user/1000/ssh-tpm-agent.sock` in a non-interactive shell) —
+npm caches a git dep by sha, so the bump IS the install. The rules for changing the kit and how a change
+travels live in the kit's own `CLAUDE.md`; its `README.md` is the consumer contract.
 - **Design language = "Stark"**, published as a Claude Design system generated from the reference site
   frelikh.com: https://claude.ai/artifact/Da7if9WhD7hxZjf5sL6m2F (brand book, tokens, kit + site
-  components, reference screenshots). The rules for changing the kit and how a change travels live in
-  the kit's own `CLAUDE.md`. `uploads/design-reference/_ds/` is an OLDER extracted copy of the same
-  language and drifts from it (its high-contrast hairline `#c4c4c4` is 1.74:1 on white, under the 3:1 of
-  SC 1.4.11; `src/ui/theme.css` still carries that set) — values come from the kit, never from there.
-- Import `stark-ui-kit/styles.css` once, at the app root (`src/main.tsx`).
+  components, reference screenshots). `uploads/design-reference/_ds/` is an OLDER extracted copy of the
+  same language and drifts from it (its high-contrast hairline `#c4c4c4` is 1.74:1 on white, under the
+  3:1 of SC 1.4.11) — values come from the kit, never from there.
+- **Imports, in this order, once, at the app root (`src/main.tsx`):** `stark-ui-kit/styles.css` (tokens +
+  a11y base), `stark-ui-kit/theme-mono.css` (the house palette — the ONLY source of every `--brand-*`
+  value; **this app declares none of its own**, `src/ui/theme.css` was deleted in the 0.3.0 migration),
+  then `src/ui/app.css` (the app component layer). A colour or font value is changed in the kit and
+  arrives here by a pin bump, never by an override in this repo.
 - **Strictly MONOCHROME — there is NO accent colour.** Emphasis / selected / danger is the single
   ink-INVERSION language: `--ink` (the strong ink) on `--ink-fg` (text on ink). Do not add any
   colour/accent token, ever.
-- **Theme is switched via `[data-theme]` on `<html>`** (light is the default; `[data-theme="dark"]`
-  is opt-in — `prefs.tsx` reflects the choice). The monochrome light/dark palette lives in
-  `src/ui/theme.css` and is consumed by the kit; the app never introduces new colour/spacing/radius
-  scales.
+- **Theme is switched via `[data-theme]` on `<html>`.** `index.html` ships `data-theme="light"` on
+  `<html>` so the first paint is light; `prefs.tsx` then reflects the stored choice (`hushsend.theme`,
+  default light) from an effect. The attribute must stay in `index.html`: `theme-mono.css` follows
+  `prefers-color-scheme` only when the attribute is ABSENT, and without it a dark-OS browser would paint
+  the pre-hydration frame dark and then cut to light (verified 2026-09-25 with `colorScheme: 'dark'`:
+  boots light, toggle → dark, dark survives reload). The switch itself is a CUT — `prefs.tsx` sets
+  `data-theme-switching` around the flip and the kit zeroes all transitions for that frame. An
+  OS-following default is possible but would need an inline script before the bundle, which the CSP
+  (`script-src 'self'`, no inline) forbids — not planned.
 - **Build ALL styling on the kit's real tokens** (do not invent scales): semantic colours
-  `--bg` / `--fg` / `--muted` / `--faint` / `--line` / `--line-2` / `--ink` / `--ink-fg`;
-  radii `--r-*`; typography `--t-*` + weight / label tokens; fonts `--font-grotesk` / `--font-mono`;
-  spacing `--gut` / `--maxw` / `--scale`; motion `--ease-*` / `--dur-*`. (These are the ACTUAL kit
-  names — NOT the prototype's `--line2` / `--inkfg` / `--sans`.)
-- For focus-trap, scroll-lock, and copy-to-clipboard use the kit's hooks/utilities —
-  `useFocusTrap`, `useScrollLock`, `copyToClipboard` — do not reimplement. (On the pinned 0.1.0 all three
-  import from `stark-ui-kit`; from 0.2.0 the two hooks import from `stark-ui-kit/react`.)
-- The kit ships **tokens + a11y base CSS + headless hooks ONLY (no React components).** Screens are
-  composed from the app component layer in `src/ui/app.css` (classes prefixed `.hs-*`, all built on
-  the kit tokens above), imported in `src/main.tsx` AFTER the kit base + `theme.css`.
+  `--bg` / `--fg` / `--muted` / `--faint` / `--line` / `--line-2` / `--ink` / `--ink-fg`, plus 0.3.0's
+  `--scrim` / `--tap-highlight` / `--scroll-shadow`; radii `--r-*`; typography `--t-*` + weight / label
+  tokens; fonts `--font-grotesk` / `--font-mono`; spacing `--gut` / `--maxw` / `--scale`; motion
+  `--ease-*` / `--dur-*`. (These are the ACTUAL kit names — NOT the prototype's `--line2` / `--inkfg` /
+  `--sans`.) `prefers-contrast: more` is handled by the kit's palette (hairlines 3.45:1 light / 3.06:1
+  dark); the app carries no contrast overrides.
+- For focus-trap, scroll-lock, and copy-to-clipboard use the kit's hooks/utilities — do not reimplement.
+  `copyToClipboard` imports from the root `stark-ui-kit` entry (the only kit JS this app uses today);
+  `useFocusTrap` / `useScrollLock` live on `stark-ui-kit/react` (the root entry is framework-free since
+  0.2.0) — import them from there when a screen needs them.
+- The kit ships **tokens + a11y base CSS + optional component stylesheets + headless hooks (no React
+  components).** Screens are composed from the app component layer in `src/ui/app.css` (classes prefixed
+  `.hs-*`, all built on the kit tokens above). The 0.3.0 component stylesheets (`controls.css`,
+  `links.css`, `layout.css`, `lang-switch.css`, `theme-toggle.css`, …) are NOT imported: `.hs-btn` /
+  `.hs-seg` / `.hs-icon-btn` etc. predate them and stay app-local until the screen set is redesigned
+  (BACKLOG § Nice-to-have "stark-ui-kit componentization").
 - Build screens against the Claude Design mockups in `uploads/design-reference/` (HTML prototype
   + screenshots; bilingual EN/RU). Design priority: **the kit is the source of truth**; mockups are
   reference for layout/flow/copy — where they conflict with kit components/tokens, the kit wins.

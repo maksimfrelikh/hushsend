@@ -8,8 +8,9 @@
    radius scales, and NO accent colour — the system is strictly
    monochrome. Hierarchy comes from weight, scale, hairlines and
    ink-inversion (the single "emphasis / selected / danger"
-   language). Light / dark switch via [data-theme] on <html>
-   (handled by theme.css).
+   language). Light / dark switch via [data-theme] on <html>;
+   the palette itself is stark-ui-kit/theme-mono.css — this app
+   declares no --brand-* of its own.
 
    This file is real declarations (not the token contract), so it
    is imported AFTER the kit base layer — see main.tsx. ========= */

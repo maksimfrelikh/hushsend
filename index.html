@@ -1,5 +1,9 @@
 <!doctype html>
-<html lang="en">
+<!-- data-theme is set here, before the bundle, so the first paint is the same theme the app boots in.
+     theme-mono.css follows the OS preference only when the attribute is ABSENT; without this the
+     pre-hydration frame would be dark on a dark-OS browser and then cut to light once prefs.tsx runs.
+     The app's default is light regardless of the OS (prefs.tsx), so the value here must stay "light". -->
+<html lang="en" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
