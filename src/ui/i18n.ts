@@ -70,29 +70,32 @@ export const STR = {
   joinBtn: { en: 'Join', ru: 'Войти' },
   roomCodeAria: { en: 'Room code', ru: 'Код комнаты' },
   orWords: { en: 'Enter code words', ru: 'Ввести кодовые слова' },
-  // Reconnect is asymmetric (one side STARTS + shares a code, the other JOINS by code). The copy
-  // makes the create-vs-join split explicit so "both start" / "start + plain join" stop being easy
-  // mistakes — see HomeScreen + BACKLOG § Reconnect UX (entry-point ergonomics).
+  // Reconnect is symmetric and codeless: tap Reconnect on both devices, they meet by themselves.
   reconnectSection: { en: 'Reconnect a device', ru: 'Переподключить устройство' },
-  reconnectSplitHint: {
-    en: 'One side starts the reconnect and shares the code; the other joins with that code. If you both start, you each open a separate room and never meet.',
-    ru: 'Одна сторона начинает переподключение и делится кодом; другая входит по этому коду. Если начнёте обе — откроете две разные комнаты и не встретитесь.',
+  reconnectHint: {
+    en: 'Tap Reconnect here and on the other device — they find each other. No code needed.',
+    ru: 'Нажмите «Переподключить» здесь и на другом устройстве — они найдут друг друга. Код не нужен.',
   },
-  reconnectStartLabel: {
-    en: 'Start — tap a device to open a reconnect room (you’ll get a code to share)',
-    ru: 'Начать — нажмите устройство, чтобы открыть комнату (получите код, чтобы поделиться)',
-  },
-  reconnectStartAction: { en: 'Start', ru: 'Начать' },
+  reconnectAction: { en: 'Reconnect', ru: 'Переподключить' },
   noRecent: {
     en: 'No paired devices yet — a device appears here after your first verified connection.',
     ru: 'Пока нет сопряжённых устройств — они появятся после первого проверенного соединения.',
   },
-  reconnectJoinLabel: {
-    en: 'Join — enter the code the other side is showing',
-    ru: 'Войти — введите код, который показывает другая сторона',
+  // --- reconnect wait (the derived rendezvous — nothing to show, nothing to type) ---
+  rwEyebrow: { en: 'reconnect · waiting', ru: 'переподключение · ожидание' },
+  rwTitle: { en: 'Waiting for the other device', ru: 'Ждём другое устройство' },
+  rwDesc: {
+    en: 'Open hushsend on it and tap Reconnect on this device’s row. Both sides know where to meet — no code is shown or needed.',
+    ru: 'Откройте hushsend на нём и нажмите «Переподключить» на строке этого устройства. Обе стороны знают, где встретиться — код не показывается и не нужен.',
   },
-  reconnectJoinAction: { en: 'Join', ru: 'Войти' },
-  reconnectCodeAria: { en: 'Reconnect code', ru: 'Код переподключения' },
+  rwWaiting: { en: 'Looking for the other device…', ru: 'Ищем другое устройство…' },
+  // --- reconnect failure: nobody came ---
+  noShowEyebrow: { en: 'reconnect · nobody came', ru: 'переподключение · никто не пришёл' },
+  noShowTitle: { en: 'The other device did not show up', ru: 'Другое устройство не появилось' },
+  noShowDesc: {
+    en: 'Make sure Reconnect was tapped on it too, and that it still lists this device. If it has forgotten this pairing (storage cleared), connect a new way — a fresh pairing will pin it again.',
+    ru: 'Убедитесь, что «Переподключить» нажали и там, и что это устройство ещё в его списке. Если оно забыло сопряжение (очищено хранилище), соединитесь заново любым способом — новое сопряжение снова его запомнит.',
+  },
   lastSeen: { en: 'last seen', ru: 'был(а)' },
 
   // --- method ---
@@ -107,19 +110,10 @@ export const STR = {
   mRoom: { en: 'Room', ru: 'Комната' },
   mRoomDesc: { en: 'Create a room and share its code', ru: 'Создайте комнату и поделитесь кодом' },
 
-  // --- room create ---
-  rcrEyebrow: { en: 'room · created', ru: 'комната · создана' },
-  rcrTitle: {
-    en: "Share the code with whoever you're waiting for",
-    ru: 'Поделись кодом с тем, кого ждёшь',
-  },
+  // --- shared actions ---
   copy: { en: 'Copy', ru: 'Копировать' },
   copied: { en: 'Copied', ru: 'Скопировано' },
   share: { en: 'Share', ru: 'Поделиться' },
-  rcrWaiting: {
-    en: "You're first in the room · waiting for someone to join…",
-    ru: 'Ты первый в комнате · ждём, пока кто-то войдёт…',
-  },
 
   // --- room lobby (mesh: roster + pick whom to connect with) ---
   lobbyRoomEyebrow: { en: 'room · lobby', ru: 'комната · лобби' },

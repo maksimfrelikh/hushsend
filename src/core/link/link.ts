@@ -68,6 +68,16 @@ export function generateLinkSecret(): LinkSecret {
   return { bytes, encoded: bytesToB64url(bytes) };
 }
 
+/**
+ * Draw a fresh rendezvous token (16 CSPRNG bytes → 22 base64url chars): the room name the creator
+ * TAKES on the server (token rooms are join-or-create — the server no longer allocates it). Public
+ * routing only, unguessable so nobody else can be in that room; S is what authenticates. Same shape
+ * as a codeless reconnect's derived token, so the server cannot tell the two rendezvous apart.
+ */
+export function generateRendezvousToken(): string {
+  return bytesToB64url(crypto.getRandomValues(new Uint8Array(RENDEZVOUS_TOKEN_BYTES)));
+}
+
 /** Build the shareable link `<origin>/#<rendezvous>.<encodedSecret>` (rendezvous = the token). */
 export function buildLinkUrl(origin: string, rendezvous: string, encodedSecret: string): string {
   // Trim any trailing slash on origin so we never produce `//#…`.

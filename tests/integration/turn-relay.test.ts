@@ -29,7 +29,7 @@ import { createHmac } from 'node:crypto';
  * sets REQUIRE_RELAY_TEST=1 and the guard below turns the skip into a hard failure.
  */
 
-const SIGNALING_PORT = 8110; // distinct from every other integration file (8091-8102)
+const SIGNALING_PORT = 8110; // distinct from every other integration file (8091-8103)
 const TURN_PORT = 3489; // NOT 3478: a dev box may be running a real coturn (the deploy host does)
 const RELAY_MIN = 49300;
 const RELAY_MAX = 49320;

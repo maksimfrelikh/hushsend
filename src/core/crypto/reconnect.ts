@@ -1,14 +1,38 @@
 /**
  * TOFU reconnect re-authentication (step 4b-ii) — re-establish trust between two peers that
  * ALREADY pinned each other's long-term Ed25519 identity (in a prior {@link ./enrollment}), with
- * NO human step (no SAS, no spoken words). The pin replaces the human: each side proves possession
- * of the private key behind the pinned public key, bound to THIS session's DTLS channel.
+ * NO human step: no SAS, no spoken words, and — since 2026-09-25 — NO CODE. The pin replaces the
+ * human: each side proves possession of the private key behind the pinned public key, bound to
+ * THIS session's DTLS channel.
  *
- * Trust model: reconnect-auth runs INSTEAD of SAS/words when both sides hold a pin for the same
- * `pairingId`. Its entire strength is the mutual signature under the pinned keys, channel-bound to
- * the negotiated DTLS fingerprints (exactly as {@link ./enrollment}) and made replay-resistant by
- * a fresh per-side challenge. A relay/MITM that re-terminates DTLS presents different fingerprints
- * → the reconstructed transcript differs → the signature fails to verify → hard stop, no bytes.
+ * There are three pieces, all keyed by the `pairingId` the two peers minted together at enrollment
+ * (16 CSPRNG bytes exchanged over the DTLS-protected, authenticated channel — a SHARED SECRET, held
+ * only in the two keystores; it never went to the server and appears in no signaling schema):
+ *
+ *   1. {@link reconnectRendezvous} — WHERE to meet. Both sides derive the same 128-bit rendezvous
+ *      token from `HMAC(pairingId, DOMAIN ‖ time-bucket)` and each asks the untrusted server for
+ *      that token room (join-or-create, so it does not matter who taps first). No human carries a
+ *      code, the token cannot be enumerated or squatted, and it changes every
+ *      {@link RECONNECT_BUCKET_MS}, so the server cannot link one day's reconnect to the next by the
+ *      room name. On the wire it is indistinguishable from a link/QR rendezvous.
+ *   2. {@link reconnectHelloMac} — WHO is in the room. Meeting at the token is not authentication:
+ *      the server can put anyone into any room. Before either side reveals its long-term identity
+ *      key, each proves knowledge of the pairing secret with a MAC over its fresh challenge, the
+ *      DTLS fingerprints and its role. A stranger the server routed in cannot produce it and learns
+ *      nothing from it (the MAC is under a 128-bit secret — not offline-guessable). Only a verified
+ *      hello unlocks step 3, so the identity key is disclosed to a pin-holder alone.
+ *   3. {@link signReconnect} / {@link verifyReconnect} — the signature under the pinned key, exactly
+ *      as before: channel-bound to the DTLS fingerprints, fresh per-side challenges, the two-check
+ *      verify (key-changed vs MITM) in SessionController.
+ *
+ * Roles are derived from the DTLS fingerprints ({@link reconnectRoleFor}: the lexicographically
+ * smaller fingerprint is the `initiator`), NOT from create/join — there is no creator any more —
+ * and NOT from the server-assigned readable ids (a hostile server could hand both peers the same
+ * role; it cannot pick the fingerprints without breaking DTLS, and a MITM presenting its own
+ * certificates fails the channel binding regardless). The initiator is the verifier-first side:
+ * the responder proves first, the initiator verifies, proves, and waits for the responder's
+ * `reconnect-ok` before settling — so the two sides never disagree about whether the reconnect
+ * succeeded (one settled while the other hard-stopped would be a half-connected pair).
  *
  * Each side signs a transcript bound to:
  *   - a fixed domain label (distinct from enroll/sas/confirm),
@@ -33,9 +57,10 @@
  *       failure / possible MITM (also a hard stop, no bytes). {@link verifyReconnect} is that check.
  * Both pass ⇒ authenticated reconnect.
  *
- * Same `lv` + sorted-fingerprint canonicalisation as keyConfirmation/sas/enrollment, so the four
+ * Same `lv` + sorted-fingerprint canonicalisation as keyConfirmation/sas/enrollment, so the
  * transcripts share one unambiguous wire format. Pure module (except generateChallenge's CSPRNG
- * draw): no I/O, no FSM — the transport and the two-check gate live in SessionController.
+ * draw): no I/O, no FSM — the transport, the wait/rollover logic and the two-check gate live in
+ * SessionController.
  */
 import { z } from 'zod';
 import { concatBytes, randomBytes, utf8ToBytes } from '@noble/hashes/utils.js';
@@ -43,7 +68,6 @@ import { hmac } from '@noble/hashes/hmac.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { equalBytes, hexToBytes } from '@noble/curves/utils.js';
 import { verifySignature, type IdentityKey } from './identity';
-import { PAIRING_ID_BYTES } from './enrollment';
 import type { ConfirmationRole } from './keyConfirmation';
 
 /** Challenge length (bytes): 16 fresh CSPRNG bytes per side — the explicit anti-replay nonce. */
@@ -102,69 +126,120 @@ export function reconnectTranscript(
   );
 }
 
-/** Domain separation for the blinded announcement — distinct from the signing transcript. */
-const PAIRING_BLIND_DOMAIN = utf8ToBytes('hushsend/identity/reconnect-id');
+// --- rendezvous: WHERE two pinned peers meet, with no code -----------------------------------
+
+/** Domain separation for the rendezvous derivation (distinct from the signing transcript + hello). */
+const RENDEZVOUS_DOMAIN = utf8ToBytes('hushsend/identity/reconnect-rendezvous');
 
 /**
- * The value the initiator ANNOUNCES instead of the raw `pairingId`.
- *
- * WHY. A reconnect rendezvous is a plain 4-digit room, which is enumerable (10⁴, bounded only by the
- * server's per-IP rate limit). A code-guesser that wins the race and reaches the open channel used to
- * receive the initiator's `reconnect-init` — carrying the raw `pairingId` — BEFORE any authentication.
- * It cannot forge a proof, so this was never an auth break; what it was is a **stable per-pair
- * identifier handed to a stranger**, correlatable across sessions, which for this product's users is
- * the kind of thing that links two anonymous rendezvous to one relationship.
- *
- * WHAT THIS IS. `HMAC(key = pairingId, DOMAIN ‖ fp_min ‖ fp_max)`, truncated to the same
- * {@link PAIRING_ID_BYTES} the raw id occupied. Keyed by the secret both peers already share (the
- * pairingId itself) and bound to THIS session's DTLS fingerprints, so:
- *   - a peer holding the pin recognises it by RECOMPUTING it — no lookup by the announced value;
- *   - a stranger sees 16 bytes that are different every session, correlating nothing;
- *   - it is not a secret and is not treated as one: authentication is still the signature that
- *     follows, over a transcript that binds the REAL pairingId. Nothing in the crypto changed.
- *
- * TRUNCATION IS DELIBERATE, and it is about compatibility rather than size. Keeping the wire field
- * exactly as long as before means a client on an older bundle still parses the frame: it looks the
- * tag up as a pairingId, finds nothing, and sends `reconnect-fallback` — so a mixed pair degrades to
- * the SAS comparison (a human step) instead of failing schema validation and hanging until the 120 s
- * deadline. Same in the other direction. 128 bits is ample for recognition among a handful of pins.
+ * How long one derived rendezvous token stays valid. Both sides derive the token from the CURRENT
+ * bucket of their own clock; a side that is still waiting re-derives at every bucket boundary
+ * (SessionController), so two clocks that disagree by less than a bucket still meet — at worst after
+ * the skew has elapsed. Within a bucket, repeated attempts show the server the same token; across
+ * buckets it sees nothing it can link. 10 minutes trades that linkability window against how much
+ * clock skew a pair tolerates without a visible delay.
  */
-export function blindPairingId(
+export const RECONNECT_BUCKET_MS = 10 * 60_000;
+/** Bytes of the derived token — the same 16 bytes / 22 base64url chars as a link/QR token, so the
+ *  server cannot tell a reconnect rendezvous from a link/QR one by its shape. */
+const RENDEZVOUS_TOKEN_BYTES = 16;
+
+/** The bucket index a clock reading falls in. */
+export function reconnectBucket(nowMs: number): number {
+  return Math.floor(nowMs / RECONNECT_BUCKET_MS);
+}
+
+/** Milliseconds from `nowMs` until the NEXT bucket boundary (when a waiting side must re-derive). */
+export function msUntilNextBucket(nowMs: number): number {
+  return (reconnectBucket(nowMs) + 1) * RECONNECT_BUCKET_MS - nowMs;
+}
+
+/** base64url, no padding — the exact shape the server's token validator enforces (22 chars). */
+function bytesToB64url(bytes: Uint8Array): string {
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/**
+ * The rendezvous token for `pairingId` in `bucket`: `HMAC(pairingId, DOMAIN ‖ bucket)` truncated to
+ * a link/QR-shaped token. Deterministic — that is the point: the two pin-holders compute it alone
+ * and meet there without anyone carrying a code. Unguessable to anyone else (keyed by the pairing
+ * secret), different every bucket (so the server cannot correlate sessions by the room name), and
+ * NOT a secret itself: it is public routing, exactly like a link token — authentication is the
+ * hello MAC and the signature that follow, not the room name.
+ */
+export function reconnectRendezvous(pairingId: Uint8Array, bucket: number): string {
+  const b = new Uint8Array(8);
+  new DataView(b.buffer).setBigUint64(0, BigInt(bucket));
+  const mac = hmac(sha256, pairingId, concatBytes(lv(RENDEZVOUS_DOMAIN), lv(b)));
+  return bytesToB64url(mac.slice(0, RENDEZVOUS_TOKEN_BYTES));
+}
+
+// --- roles: from the DTLS fingerprints, not from create/join and not from the server ------------
+
+/**
+ * The reconnect protocol role for this pairing: the side whose DTLS fingerprint sorts FIRST is the
+ * `initiator` (verifier-first: it verifies the responder's proof before presenting its own). Both
+ * sides compute it identically from the same two fingerprints. Equal fingerprints (impossible for
+ * two distinct certificates; a wiring bug) resolve to null → the caller fails closed rather than
+ * defaulting both sides onto the same role and deadlocking.
+ */
+export function reconnectRoleFor(localFingerprint: string, remoteFingerprint: string): ConfirmationRole | null {
+  if (!localFingerprint || !remoteFingerprint || localFingerprint === remoteFingerprint) return null;
+  return localFingerprint < remoteFingerprint ? 'initiator' : 'responder';
+}
+
+/** The peer's role given ours (the two are always opposite). */
+export function oppositeRole(role: ConfirmationRole): ConfirmationRole {
+  return role === 'initiator' ? 'responder' : 'initiator';
+}
+
+// --- hello: WHO is in the room, proven before any identity key is shown ------------------------
+
+/** Domain separation for the hello MAC (distinct from the signing transcript + rendezvous). */
+const HELLO_DOMAIN = utf8ToBytes('hushsend/identity/reconnect-hello');
+/** HMAC-SHA256 output — the hello MAC is sent whole. */
+const HELLO_MAC_BYTES = 32;
+
+/**
+ * `HMAC(pairingId, DOMAIN ‖ challenge ‖ fp_min ‖ fp_max ‖ role)`: proof that the sender holds the
+ * pairing secret, bound to ITS fresh challenge (no replay across sessions), THIS channel's DTLS
+ * fingerprints (a relay re-terminating DTLS fails it) and its role (the server echoing our own
+ * hello back to us fails it — the roles differ). A stranger routed into the token room by the
+ * server cannot produce one and gains nothing from seeing one. Only after the peer's hello verifies
+ * does a side send its signed proof — which is what carries the long-term identity public key.
+ */
+export function reconnectHelloMac(
   pairingId: Uint8Array,
+  challenge: Uint8Array,
   localFingerprint: string,
   remoteFingerprint: string,
+  role: ConfirmationRole,
 ): Uint8Array {
-  // Canonical (lexicographic) fingerprint order — identical to every other transcript here, so both
-  // sides derive the same value whichever of them is local.
   const [fpMin, fpMax] =
     localFingerprint <= remoteFingerprint
       ? [localFingerprint, remoteFingerprint]
       : [remoteFingerprint, localFingerprint];
-  const msg = concatBytes(lv(PAIRING_BLIND_DOMAIN), lv(utf8ToBytes(fpMin)), lv(utf8ToBytes(fpMax)));
-  return hmac(sha256, pairingId, msg).slice(0, PAIRING_ID_BYTES);
+  return hmac(
+    sha256,
+    pairingId,
+    concatBytes(lv(HELLO_DOMAIN), lv(challenge), lv(utf8ToBytes(fpMin)), lv(utf8ToBytes(fpMax)), lv(utf8ToBytes(role))),
+  );
 }
 
-/**
- * Responder: which of our pinned pairingIds does an announced tag correspond to? Recomputes the tag
- * for each pin — there is no way to invert it, and there should never be more than a handful.
- * Returns the matching pairingId hex, or null when we hold no pin for this pair (→ SAS fallback).
- */
-export function matchBlindedPairingId(
-  announced: Uint8Array,
-  pinnedPairingIdsHex: readonly string[],
+/** Constant-time check of a peer's hello MAC, recomputed under OUR pairingId and fingerprints with
+ *  the PEER's challenge and role. */
+export function verifyReconnectHello(
+  pairingId: Uint8Array,
+  peerChallenge: Uint8Array,
   localFingerprint: string,
   remoteFingerprint: string,
-): string | null {
-  for (const hex of pinnedPairingIdsHex) {
-    let id: Uint8Array;
-    try {
-      id = hexToBytes(hex);
-    } catch {
-      continue; // a malformed key in the store must not abort the scan
-    }
-    if (equalBytes(blindPairingId(id, localFingerprint, remoteFingerprint), announced)) return hex;
-  }
-  return null;
+  peerRole: ConfirmationRole,
+  mac: Uint8Array,
+): boolean {
+  if (mac.length !== HELLO_MAC_BYTES) return false;
+  return equalBytes(reconnectHelloMac(pairingId, peerChallenge, localFingerprint, remoteFingerprint, peerRole), mac);
 }
 
 /** Sign the channel-bound reconnect transcript for `role` under our long-term identity. */
@@ -235,22 +310,24 @@ export function presentedKeyMatchesPin(pinnedPublicKeyHex: string, presentedPubl
 
 // --- reconnect wire frames (over the already-bound DataChannel, NOT file bytes) ----------------
 // The DataChannel is DTLS-protected (a relay cannot tamper with these frames), but they are still
-// validated to EXACT decoded lengths (pairingId 16 B, challenge 16 B, pubKey 32 B, sig 64 B) so a
+// validated to EXACT decoded lengths (challenge 16 B, mac 32 B, pubKey 32 B, sig 64 B) so a
 // malformed control message is rejected before it reaches the crypto. Hex ⇒ exactly 2× the bytes.
 const HEX = /^(?:[0-9a-fA-F]{2})*$/;
-const PAIRING_ID_HEX = PAIRING_ID_BYTES * 2;
 const CHALLENGE_HEX = RECONNECT_CHALLENGE_BYTES * 2;
+const HELLO_MAC_HEX = HELLO_MAC_BYTES * 2;
 const PUBKEY_HEX = PUBKEY_BYTES * 2;
 const SIG_HEX = SIG_BYTES * 2;
 
-/** Initiator → responder: announce the pairingId to reconnect under + the initiator's challenge. */
-export const reconnectInitSchema = z.object({
-  kind: z.literal('reconnect-init'),
-  pairingId: z.string().regex(HEX).length(PAIRING_ID_HEX),
+/** Both sides, at channel-open: the sender's fresh challenge + its hello MAC (knowledge of the
+ *  pairing secret, bound to this channel). Carries NO identity and NO pairing identifier. */
+export const reconnectHelloSchema = z.object({
+  kind: z.literal('reconnect-hello'),
   challenge: z.string().regex(HEX).length(CHALLENGE_HEX),
+  mac: z.string().regex(HEX).length(HELLO_MAC_HEX),
 });
 
-/** Either side's proof: the sender's challenge, its PRESENTED pubkey, and its signature. */
+/** Either side's proof (sent only after the PEER's hello verified): its PRESENTED pubkey and its
+ *  channel-bound signature. The challenge is the sender's own, repeated so the frame is self-contained. */
 export const reconnectProofSchema = z.object({
   kind: z.literal('reconnect-proof'),
   challenge: z.string().regex(HEX).length(CHALLENGE_HEX),
@@ -258,15 +335,17 @@ export const reconnectProofSchema = z.object({
   sig: z.string().regex(HEX).length(SIG_HEX),
 });
 
-/** Responder → initiator: "I hold no pin for that pairingId" → both fall back to the human step. */
-export const reconnectFallbackSchema = z.object({ kind: z.literal('reconnect-fallback') });
+/** Responder → initiator: "your proof verified, I am connected". The initiator settles only on this,
+ *  so a responder that hard-stopped on the initiator's proof never leaves the initiator connected
+ *  to nobody — the two sides agree on the outcome. */
+export const reconnectOkSchema = z.object({ kind: z.literal('reconnect-ok') });
 
 export const reconnectFrameSchema = z.discriminatedUnion('kind', [
-  reconnectInitSchema,
+  reconnectHelloSchema,
   reconnectProofSchema,
-  reconnectFallbackSchema,
+  reconnectOkSchema,
 ]);
-export type ReconnectInit = z.infer<typeof reconnectInitSchema>;
+export type ReconnectHello = z.infer<typeof reconnectHelloSchema>;
 export type ReconnectProof = z.infer<typeof reconnectProofSchema>;
-export type ReconnectFallback = z.infer<typeof reconnectFallbackSchema>;
+export type ReconnectOk = z.infer<typeof reconnectOkSchema>;
 export type ReconnectFrame = z.infer<typeof reconnectFrameSchema>;

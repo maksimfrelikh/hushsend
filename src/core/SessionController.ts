@@ -17,7 +17,7 @@ import {
   type ConfirmationRole,
   type ConfirmationDomain,
 } from './crypto/keyConfirmation';
-import { generateLinkSecret, buildLinkUrl } from './link/link';
+import { generateLinkSecret, generateRendezvousToken, buildLinkUrl } from './link/link';
 import { sasRoleFrom } from './sasRole';
 import { pathVerdict } from './pathAttest';
 import { probeStunViews } from './stunCheck';
@@ -55,14 +55,20 @@ import {
 } from './crypto/enrollment';
 import {
   generateChallenge,
-  blindPairingId,
-  matchBlindedPairingId,
+  reconnectBucket,
+  reconnectRendezvous,
+  msUntilNextBucket,
+  reconnectRoleFor,
+  oppositeRole,
+  reconnectHelloMac,
+  verifyReconnectHello,
   signReconnect,
   verifyReconnect,
   presentedKeyMatchesPin,
   reconnectFrameSchema,
   type ReconnectFrame,
 } from './crypto/reconnect';
+import { equalBytes } from '@noble/curves/utils.js';
 import { defaultKeystore, type Keystore } from './keystore';
 import {
   sendFiles as startSend,
@@ -274,13 +280,11 @@ function preSasTimeoutMs(): number {
 }
 
 /**
- * Reconnect re-auth liveness deadline (prod-fixed, matches the pre-SAS default). The reconnect path
- * has its OWN backstop, separate from the SAS timers: the reconnect attempt keeps `this.sas` primed
- * as the fallback (so the SAS pre-timer is also armed), but that timer guards the SAS commit-reveal,
- * NOT a stalled `reconnect-init` / `reconnect-proof`. Without this deadline a MISMATCHED entry — this
- * side on the reconnect path while the peer joined via the plain-SAS lobby (a fresh SAS, never a
- * reconnect response) — would leave us waiting for a reconnect response that never comes, hanging in
- * `pairing` ("agreeing on keys") forever. See reconnectTimeoutMs() / armReconnectTimeout().
+ * Reconnect re-auth liveness deadline (prod-fixed, matches the pre-SAS default). Bounds the
+ * hello → proof → ok exchange once a peer is engaged at the rendezvous: a peer that reached the
+ * token room but never completes the handshake (a stranger the server routed in and that cannot
+ * produce a hello, a stalled device, a withheld proof) must end in `failed`, never hang in `pairing`
+ * ("agreeing on keys"). See reconnectTimeoutMs() / armReconnectTimeout().
  */
 const DEFAULT_RECONNECT_TIMEOUT_MS = 120_000;
 
@@ -310,6 +314,45 @@ function reconnectTimeoutMs(): number {
     }
   }
   return DEFAULT_RECONNECT_TIMEOUT_MS;
+}
+
+/**
+ * How long a side waits ALONE at the derived rendezvous for the other device to tap Reconnect too,
+ * before giving up with a clear message. Long enough to walk to the other device; bounded so a tap
+ * on one device never leaves a socket parked on the server for hours. Re-derived token rooms are
+ * taken every RECONNECT_REFRESH_MS meanwhile (and at every bucket boundary) so the server's own 3-min
+ * token TTL never expires under a peer that arrives late in the window.
+ */
+const DEFAULT_RECONNECT_WAIT_MS = 10 * 60_000;
+const RECONNECT_REFRESH_MS = 2 * 60_000;
+/** Unexpected server-side closes while waiting alone are answered with a re-join; this many in one
+ *  wait is a server that keeps bouncing us (rate-limit, "room full" from a squatter), not bad luck. */
+const RECONNECT_MAX_REJOINS = 8;
+/** Stable reason markers the FailedScreen keys its copy off. */
+const RECONNECT_NO_SHOW_REASON = 'the other device did not show up — open hushsend there and tap Reconnect on this device';
+const RECONNECT_STRANGER_REASON =
+  'reconnect refused — the other side does not know this pairing (possible man-in-the-middle)';
+
+/**
+ * Resolve the reconnect wait cap. Production ALWAYS uses DEFAULT_RECONNECT_WAIT_MS; in DEV/TEST the
+ * `?reconnectWaitMs=N` query override (or `window.__HUSHSEND_RECONNECT_WAIT_MS__`) shrinks it so the
+ * "other device never showed up" e2e runs in seconds. `import.meta.env.DEV`-gated → tree-shaken.
+ */
+function reconnectWaitMs(): number {
+  if (import.meta.env.DEV) {
+    try {
+      const w = window as unknown as { __HUSHSEND_RECONNECT_WAIT_MS__?: unknown };
+      if (typeof w.__HUSHSEND_RECONNECT_WAIT_MS__ === 'number' && w.__HUSHSEND_RECONNECT_WAIT_MS__ > 0) {
+        return w.__HUSHSEND_RECONNECT_WAIT_MS__;
+      }
+      const q = new URLSearchParams(window.location.search).get('reconnectWaitMs');
+      const n = q ? Number(q) : NaN;
+      if (Number.isFinite(n) && n > 0) return n;
+    } catch {
+      /* no window — fall through to the default */
+    }
+  }
+  return DEFAULT_RECONNECT_WAIT_MS;
 }
 
 /**
@@ -421,7 +464,7 @@ function forcePathMismatchEnabled(): boolean {
  * messages but `onChannelOpen` has not run.
  *
  * That window is NOT an artifact: `PeerConnection.setupChannel` wires `onmessage` synchronously while
- * `onopen` runs the Max-privacy relay gate, which awaits `getStats()`. A peer's `reconnect-init`
+ * `onopen` runs the Max-privacy relay gate, which awaits `getStats()`. A peer's `reconnect-hello`
  * landing inside it used to be dropped permanently — the sender never resends — leaving both sides in
  * `pairing` until the 120 s deadline with nothing logged. In the wild that is a rare,
  * engine-dependent flake (measured ~1 night in 5 on the CI engine matrix); this knob makes it
@@ -455,40 +498,47 @@ function forceIceFailEnabled(): boolean {
 }
 
 /**
- * Per-session reconnect state for the TOFU re-auth path (step 4b-ii). Its presence
- * (`this.reconnect != null`) marks a session ATTEMPTING reconnect; it rides ON TOP of the room
- * rendezvous + SAS state (`this.sas`), which stays primed as the fallback used when a pin is
- * missing. Lives ONLY in the core. Until the attempt resolves (engaged | fell back), it HOLDS the
- * SAS words back from the human (see trySasReady) so a successful reconnect never flashes SAS UI.
+ * Per-session reconnect state for the TOFU re-auth path (step 4b-ii, codeless since 2026-09-25).
+ * Its presence (`this.reconnect != null`) marks a session that is reconnecting. It stands ALONE —
+ * there is no SAS state primed underneath it any more: a device that lacks the pin cannot even
+ * derive the rendezvous, so there is nothing to fall back to and no human step to hold back. Lives
+ * ONLY in the core.
  */
 interface ReconnectState {
-  /** initiator (A, creator) or responder (B, joiner) — fixes the challenge order in the transcript
-   *  AND who announces the pairingId / who proves first. INTENTIONALLY create/join, NOT the
-   *  per-pairing id role (`this.role`): the verifier-first side must be fixed so a key change is
-   *  caught before the forger can settle (`onReconnectProof`). Reconnect is 1:1 creator↔joiner
-   *  (mesh reconnect is a later step), so this is well-defined. Do NOT switch it to id order. */
-  role: ConfirmationRole;
-  /** The pairingId we reconnect under: initiator picks it from its pins; responder learns it from
-   *  the initiator's `reconnect-init` frame. Key-INDEPENDENT (so a swapped key is detectable). */
-  pairingId: Uint8Array | null;
+  /** The pairingId we reconnect under — the pin the human tapped. Key-INDEPENDENT (so a swapped key
+   *  is detectable) and the SECRET both the rendezvous token and the hello MAC are keyed by. */
+  pairingId: Uint8Array;
+  /** initiator | responder — derived at channel-open from the DTLS fingerprints
+   *  (`reconnectRoleFor`), NOT from create/join (there is no creator) and NOT from the readable ids
+   *  (the server assigns those). Fixes the challenge order in the transcript and who proves first:
+   *  the initiator is the verifier-first side. null until the fingerprints are known. */
+  role: ConfirmationRole | null;
   /** our fresh anti-replay challenge (16 CSPRNG bytes). */
   myChallenge: Uint8Array;
-  /** the peer's challenge: from `reconnect-init` (responder) / `reconnect-proof` (initiator). */
+  /** the peer's challenge, learned from its VERIFIED `reconnect-hello`. */
   peerChallenge: Uint8Array | null;
   /** DTLS fingerprints captured at channel-open (local SDP + RECEIVED SDP) — the channel binding. */
   fps: { local: string; remote: string } | null;
-  /** initiator one-shot: `reconnect-init` sent. */
-  initSent: boolean;
+  /** one-shot: our own `reconnect-hello` sent. */
+  helloSent: boolean;
   /** one-shot: our own `reconnect-proof` sent. */
   proofSent: boolean;
-  /** resolved to the SAS fallback (a pin was missing) — from here the normal SAS path takes over. */
-  fellBack: boolean;
+  /** the peer's proof passed both checks. */
+  peerProofOk: boolean;
   /** one-shot guard for the connected | failed decision (mirrors SasState.settled). */
   settled: boolean;
-  /** liveness deadline for the re-auth wait (reconnect-init → reconnect-proof/fallback); armed at
-   *  pairing start, cleared on settle / fallback / fail. Live handle — core-only, never in the store.
-   *  INDEPENDENT of the SAS timers (those guard the SAS commit-reveal, not a stalled reconnect). */
+  /** the "waiting for the other device" screen has been projected (awaitingPeer) — once per session,
+   *  even though the rendezvous socket is re-taken several times underneath it. */
+  waitingShown: boolean;
+  /** close-driven re-joins so far (bounded by RECONNECT_MAX_REJOINS). */
+  rejoins: number;
+  /** liveness deadline for the re-auth (hello → proof → ok) once a peer is engaged; armed at pairing
+   *  start, cleared on settle / fail. Live handle — core-only, never in the store. */
   timer: ReturnType<typeof setTimeout> | null;
+  /** re-take the rendezvous (next bucket, or a fresh room before the server TTL) while waiting alone. */
+  refreshTimer: ReturnType<typeof setTimeout> | null;
+  /** the overall wait cap — the other device never showed up. */
+  waitTimer: ReturnType<typeof setTimeout> | null;
 }
 
 /**
@@ -574,20 +624,23 @@ function newSasState(): SasState {
   };
 }
 
-/** Fresh reconnect state, with our own anti-replay challenge drawn from the CSPRNG. The pairingId
- *  is supplied by the initiator (chosen from its pins) and learned by the responder from the wire. */
-function newReconnectState(role: ConfirmationRole, pairingId: Uint8Array | null): ReconnectState {
+/** Fresh reconnect state under the tapped pin, with our own anti-replay challenge from the CSPRNG. */
+function newReconnectState(pairingId: Uint8Array): ReconnectState {
   return {
-    role,
     pairingId,
+    role: null,
     myChallenge: generateChallenge(),
     peerChallenge: null,
     fps: null,
-    initSent: false,
+    helloSent: false,
     proofSent: false,
-    fellBack: false,
+    peerProofOk: false,
     settled: false,
+    waitingShown: false,
+    rejoins: 0,
     timer: null,
+    refreshTimer: null,
+    waitTimer: null,
   };
 }
 
@@ -640,23 +693,23 @@ export class SessionController {
    *  (see onEnrollFrame) but we must not drop it either, or that pair would silently never pin and
    *  could never reconnect. Held here and replayed by startEnrollment at settle. */
   private pendingEnrollFrame: EnrollFrame | null = null;
-  /** A reconnect frame that arrived BEFORE our own channel-open handler set `rc.fps`.
+  /** Reconnect frames that arrived BEFORE our own channel-open handler set `rc.fps`.
    *
    *  That window is real and not small: `PeerConnection.setupChannel` wires `onmessage` SYNCHRONOUSLY,
    *  while `onopen` runs the Max-privacy relay gate, which AWAITS `getStats()` before handing the
-   *  channel to this controller. So the peer's `reconnect-init` can be delivered while we are still
+   *  channel to this controller. So the peer's `reconnect-hello` can be delivered while we are still
    *  inside that await. The frame used to be dropped there and the sender never resends, so both
    *  sides sat in `pairing` until the 120 s deadline, with nothing logged anywhere — see BACKLOG
    *  § Third pass. Held here and replayed by `onReconnectChannelOpen`, exactly as
    *  {@link pendingEnrollFrame} and `pendingPathAttest` do for the same class of race. */
-  private pendingReconnectFrame: ReconnectFrame | null = null;
+  private pendingReconnectFrames: ReconnectFrame[] = [];
 
   private selfId: string | null = null;
   private peerId: string | null = null;
   private isCreator = false;
   /** Which rendezvous+auth method this session is running. Drives the welcome/peer-joined
    *  branch and which key-confirmation onChannelOpen runs. */
-  private method: 'room' | 'words' | 'link' | 'qr' | null = null;
+  private method: 'room' | 'words' | 'link' | 'qr' | 'reconnect' | null = null;
 
   // --- link / qr method (step 5b) — high-entropy URL-fragment secret, NO PAKE, NO SAS.
   //     Rendezvous is a server-allocated 128-bit TOKEN (codeType=token), NOT the 4-digit room —
@@ -675,9 +728,9 @@ export class SessionController {
   /** Non-null iff this is the SAS-authenticated room path. Every room path is now SAS-authenticated. */
   private sas: SasState | null = null;
 
-  // --- reconnect (step 4b-ii) — TOFU re-auth under pinned keys, NO human step. Lives ONLY in the
-  // core. Rides on top of the room rendezvous + `this.sas` (the fallback when a pin is missing). ---
-  /** Non-null iff this session is ATTEMPTING reconnect (set by createReconnectSession/join). */
+  // --- reconnect (step 4b-ii) — TOFU re-auth under pinned keys, NO human step, NO code. Lives ONLY
+  // in the core. Stands alone: a derived token rendezvous, no SAS underneath. ---
+  /** Non-null iff this session is reconnecting (set by reconnectTo). */
   private reconnect: ReconnectState | null = null;
   /** A forged identity (DEV/TEST knob only) presented in place of our real key to drive the
    *  key-changed hard-stop — see forgeReconnectKeyEnabled. Lazily generated, once per session. */
@@ -840,13 +893,29 @@ export class SessionController {
       // ONLY on a human pick (pickPeer) or an inbound pair-request — see onPairRequest.
       this.rendezvous = room;
       this.dispatch(connectionActions.roomReady({ room, credential: null }));
+    } else if (this.reconnect) {
+      // reconnect: nothing to show (the token is derived, never displayed) and nothing to pick. The
+      // other device is already here → pair; otherwise wait for it (→ awaitingPeer, the
+      // ReconnectWaitScreen — projected once, the socket underneath is re-taken silently).
+      if (peers.length > 0) this.beginPairing(peers[0].id);
+      else if (!this.reconnect.waitingShown) {
+        this.reconnect.waitingShown = true;
+        this.dispatch(connectionActions.roomReady({ room: '', credential: null }));
+      }
     } else if (peers.length > 0) {
-      // words / link / qr (and reconnect): 1:1 auto-pair with the first peer. Both ids are known now,
-      // so beginPairing fixes the per-pairing role.
+      // words / link / qr: 1:1 auto-pair with the first peer. Both ids are known now, so
+      // beginPairing fixes the per-pairing role.
       this.beginPairing(peers[0].id);
+    } else if (this.method === 'link' || this.method === 'qr') {
+      // A link/qr RECEIVER alone in the token room: token rooms are join-or-create (since
+      // 2026-09-25), so a dead link no longer bounces with 4009 — we just opened an empty room. The
+      // sender always opens the room BEFORE the link exists, so "nobody here" means the link expired
+      // or was already used. Report it as the room-not-found failure it used to be, at once, rather
+      // than spin until the server's TTL.
+      this.signaling?.close();
+      this.fail(new Error('room not found — the link has expired or was already used'));
     }
-    // else (joined an existing-but-empty room): stay put; we'll begin pairing / fill the roster on
-    // peer-joined.
+    // else (joined an existing-but-empty word room): stay put; we'll begin pairing on peer-joined.
   }
 
   private onPeerJoined(peer: PeerInfo): void {
@@ -861,14 +930,14 @@ export class SessionController {
   /**
    * True for the mesh-LOBBY rendezvous (room method, plain SAS): an authenticated 4-digit room where
    * several peers see each other and the human PICKS whom to raise a 1:1 channel with. Distinguished
-   * by `this.sas` set AND `this.reconnect` null:
-   *   - plain SAS room (createRoomSession/joinRoomSession): sas set, reconnect null → lobby.
-   *   - reconnect (create/joinReconnectSession): sas set, reconnect set → NOT a lobby (1:1 auto-pair,
-   *     no human pick — reconnect-in-lobby is deferred).
+   * by `this.sas` set:
+   *   - plain SAS room (createRoomSession/joinRoomSession): sas set → lobby.
+   *   - reconnect (reconnectTo): sas null, reconnect set → NOT a lobby (1:1 auto-pair at a derived
+   *     token room, no human pick, no SAS underneath).
    *   - words / link / qr: sas null → NOT a lobby (1:1 auto-pair with a single peer).
    */
   private isLobby(): boolean {
-    return this.sas != null && this.reconnect == null;
+    return this.sas != null;
   }
 
   /**
@@ -1031,13 +1100,12 @@ export class SessionController {
       }
       this.armSasTimeout('SAS pairing timed out', preSasTimeoutMs());
     }
-    // reconnect (4b-ii): the re-auth wait (reconnect-init → reconnect-proof/fallback) gets its OWN
-    // liveness deadline, INDEPENDENT of the SAS pre-timer above (which guards the SAS commit-reveal,
-    // not a stalled reconnect). Without it a MISMATCHED entry — this side on the reconnect path while
-    // the peer joined via the plain-SAS lobby (a fresh SAS, never a reconnect response) — would leave
-    // us waiting forever in `pairing`. Fail-closed: a stalled re-auth ends in `failed`, not a hang;
-    // nothing in the verify/crypto changes. A no-op off the reconnect path (`this.reconnect` null).
-    if (this.reconnect && !this.reconnect.fellBack) {
+    // reconnect (4b-ii): the rendezvous has done its job — stop re-taking it — and the re-auth
+    // (hello → proof → ok) gets its liveness deadline. Fail-closed: a peer that reaches the token room
+    // but never completes the handshake (a stranger the server routed in, a stalled device) ends in
+    // `failed`, not a hang; nothing in the verify/crypto changes. A no-op off the reconnect path.
+    if (this.reconnect) {
+      this.clearReconnectWait();
       this.armReconnectTimeout('reconnect timed out — peer did not complete re-authentication', reconnectTimeoutMs());
     }
     // Initiator offers, responder answers (for words the responder's PeerConnection was started above).
@@ -1066,14 +1134,13 @@ export class SessionController {
     if ((this.method === 'link' || this.method === 'qr') && peerLeftAbortsPairing(this.established, this.channelOpen)) {
       this.failLink('peer left during pairing');
     }
-    // reconnect (pre-fallback): a peer dropping mid-re-auth is a hard stop (no bytes). After
-    // fallback it's the plain SAS path below; failReconnect closes out SAS so failSas can't re-fire.
-    // Gated by peerLeftAbortsPairing for the SAME reason as words/link/SAS: now that a settled
-    // reconnect closes its own socket, the peer observes a `peer-left` the instant WE settle — and
-    // the two sides settle independently, so a bare `!established` here would let that benign close
-    // tear down a pair whose channel is already up. After channel-open the DataChannel/ICE are the
-    // liveness authority, and a REAL abort there is caught by onChannelClose.
-    if (this.reconnect && !this.reconnect.fellBack && peerLeftAbortsPairing(this.established, this.channelOpen)) {
+    // reconnect: a peer dropping mid-re-auth is a hard stop (no bytes). Gated by
+    // peerLeftAbortsPairing for the SAME reason as words/link/SAS: a settled reconnect closes its own
+    // socket, so the peer observes a `peer-left` the instant WE settle — and the two sides settle
+    // independently, so a bare `!established` here would let that benign close tear down a pair whose
+    // channel is already up. After channel-open the DataChannel/ICE are the liveness authority, and
+    // a REAL abort there is caught by onChannelClose.
+    if (this.reconnect && peerLeftAbortsPairing(this.established, this.channelOpen)) {
       this.failReconnect('reconnect aborted — peer left during re-auth');
     }
     // room + SAS: SAME gate as words and link/qr. A peer dropping before the DataChannel transport
@@ -1355,6 +1422,16 @@ export class SessionController {
     // so a signaling `peer-left` no longer aborts the pairing (see onPeerLeft). Set for every method
     // (it only GATES the 1:1 words/link/qr peer-left branches).
     this.channelOpen = true;
+    // reconnect: the DTLS fingerprints are known → derive the role from them and start the
+    // hello → proof → ok re-auth over the DataChannel. No SAS runs underneath.
+    if (this.reconnect) {
+      const local = this.peer?.localFingerprint() ?? null;
+      const remote = this.peer?.remoteFingerprint() ?? null;
+      if (import.meta.env.DEV) console.debug('[session] DTLS fingerprints — local:', local, '| remote:', remote);
+      this.dispatch(devActions.setFingerprints({ local, remote }));
+      this.onReconnectChannelOpen(local, remote);
+      return;
+    }
     // room + SAS: the channel coming up means the DTLS fingerprints are now known (local SDP +
     // RECEIVED SDP both set). Feed them into the SAS computation — these are the SAME fingerprints
     // DTLS validates against. Status stays `pairing` until the SAS words are ready (→ awaitingSas);
@@ -1364,11 +1441,8 @@ export class SessionController {
       const remote = this.peer?.remoteFingerprint() ?? null;
       if (import.meta.env.DEV) console.debug('[session] DTLS fingerprints — local:', local, '| remote:', remote);
       this.dispatch(devActions.setFingerprints({ local, remote }));
-      // SAS commit-reveal runs in parallel; computing the SAS words is held back while a reconnect
-      // attempt is pending (trySasReady), so a successful reconnect never flashes the SAS UI.
+      // SAS commit-reveal runs in parallel.
       this.onSasFingerprints(local, remote);
-      // reconnect path: kick off the channel-bound re-auth over the now-open DataChannel.
-      if (this.reconnect) this.onReconnectChannelOpen(local, remote);
       return;
     }
 
@@ -1509,7 +1583,14 @@ export class SessionController {
    * cannot abort the peer's side mid-settle.
    */
   private closeSignalingAfterConnect(): void {
-    if (this.method !== 'words' && this.method !== 'link' && this.method !== 'qr' && this.method !== 'room') return;
+    if (
+      this.method !== 'words' &&
+      this.method !== 'link' &&
+      this.method !== 'qr' &&
+      this.method !== 'room' &&
+      this.method !== 'reconnect'
+    )
+      return;
     this.dispatch(devActions.appendLog('signaling: P2P connected — closing signaling socket (server learns no session duration)'));
     this.signaling?.close();
   }
@@ -1622,6 +1703,18 @@ export class SessionController {
    * words via regenerate — A makes a new room, B re-enters).
    */
   private onRoomClosed(_reason: string): void {
+    if (this.method === 'reconnect') {
+      // The derived token room expired under us while we waited alone (the server's TTL is armed at
+      // first arrival and never re-armed). Take it again — same token within the bucket — rather than
+      // fail: the refresh timer normally pre-empts this, so reaching here means a shorter server TTL.
+      // Mid-pairing (a peer engaged) or after connected, the socket has no job left; ignore.
+      const rc = this.reconnect;
+      if (rc && !rc.settled && !this.peerId && !this.established) {
+        this.dispatch(devActions.appendLog('reconnect: rendezvous room expired while waiting — taking it again'));
+        this.rejoinReconnectRendezvous('expired');
+      }
+      return;
+    }
     if (this.method !== 'words') return;
     if (this.established) {
       // Pairing already succeeded — the TTL only freed the rendezvous word + closed signaling;
@@ -1661,9 +1754,9 @@ export class SessionController {
     if ((this.method === 'link' || this.method === 'qr') && !this.established) {
       this.failLink('channel closed during pairing');
     }
-    // reconnect (pre-fallback): the channel closing before connected means the peer hard-stopped
-    // its re-auth (e.g. it detected OUR key changed and tore down) — fail in step, no bytes.
-    if (this.reconnect && !this.reconnect.fellBack && !this.established) {
+    // reconnect: the channel closing before connected means the peer hard-stopped its re-auth (it
+    // detected OUR key changed, or refused our hello) — fail in step, no bytes.
+    if (this.reconnect && !this.established) {
       this.failReconnect('reconnect aborted — channel closed during re-auth');
     }
     // room + SAS: the channel closing before connected means the peer rejected the SAS (or the
@@ -1701,7 +1794,7 @@ export class SessionController {
       return;
     }
 
-    // reconnect (step 4b-ii): the peer's reconnect-init / proof / fallback (a control message, NOT
+    // reconnect (step 4b-ii): the peer's reconnect-hello / proof / ok (a control message, NOT
     // file bytes). Validated to exact lengths before any crypto. Runs over the channel-bound (but
     // not-yet-authenticated) DataChannel; the two checks inside decide connected | hard stop.
     const reconnect = reconnectFrameSchema.safeParse(msg);
@@ -1916,6 +2009,17 @@ export class SessionController {
     // AFTER we're connected is harmless. Before that, it's a setup failure
     // (e.g. 4009 "room not found", 4002 "room full").
     if (this.established) return;
+    if (this.method === 'reconnect' && this.reconnect && !this.reconnect.settled) {
+      // Waiting alone: a server-side close (TTL 4010 without a room-closed frame, a restart, a
+      // bounce) is answered by taking the rendezvous again, bounded by RECONNECT_MAX_REJOINS. Once
+      // the DataChannel is up the socket has no job left on this path (hello/proof/ok ride the
+      // channel), so its close is harmless — the same reasoning as the post-connect close.
+      if (!this.peerId) {
+        this.rejoinReconnectRendezvous(`closed (code ${code}${reason ? `: ${reason}` : ''})`);
+        return;
+      }
+      if (this.channelOpen) return;
+    }
     this.fail(new Error(`signaling closed (code ${code}${reason ? `: ${reason}` : ''})`));
   }
 
@@ -2012,8 +2116,12 @@ export class SessionController {
     this.linkSecretEncoded = secret.encoded;
     try {
       this.openSignaling();
-      await this.signaling!.connect({ create: true, codeType: 'token' }); // high-entropy token rendezvous (unguessable)
-      // `welcome` carries the allocated token; onWelcome then shows the full link via fullCredential().
+      // The token is drawn HERE, not allocated by the server: a token room is join-or-create, so the
+      // creator simply takes its own 128-bit token (unguessable, so nobody else can be there) and the
+      // receiver joins the same one. On the wire this is exactly what a codeless reconnect looks like
+      // (a derived token, join-or-create), so the server cannot tell the two apart — it never learns
+      // "these two have met before". `welcome` echoes the token; onWelcome then shows the link.
+      await this.signaling!.connect({ join: generateRendezvousToken(), codeType: 'token' });
     } catch (err) {
       this.fail(err);
     }
@@ -2085,75 +2193,115 @@ export class SessionController {
   }
 
   // ===========================================================================
-  // STEP 4b-ii — reconnect (TOFU re-auth under pinned keys). When two peers have
-  // ALREADY enrolled (each pinned the other's Ed25519 key under a shared pairingId),
-  // they can reconnect with NO human step: a mutual signature under the pinned keys,
-  // channel-bound to THIS session's DTLS fingerprints + fresh challenges (replay),
-  // replaces SAS/words. It REUSES the 4-digit room rendezvous and rides on top of the
-  // SAS state (`this.sas`) which stays primed as the fallback used when a pin is
-  // missing on either side. Path selection: initiator announces the pairingId; both
-  // look up their pin; both-have-pin → reconnect-auth; else → fall back to SAS +
-  // enrollment. A presented key ≠ the pinned key is a KEY-CHANGED hard stop (no bytes).
+  // STEP 4b-ii — reconnect (TOFU re-auth under pinned keys), CODELESS since 2026-09-25.
+  // Two peers that ALREADY enrolled (each pinned the other's Ed25519 key under a shared
+  // pairingId — 16 secret bytes only the two keystores hold) reconnect with NO human
+  // step and NO code: each taps "Reconnect" on the other's row, both derive the SAME
+  // rendezvous token from HMAC(pairingId, time-bucket) (crypto/reconnect.ts), and each
+  // asks the untrusted server for that token room, join-or-create — whoever taps first
+  // opens it, the other finds it. On the wire that is exactly a link/QR rendezvous, so
+  // the server cannot tell a reconnect from a first meeting. Once the DataChannel is up:
+  // hello (a MAC under the pairing secret — proves WHO is here before any identity key
+  // is shown; the server can route anyone into any room) → proof (the channel-bound
+  // signature under the pinned key, two-check verified: key-changed vs MITM) → ok. No
+  // SAS is primed underneath: a device without the pin cannot derive the token, so
+  // there is nothing to fall back to — it simply never shows up, and the wait says so.
   // ===========================================================================
 
   /**
-   * A-side: start a reconnect. Allocate a 4-digit room (same rendezvous as the SAS path) and pick
-   * the pairingId to reconnect under. The home screen passes the SELECTED recent-device row's
-   * `pairingId` (the deduped freshest pin for that peer); absent that we fall back to the
-   * most-recently-pinned peer overall. If we hold NO pin there is nothing to reconnect — we degrade
-   * to a plain SAS room (the `this.reconnect == null` path), exactly the normal first-connect. On
-   * `peer-joined` we initiate WebRTC; on channel-open we send `reconnect-init` announcing the
-   * pairingId + our challenge. (UI selection only — the reconnect protocol is unchanged.)
+   * Reconnect to the device pinned under `pairingIdHex` (the recent-devices row the human tapped).
+   * Symmetric: the other device does the same, and the two meet at the derived token. There is no
+   * creator — `isCreator` stays false and the role is decided later from the DTLS fingerprints.
    */
-  async createReconnectSession(pairingId?: string): Promise<void> {
-    this.dispatch(connectionActions.createStarted({ method: 'room' }));
-    this.isCreator = true;
-    this.method = 'room';
-    // SAS primed as the fallback (no human cost unless surfaced); its role is fixed per-pairing by id
-    // in beginPairing. The RECONNECT protocol role below stays create/join (creator = reconnect
-    // initiator) — independent of the per-pairing transport role — so the verifier-first side is fixed
-    // and a key change is caught before the forger can settle.
-    this.sas = newSasState();
+  async reconnectTo(pairingIdHex: string): Promise<void> {
+    this.dispatch(connectionActions.joinStarted({ method: 'reconnect', room: '' }));
+    this.isCreator = false;
+    this.method = 'reconnect';
+    this.sas = null; // nothing to fall back to — see the section header
+    let pairingId: Uint8Array;
     try {
-      const pins = await this.keystore.listPins();
-      if (pins.length > 0) {
-        // Reconnect under the SELECTED pin if the caller named one (and we still hold it); otherwise
-        // the most-recently-pinned peer overall. Either way it is a real pin from THIS keystore.
-        const pin =
-          (pairingId !== undefined ? pins.find((p) => p.pairingId === pairingId) : undefined) ??
-          pins.reduce((a, b) => (b.firstSeen > a.firstSeen ? b : a));
-        this.reconnect = newReconnectState('initiator', hexToBytes(pin.pairingId));
-        this.dispatch(devActions.setReconnect({ active: true, outcome: null }));
-      } else {
-        this.dispatch(devActions.appendLog('reconnect: no stored pin — falling back to a plain SAS room'));
+      const pin = await this.keystore.getPin(pairingIdHex);
+      if (!pin) {
+        this.fail(new Error('reconnect: no stored pin for this device — pair it again'));
+        return;
       }
-      this.openSignaling();
-      await this.signaling!.connect({ create: true }); // 4-digit allocate — unchanged server path
+      pairingId = hexToBytes(pairingIdHex);
     } catch (err) {
       this.fail(err);
+      return;
+    }
+    const rc = newReconnectState(pairingId);
+    this.reconnect = rc;
+    this.dispatch(devActions.setReconnect({ active: true, outcome: null }));
+    // The overall cap: if the other device never taps, say so instead of waiting forever.
+    rc.waitTimer = setTimeout(() => this.onReconnectWaitExpired(), reconnectWaitMs());
+    await this.takeReconnectRendezvous();
+  }
+
+  /**
+   * Derive the token for the CURRENT bucket and take its room (join-or-create). Arms the refresh
+   * timer: at the next bucket boundary the token changes and a side still waiting alone must move
+   * to the new room (a peer whose clock is behind arrives at its own boundary — both converge within
+   * the skew); and well before the server's 3-min token TTL the room is re-taken fresh, so a peer
+   * arriving late in the wait still finds a live room with time to pair.
+   */
+  private async takeReconnectRendezvous(): Promise<void> {
+    const rc = this.reconnect;
+    if (!rc || rc.settled) return;
+    const now = Date.now();
+    const token = reconnectRendezvous(rc.pairingId, reconnectBucket(now));
+    if (rc.refreshTimer != null) clearTimeout(rc.refreshTimer);
+    rc.refreshTimer = setTimeout(
+      () => this.rejoinReconnectRendezvous('refresh'),
+      Math.min(msUntilNextBucket(now), RECONNECT_REFRESH_MS),
+    );
+    this.openSignaling();
+    try {
+      await this.signaling!.connect({ join: token, codeType: 'token' });
+    } catch (err) {
+      this.failReconnect(`reconnect: ${errText(err)}`);
     }
   }
 
   /**
-   * B-side: join a reconnect by its 4-digit code. We arm the SAS fallback (responder) AND the
-   * reconnect overlay; the pairingId is learned from the initiator's `reconnect-init`. If we hold a
-   * pin for it → we prove (reconnect-auth); if not → we tell A to fall back and the normal SAS
-   * comparison takes over.
+   * Leave the current token room and take the rendezvous again — the refresh timer (bucket
+   * boundary / pre-TTL), a room that expired under us, or a server-side close while waiting. A
+   * no-op once a peer is engaged (`this.peerId`): from then on the rendezvous is finished with.
+   * Our own `SignalingClient.close()` never fires onSignalingClose, and `selfId` is reset so the
+   * fresh `welcome` is accepted (onWelcome is once-per-socket by design — the re-entrancy guard).
    */
-  async joinReconnectSession(code: string): Promise<void> {
-    this.dispatch(connectionActions.joinStarted({ method: 'room', room: code }));
-    this.isCreator = false;
-    this.method = 'room';
-    this.sas = newSasState(); // SAS fallback role fixed per-pairing by id in beginPairing
-    // RECONNECT protocol role stays create/join (joiner = reconnect responder) — see createReconnectSession.
-    this.reconnect = newReconnectState('responder', null);
-    this.dispatch(devActions.setReconnect({ active: true, outcome: null }));
-    try {
-      this.openSignaling();
-      await this.signaling!.connect({ join: code });
-    } catch (err) {
-      this.fail(err);
+  private rejoinReconnectRendezvous(why: string): void {
+    const rc = this.reconnect;
+    if (!rc || rc.settled || this.peerId || this.established) return;
+    if (why !== 'refresh' && ++rc.rejoins > RECONNECT_MAX_REJOINS) {
+      this.failReconnect(`reconnect: the server keeps closing the rendezvous (${why})`);
+      return;
     }
+    this.dispatch(devActions.appendLog(`reconnect: re-taking the rendezvous (${why})`));
+    this.signaling?.close();
+    this.signaling = null;
+    this.selfId = null;
+    this.rendezvous = null;
+    this.dispatch(connectionActions.rosterSet([]));
+    void this.takeReconnectRendezvous();
+  }
+
+  /** The wait cap fired with nobody there: a clear failure, not a silent spinner. */
+  private onReconnectWaitExpired(): void {
+    const rc = this.reconnect;
+    if (!rc || rc.settled || this.peerId) return;
+    this.dispatch(devActions.appendLog('reconnect: the other device never arrived at the rendezvous'));
+    this.failReconnect(RECONNECT_NO_SHOW_REASON);
+  }
+
+  /** Disarm the wait/refresh timers (a peer engaged, or the session ended). */
+  private clearReconnectWait(): void {
+    const rc = this.reconnect;
+    if (!rc) return;
+    if (rc.refreshTimer != null) clearTimeout(rc.refreshTimer);
+    rc.refreshTimer = null;
+    if (rc.waitTimer != null) clearTimeout(rc.waitTimer);
+    rc.waitTimer = null;
   }
 
   /**
@@ -2319,19 +2467,16 @@ export class SessionController {
   }
 
   /**
-   * Arm (or re-arm) the reconnect re-auth liveness deadline — a backstop INDEPENDENT of the SAS
-   * timers (the reconnect path keeps `this.sas` primed as the fallback, so the SAS pre-timer is also
-   * armed, but it guards the SAS commit-reveal, NOT a stalled reconnect-init/-proof). On expiry →
-   * failReconnect (→ `failed` + close), the SAME terminal path as a key-change / MITM / channel drop.
-   * Liveness, not security: it changes nothing in the two-check verify or the crypto — a re-auth that
-   * never gets a response from the peer (e.g. a mismatched entry: this side on reconnect, the peer on
-   * the plain-SAS lobby path) ends in `failed` instead of an infinite "agreeing on keys" hang. It
-   * clears any prior handle first; the live handle lives on `this.reconnect` (core-only, never in the
-   * store). No-op once the reconnect attempt has settled or fallen back to SAS.
+   * Arm (or re-arm) the reconnect re-auth liveness deadline. On expiry → failReconnect (→ `failed` +
+   * close), the SAME terminal path as a key-change / MITM / channel drop. Liveness, not security: it
+   * changes nothing in the two-check verify or the crypto — a re-auth that never completes (a peer
+   * that cannot produce a hello, a withheld proof) ends in `failed` instead of an infinite "agreeing
+   * on keys" hang. It clears any prior handle first; the live handle lives on `this.reconnect`
+   * (core-only, never in the store). No-op once the reconnect attempt has settled.
    */
   private armReconnectTimeout(reason: string, ms: number): void {
     const rc = this.reconnect;
-    if (!rc || rc.settled || rc.fellBack) return;
+    if (!rc || rc.settled) return;
     if (rc.timer != null) clearTimeout(rc.timer);
     rc.timer = setTimeout(() => this.failReconnect(reason), ms);
   }
@@ -2341,11 +2486,6 @@ export class SessionController {
    * surface it for the human comparison (→ awaitingSas). Order-independent; the word computation is
    * one-shot. The nonces are bound in fixed role order (initiator, responder) so both sides agree;
    * the fingerprints are canonicalised inside computeSasWords.
-   *
-   * On the RECONNECT path the words are computed but HELD BACK (not surfaced) until the reconnect
-   * attempt resolves to the SAS fallback (`reconnect.fellBack`). A successful reconnect therefore
-   * never flashes the SAS UI; a fallback (a pin was missing) releases the held words via this same
-   * path. On the plain SAS path (`this.reconnect == null`) the words surface as soon as ready.
    */
   private trySasReady(): void {
     const sas = this.sas;
@@ -2358,14 +2498,12 @@ export class SessionController {
       // Same material, separate label: who reads and who picks (server cannot choose it).
       this.resolveSasRole();
     }
-    if (this.reconnect && !this.reconnect.fellBack) return; // hold SAS until reconnect resolves
     this.surfaceSas();
   }
 
   /**
    * Reveal the computed SAS triple to the human (→ awaitingSas) and hand the pre-SAS pairing
-   * deadline off to the human-comparison window. One-shot (guarded by `sas.surfaced`). Split out of
-   * trySasReady so the reconnect fallback can release a pair of already-computed-but-held words.
+   * deadline off to the human-comparison window. One-shot (guarded by `sas.surfaced`).
    */
   private surfaceSas(): void {
     const sas = this.sas;
@@ -2455,14 +2593,14 @@ export class SessionController {
     this.fail(new Error(reason));
   }
 
-  // ---- reconnect re-auth (step 4b-ii) ----
+  // ---- reconnect re-auth (step 4b-ii): hello → proof → ok over the DataChannel ----
 
   /** Relay a reconnect control frame to the peer over the DTLS-protected DataChannel. */
   private sendReconnect(frame: ReconnectFrame): void {
     // DEV/TEST stall knob: a side that reaches the reconnect handshake but NEVER sends its
     // reconnect-proof, to drive the reconnect liveness-deadline FIRING e2e — the peer then never
     // completes the re-auth and must fail at the deadline, not hang. Only the proof is withheld (the
-    // initiator's reconnect-init still goes out). Dead-code-eliminated in prod (DEV-gated).
+    // hello still goes out). Dead-code-eliminated in prod (DEV-gated).
     if (frame.kind === 'reconnect-proof' && stallReconnectProofEnabled()) {
       this.dispatch(devActions.appendLog('reconnect: stalling — withholding reconnect-proof (DEV knob)'));
       return;
@@ -2489,160 +2627,165 @@ export class SessionController {
   }
 
   /**
-   * Channel is open on the reconnect path: capture the DTLS fingerprints (the channel binding) and,
-   * as the initiator, announce the pairingId we want to reconnect under + our fresh challenge. The
-   * responder waits for that `reconnect-init` (it learns the pairingId from it). The pre-SAS pairing
-   * timer armed at welcome/peer-joined doubles as the backstop bounding this re-auth window.
+   * Channel is open: capture the DTLS fingerprints (the channel binding), derive OUR role from them,
+   * and send our hello — the MAC under the pairing secret that proves we belong here, carrying no
+   * identity and no identifier. Then replay any frame that beat this handler. Both sides do exactly
+   * this; who proves first is decided by the role, not by who tapped first.
    */
   private onReconnectChannelOpen(local: string | null, remote: string | null): void {
     const rc = this.reconnect;
-    if (!rc || rc.settled || rc.fellBack) return;
+    if (!rc || rc.settled) return;
     if (!local || !remote) {
       this.failReconnect('reconnect: missing DTLS fingerprints');
       return;
     }
+    const role = reconnectRoleFor(local, remote);
+    if (!role) {
+      // Two identical fingerprints cannot happen for two distinct certificates; defaulting a side
+      // could land both on the same role and deadlock. Fail closed and say so.
+      this.failReconnect('reconnect: cannot derive the role from the DTLS fingerprints');
+      return;
+    }
     rc.fps = { local, remote };
-    // Replay first: the held frame may BE the `reconnect-init` we are about to start waiting for.
-    const held = this.pendingReconnectFrame;
-    this.pendingReconnectFrame = null;
-    if (held) {
-      this.dispatch(devActions.appendLog(`reconnect: replaying held ${held.kind}`));
-      void this.onReconnectFrame(held).catch((err) =>
-        this.dispatch(devActions.appendLog(`reconnect: ${errText(err)}`)),
-      );
-    }
-    if (rc.role !== 'initiator') {
-      this.dispatch(devActions.appendLog('reconnect: channel open, responder — waiting for reconnect-init'));
-      return;
-    }
-    if (rc.initSent) return; // one-shot; already announced
-    if (!rc.pairingId) {
-      // Unreachable by construction: createReconnectSession only builds an INITIATOR state when it
-      // found a pin, and the responder is built with role 'responder'. If it ever happens anyway the
-      // old code returned silently and the pair sat in `pairing` for 120 s with an empty log — the
-      // worst possible way to report a wiring bug. Fail closed and say so.
-      this.failReconnect('reconnect: initiator has no pairingId to announce (wiring bug)');
-      return;
-    }
-    rc.initSent = true;
-    this.dispatch(devActions.appendLog('reconnect: channel open, initiator — sending reconnect-init'));
+    rc.role = role;
+    rc.helloSent = true;
+    this.dispatch(devActions.appendLog(`reconnect: channel open, ${role} — sending reconnect-hello`));
+    // Hello FIRST, then the replay: if the held frame is the peer's hello and we are the responder,
+    // the replay sends our proof, and the peer only accepts a proof after our hello (wire order).
     this.sendReconnect({
-      kind: 'reconnect-init',
-      // A BLINDED tag, not the raw pairingId — see crypto/reconnect.ts blindPairingId. The
-      // rendezvous is a 4-digit room, so a code-guesser can reach this channel before any
-      // authentication; it used to receive a stable per-pair identifier it could correlate across
-      // sessions. The wire FIELD keeps its historical name and length so a peer on an older bundle
-      // still parses the frame and degrades to the SAS fallback rather than hanging.
-      pairingId: bytesToHex(blindPairingId(rc.pairingId, local, remote)),
+      kind: 'reconnect-hello',
       challenge: bytesToHex(rc.myChallenge),
+      mac: bytesToHex(reconnectHelloMac(rc.pairingId, rc.myChallenge, local, remote, role)),
     });
+    const held = this.pendingReconnectFrames.splice(0);
+    for (const frame of held) {
+      this.dispatch(devActions.appendLog(`reconnect: replaying held ${frame.kind}`));
+      void this.onReconnectFrame(frame).catch((err) => this.failReconnect(`reconnect: ${errText(err)}`));
+    }
   }
 
   /** Route an inbound reconnect frame (already zod-validated to exact lengths). */
   private async onReconnectFrame(frame: ReconnectFrame): Promise<void> {
     const rc = this.reconnect;
     // A DROPPED frame here is indistinguishable, from the outside, from one that was never sent:
-    // both leave the pair sitting in `pairing` until the 120 s deadline, with nothing written
-    // anywhere. That ambiguity cost a whole debugging session, so every drop now says which guard
-    // did it. `!rc.fps` is the interesting one — it means the frame beat our own channel-open
-    // handler, which is a RACE rather than a benign state, and the peer will not resend.
+    // both leave the pair sitting in `pairing` until the deadline, with nothing written anywhere.
+    // That ambiguity cost a whole debugging session, so every drop says which guard did it, and the
+    // early-arrival case is a HOLD, not a drop (the frame beat our own channel-open handler — a race,
+    // not a state — and the peer will not resend).
     if (!rc) {
       this.dispatch(devActions.appendLog(`reconnect: dropped ${frame.kind} — not a reconnect session`));
       return;
     }
-    if (rc.settled || rc.fellBack) {
-      this.dispatch(
-        devActions.appendLog(`reconnect: dropped ${frame.kind} — already ${rc.settled ? 'settled' : 'fell back'}`),
-      );
+    if (rc.settled) {
+      this.dispatch(devActions.appendLog(`reconnect: dropped ${frame.kind} — already settled`));
       return;
     }
-    if (!rc.fps) {
-      // NOT a drop any more. The frame beat our own channel-open handler (see pendingReconnectFrame);
-      // the peer will not resend, so discarding it stalled the pair for 120 s. Hold and replay.
+    if (!rc.fps || !rc.role) {
       this.dispatch(devActions.appendLog(`reconnect: holding ${frame.kind} — arrived before channel-open`));
-      this.pendingReconnectFrame = frame;
+      this.pendingReconnectFrames.push(frame);
       return;
     }
     switch (frame.kind) {
-      case 'reconnect-init':
-        return this.onReconnectInit(frame.pairingId, frame.challenge);
+      case 'reconnect-hello':
+        return this.onReconnectHello(frame.challenge, frame.mac);
       case 'reconnect-proof':
         return this.onReconnectProof(frame.challenge, frame.pubKey, frame.sig);
-      case 'reconnect-fallback':
-        // The responder holds no pin for our pairingId → both fall back to the SAS comparison.
-        if (rc.role === 'initiator') this.reconnectFallback(false);
-        return;
+      case 'reconnect-ok':
+        return this.onReconnectOk();
     }
   }
 
   /**
-   * Responder: the initiator announced the pairingId it wants to reconnect under. Learn it + the
-   * initiator's challenge, then look up OUR pin. If we hold one → prove possession of our pinned
-   * key (reconnect-auth engaged). If not → tell the initiator to fall back and let the normal SAS
-   * comparison take over.
+   * The peer's hello: does it hold the pairing secret? Recompute the MAC under OUR pairingId with
+   * the PEER's challenge and role over THIS channel's fingerprints. A mismatch is a stranger the
+   * server put in the room (or a relay re-terminating DTLS) — hard stop, and nothing of ours was
+   * disclosed: our own hello reveals nothing without the secret. A match unlocks the proof step —
+   * the responder proves first; the initiator waits for that proof.
    */
-  private async onReconnectInit(pairingIdHex: string, challengeHex: string): Promise<void> {
+  private async onReconnectHello(challengeHex: string, macHex: string): Promise<void> {
     const rc = this.reconnect;
-    if (!rc || rc.role !== 'responder' || rc.peerChallenge || rc.fellBack || rc.settled || !rc.fps) return;
-    rc.peerChallenge = hexToBytes(challengeHex);
-    // The announced value is a BLINDED tag (crypto/reconnect.ts), so it cannot be looked up as a
-    // key. Recompute it for each pin we hold and see which one it belongs to — the tag is derived
-    // from the pairingId we ALREADY share, bound to this session's fingerprints. No match means we
-    // hold no pin for this pair (or the peer is on an older bundle and sent a raw id): fall back to
-    // SAS, exactly as before.
-    const pins = await this.keystore.listPins();
-    const matchedHex = matchBlindedPairingId(
-      hexToBytes(pairingIdHex),
-      pins.map((p) => p.pairingId),
-      rc.fps.local,
-      rc.fps.remote,
-    );
-    if (!matchedHex) {
-      this.reconnectFallback(true); // tell the initiator to fall back too
+    if (!rc || rc.settled || !rc.fps || !rc.role) return;
+    if (rc.peerChallenge) {
+      this.dispatch(devActions.appendLog('reconnect: dropped a second reconnect-hello'));
       return;
     }
-    rc.pairingId = hexToBytes(matchedHex);
-    const pin = await this.keystore.getPin(matchedHex);
-    if (!pin) {
-      this.reconnectFallback(true); // raced with a wipe between listPins and getPin
+    const challenge = hexToBytes(challengeHex);
+    const ok = verifyReconnectHello(rc.pairingId, challenge, rc.fps.local, rc.fps.remote, oppositeRole(rc.role), hexToBytes(macHex));
+    if (!ok) {
+      this.dispatch(devActions.appendLog('reconnect: hello MAC INVALID — the peer does not hold this pairing (hard stop)'));
+      this.failReconnect(RECONNECT_STRANGER_REASON);
       return;
     }
-    this.dispatch(connectionActions.confirmStarted()); // pairing → confirming
-    await this.buildAndSendProof();
+    rc.peerChallenge = challenge;
+    this.dispatch(devActions.appendLog('reconnect: peer hello verified — it holds the pairing secret'));
+    if (rc.role === 'responder') {
+      // Verifier-first initiator: the responder discloses its identity key first — to a peer that
+      // has just proven it already knows this pairing, i.e. one that already holds that key.
+      this.dispatch(connectionActions.confirmStarted()); // pairing → confirming
+      await this.buildAndSendProof();
+    }
   }
 
   /**
-   * A reconnect proof arrived. Run the TWO checks (key-change vs MITM) against OUR pin for the
-   * pairingId. The initiator processes the responder's proof first (then sends its own and settles);
-   * the responder processes the initiator's proof (after having sent its own) and settles.
+   * A reconnect proof arrived. Run the TWO checks (key-change vs MITM) against OUR pin. The
+   * initiator processes the responder's proof first, then sends its own and waits for `reconnect-ok`;
+   * the responder processes the initiator's proof (after having sent its own), answers ok, settles.
    */
   private async onReconnectProof(challengeHex: string, pubKeyHex: string, sigHex: string): Promise<void> {
     const rc = this.reconnect;
-    if (!rc || rc.fellBack || rc.settled || !rc.fps || !rc.pairingId) return;
-
+    if (!rc || rc.settled || !rc.fps || !rc.role) return;
+    if (!rc.peerChallenge) {
+      // A proof before a verified hello is a protocol violation, not a race (the hello is sent
+      // first over an ordered channel): whoever this is skipped the step that proves it belongs.
+      this.failReconnect('reconnect: proof arrived before hello — refusing');
+      return;
+    }
+    if (!equalBytes(hexToBytes(challengeHex), rc.peerChallenge)) {
+      this.failReconnect('reconnect: proof challenge does not match the hello — refusing');
+      return;
+    }
+    if (rc.peerProofOk) {
+      this.dispatch(devActions.appendLog('reconnect: dropped a second reconnect-proof'));
+      return;
+    }
     if (rc.role === 'initiator') {
-      if (rc.peerChallenge) return; // already processed the responder's proof
-      rc.peerChallenge = hexToBytes(challengeHex);
       this.dispatch(connectionActions.confirmStarted()); // pairing → confirming
       const verdict = await this.verifyPeerProof(pubKeyHex, sigHex, 'responder');
       if (verdict !== 'ok') return this.onReconnectVerdict(verdict);
-      // Responder verified → present our own proof, then we are authenticated.
+      rc.peerProofOk = true;
+      // Responder verified → present our own proof; settle only on its `reconnect-ok`.
       await this.buildAndSendProof();
-      this.settleReconnect();
     } else {
-      if (!rc.proofSent || !rc.peerChallenge) return; // responder proves first, then verifies
+      if (!rc.proofSent) {
+        this.failReconnect('reconnect: the initiator proved before we did — refusing');
+        return;
+      }
       const verdict = await this.verifyPeerProof(pubKeyHex, sigHex, 'initiator');
       if (verdict !== 'ok') return this.onReconnectVerdict(verdict);
+      rc.peerProofOk = true;
+      this.sendReconnect({ kind: 'reconnect-ok' });
       this.settleReconnect();
     }
+  }
+
+  /** Initiator: the responder verified our proof too — both sides agree, settle. */
+  private onReconnectOk(): void {
+    const rc = this.reconnect;
+    if (!rc || rc.settled || !rc.role) return;
+    if (rc.role !== 'initiator' || !rc.proofSent || !rc.peerProofOk) {
+      this.failReconnect('reconnect: unexpected reconnect-ok — refusing');
+      return;
+    }
+    this.settleReconnect();
   }
 
   /** Build + send OUR channel-bound reconnect proof (signed under the presented identity). One-shot. */
   private async buildAndSendProof(): Promise<void> {
     const rc = this.reconnect;
-    if (!rc || rc.settled || rc.fellBack || rc.proofSent) return;
-    if (!rc.pairingId || !rc.peerChallenge || !rc.fps) return;
+    if (!rc || rc.settled || rc.proofSent) return;
+    if (!rc.role || !rc.peerChallenge || !rc.fps) return;
     const identity = await this.reconnectIdentity();
+    if (rc.settled) return; // failed while we were signing
     // Challenges in FIXED role order (initiator's, then responder's) so both sides agree.
     const challengeInitiator = rc.role === 'initiator' ? rc.myChallenge : rc.peerChallenge;
     const challengeResponder = rc.role === 'initiator' ? rc.peerChallenge : rc.myChallenge;
@@ -2679,7 +2822,7 @@ export class SessionController {
     peerRole: ConfirmationRole,
   ): Promise<'ok' | 'key-changed' | 'auth-fail'> {
     const rc = this.reconnect;
-    if (!rc || !rc.pairingId || !rc.peerChallenge || !rc.fps) return 'auth-fail';
+    if (!rc || !rc.role || !rc.peerChallenge || !rc.fps) return 'auth-fail';
     const pin = await this.keystore.getPin(bytesToHex(rc.pairingId));
     if (!pin) return 'auth-fail'; // the engaged path must hold a pin
     // Check (1): key-change detection.
@@ -2720,9 +2863,10 @@ export class SessionController {
   }
 
   /**
-   * Reconnect authenticated: both proofs verified under the pinned keys, channel-bound. Settle to
-   * `connected` with NO human step and NO re-enrollment (the pins already stand). Marks the parallel
-   * SAS state settled so its (unused) commit-reveal can never also surface or fire a timeout.
+   * Reconnect authenticated: both proofs verified under the pinned keys, channel-bound, and both
+   * sides know it (the ok). Settle to `connected` with NO human step and NO re-enrollment (the pins
+   * already stand). Same post-connect steps as every other method: path attestation (advisory) and
+   * the privacy close of the signaling socket.
    */
   private settleReconnect(): void {
     const rc = this.reconnect;
@@ -2730,52 +2874,26 @@ export class SessionController {
     rc.settled = true;
     if (rc.timer != null) clearTimeout(rc.timer); // re-auth succeeded — disarm the liveness deadline
     rc.timer = null;
-    if (this.sas) {
-      this.sas.settled = true; // the fallback SAS never surfaced — close it out
-      if (this.sas.timer != null) clearTimeout(this.sas.timer);
-      this.sas.timer = null;
-    }
+    this.clearReconnectWait();
     this.established = true; // gates file bytes — set only after both proofs verify
     this.dispatch(connectionActions.connectionEstablished());
     this.dispatch(devActions.setReconnect({ active: true, outcome: 'authenticated' }));
     this.dispatch(devActions.appendLog('reconnect: authenticated via pinned key — no SAS needed'));
+    this.startPathAttestation(); // observe WHO is on the path — ADVISORY, gates nothing (core/pathAttest.ts)
     // Same privacy step as every other method: signaling is done here (ICE/SDP exchanged, the
     // re-auth rode the DataChannel), so drop the socket rather than let the server watch the session.
     this.closeSignalingAfterConnect();
   }
 
-  /**
-   * A pin was missing on at least one side → reconnect cannot run. Release the (already-primed) SAS
-   * comparison: the session continues as a normal first connect (SAS + enrollment). `send=true` when
-   * WE (the responder) detected the missing pin and must tell the initiator to fall back too.
-   */
-  private reconnectFallback(send: boolean): void {
-    const rc = this.reconnect;
-    if (!rc || rc.settled || rc.fellBack) return;
-    rc.fellBack = true;
-    // The SAS comparison takes over from here (its own pre-SAS / comparison deadlines bound it) — the
-    // reconnect-specific deadline no longer applies, so disarm it to avoid a spurious mid-SAS expiry.
-    if (rc.timer != null) clearTimeout(rc.timer);
-    rc.timer = null;
-    if (send) this.sendReconnect({ kind: 'reconnect-fallback' });
-    this.dispatch(devActions.setReconnect({ active: true, outcome: 'fell-back' }));
-    this.dispatch(devActions.appendLog('reconnect: no shared pin — falling back to the SAS comparison'));
-    this.trySasReady(); // release the held SAS words (fellBack is now true) → awaitingSas
-  }
-
-  /** Hard stop on the reconnect path (key change / MITM / channel drop / send failure): tear down
-   *  the channel + signaling and fail. No file byte ever crossed (we are not yet `connected`).
-   *  Guarded one-shot; also closes out the parallel SAS state so failSas can't double-fire. */
+  /** Hard stop on the reconnect path (stranger / key change / MITM / channel drop / send failure /
+   *  nobody came): tear down the channel + signaling and fail. No file byte ever crossed (we are not
+   *  yet `connected`). Guarded one-shot. */
   private failReconnect(reason: string): void {
     if (!this.reconnect || this.reconnect.settled) return;
     this.reconnect.settled = true;
     if (this.reconnect.timer != null) clearTimeout(this.reconnect.timer); // disarm the liveness deadline
     this.reconnect.timer = null;
-    if (this.sas) {
-      this.sas.settled = true;
-      if (this.sas.timer != null) clearTimeout(this.sas.timer);
-      this.sas.timer = null;
-    }
+    this.clearReconnectWait();
     this.peer?.close();
     this.peer = null;
     this.clearPendingPeerSignals();
@@ -2815,7 +2933,9 @@ export class SessionController {
    *  everywhere TOFU enrollment may run. Since the 2026-09-12 audit this is a necessary but NOT a
    *  sufficient check — `onEnrollFrame`/`runEnrollment` also require `established`. */
   private isAuthenticatedMethod(): boolean {
-    return this.method === 'words' || this.method === 'link' || this.method === 'qr' || this.sas != null;
+    return (
+      this.method === 'words' || this.method === 'link' || this.method === 'qr' || this.method === 'reconnect' || this.sas != null
+    );
   }
 
   /** Our role on the authenticated path (SAS, words, or link/qr); null off those paths. */
@@ -3122,7 +3242,7 @@ export class SessionController {
     this.enrollInitiated = false;
     this.enrollPinned = false;
     this.pendingEnrollFrame = null;
-    this.pendingReconnectFrame = null;
+    this.pendingReconnectFrames = [];
     this.clearPathAttest();
     this.dispatch(devActions.setPinnedPeer(null));
     await this.publishIdentity(); // generate + show a fresh identity
@@ -3160,7 +3280,8 @@ export class SessionController {
     if (this.sas?.timer != null) clearTimeout(this.sas.timer); // disarm a pending SAS timeout
     this.sas = null; // room-method (SAS) state
     if (this.reconnect?.timer != null) clearTimeout(this.reconnect.timer); // disarm the reconnect deadline
-    this.reconnect = null; // reconnect (4b-ii) overlay state
+    this.clearReconnectWait();
+    this.reconnect = null; // reconnect (4b-ii) state
     this.forgedIdentityPromise = null; // DEV/TEST forged key (if any) is per-session
     this.role = null;
     this.pendingSecretWords = null;
@@ -3183,7 +3304,7 @@ export class SessionController {
     this.enrollInitiated = false;
     this.enrollPinned = false;
     this.pendingEnrollFrame = null;
-    this.pendingReconnectFrame = null;
+    this.pendingReconnectFrames = [];
     this.clearPathAttest();
     this.dispatch(connectionActions.reset());
     this.dispatch(transferActions.reset());

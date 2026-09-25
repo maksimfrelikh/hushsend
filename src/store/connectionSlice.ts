@@ -20,7 +20,8 @@ export type ConnectionStatus =
   | 'connected' // authenticated & channel-bound — data is allowed from here on
   | 'failed'; // terminal error (see `error`)
 
-export type ConnectionMethod = 'words' | 'room' | 'link' | 'qr';
+/** `reconnect` is the codeless pinned-key re-auth: no code, no SAS — its own screens. */
+export type ConnectionMethod = 'words' | 'room' | 'link' | 'qr' | 'reconnect';
 
 export interface ConnectionState {
   status: ConnectionStatus;

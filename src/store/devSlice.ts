@@ -26,10 +26,11 @@ export interface DevState {
   /** the peer pinned on this connection (TOFU): pairingId + peer pubkey, both hex. A projection
    *  of what was written to the keystore on enrollment; null until pinned. */
   pinnedPeer: { pairingId: string; peerPublicKey: string } | null;
-  /** reconnect (step 4b-ii) outcome projection for the harness: `active` once a reconnect is being
-   *  attempted; `outcome` is the resolution — authenticated (no SAS), the visible key-changed hard
-   *  stop, or a fall-back to the SAS comparison (a pin was missing). Throwaway dev display. */
-  reconnect: { active: boolean; outcome: 'authenticated' | 'key-changed' | 'fell-back' | null };
+  /** reconnect (step 4b-ii) outcome projection: `active` once a reconnect is under way; `outcome`
+   *  is the resolution — authenticated (no SAS) or the visible key-changed hard stop (FailedScreen
+   *  keys its key-changed variant off it). There is no SAS fallback any more (codeless reconnect:
+   *  a device without the pin never reaches the rendezvous). */
+  reconnect: { active: boolean; outcome: 'authenticated' | 'key-changed' | null };
   /** ICE config the PeerConnection was built with (step 6d): the privacy mode, whether a relay was
    *  added, and the TURN creds it carried. Set at pairing start (startPeer). `relay` is true ONLY in
    *  Reliable mode with a non-empty TURN url set. Non-secret dev projection (the credential is the
@@ -109,7 +110,7 @@ const slice = createSlice({
     },
     setReconnect(
       state,
-      action: PayloadAction<{ active: boolean; outcome: 'authenticated' | 'key-changed' | 'fell-back' | null }>,
+      action: PayloadAction<{ active: boolean; outcome: 'authenticated' | 'key-changed' | null }>,
     ) {
       state.reconnect = action.payload;
     },

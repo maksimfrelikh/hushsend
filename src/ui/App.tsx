@@ -88,7 +88,9 @@ function PrivacyModeSync(): null {
  * never lingers in the URL, history, or a reload), and joins. Only the rendezvous token reaches the
  * server; S stays local. Runs exactly once (a ref guard survives StrictMode's double-invoke), and the
  * scrub before any async work means a re-run sees an empty hash. A malformed/absent fragment is a
- * no-op (stay on the home screen); a valid-but-dead room surfaces later as the "room not found" failure.
+ * no-op (stay on the home screen); a valid-but-dead link surfaces as the "room not found" failure
+ * the moment the joiner finds the token room empty (token rooms are join-or-create, so the server
+ * itself no longer says 4009 — SessionController.onWelcome does).
  */
 function LinkFragmentJoin(): null {
   const session = useSession();

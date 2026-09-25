@@ -14,7 +14,7 @@ type View = 'landing' | 'method' | 'wordsJoin' | 'scan';
 /**
  * The idle home. A self-contained pre-session flow (no router): landing → method picker (the
  * "Invite someone" create paths) and landing → words receive. Joining by code, reconnecting to a
- * recent device, and the disabled "Max privacy" toggle all live on the landing. Every action calls
+ * recent device (one tap, no code), and the "Max privacy" toggle all live on the landing. Every action calls
  * a SessionController method, which moves the FSM off `idle` and hands the screen to the router.
  */
 export function HomeScreen(): ReactElement {
@@ -61,7 +61,6 @@ function LandingView({
   const t = useT();
   const dispatch = useAppDispatch();
   const [joinCode, setJoinCode] = useState('');
-  const [reconnectCode, setReconnectCode] = useState('');
   // Recent devices are read from the keystore (the source of pins), not from localStorage.
   const [devices, setDevices] = useState<PinEntry[]>([]);
   useEffect(() => {
@@ -76,7 +75,6 @@ function LandingView({
 
   const digits = (v: string): string => v.replace(/\D/g, '').slice(0, 4);
   const joinOk = /^\d{4}$/.test(joinCode);
-  const reconnectOk = /^\d{4}$/.test(reconnectCode);
 
   const onForget = (): void => {
     void session.resetIdentity(); // wipes keystore pins (+ regenerates identity)
@@ -134,19 +132,15 @@ function LandingView({
       </button>
 
       {/*
-        Reconnect is asymmetric, like every method: ONE side STARTS it (createReconnectSession opens a
-        room and shows a code), the OTHER JOINS by that code (joinReconnectSession). Mixing them up —
-        both "start" (→ two rooms that never meet) or "start" + a plain room "join" (→ a handshake
-        mismatch) — was an easy mistake, so the two affordances are explicitly split + labelled here.
-        UI-only: the reconnect protocol / roles / wire format are unchanged.
+        Reconnect is SYMMETRIC and codeless: each side taps Reconnect on the other's row, both derive
+        the same rendezvous from the pairing secret and meet there. There is nothing to type and no
+        create/join split to get wrong — the old "Start + share a code / Join with the code" pair is
+        gone with the code itself.
       */}
       <div className="hs-divider">
         <span>{t('reconnectSection')}</span>
       </div>
-      <p className="hs-sub">{t('reconnectSplitHint')}</p>
-
-      {/* START side — tap a recent device to OPEN a reconnect room; you then share the code it shows. */}
-      <p className="hs-section-label">{t('reconnectStartLabel')}</p>
+      <p className="hs-sub">{t('reconnectHint')}</p>
 
       {devices.length === 0 ? (
         <p className="hs-sub">{t('noRecent')}</p>
@@ -162,39 +156,15 @@ function LandingView({
               <button
                 type="button"
                 className="hs-btn hs-btn--ghost hs-btn--sm"
-                data-testid={i === 0 ? 'create-reconnect-btn' : undefined}
-                onClick={() => void session.createReconnectSession(d.pairingId)}
+                data-testid={i === 0 ? 'reconnect-btn' : undefined}
+                onClick={() => void session.reconnectTo(d.pairingId)}
               >
-                {t('reconnectStartAction')}
+                {t('reconnectAction')}
               </button>
             </div>
           ))}
         </div>
       )}
-
-      {/* JOIN side — enter the code the OTHER side is showing. Deliberately separate from starting. */}
-      <p className="hs-section-label">{t('reconnectJoinLabel')}</p>
-      <div className="hs-join-row">
-        <input
-          className="hs-input hs-input--code"
-          value={reconnectCode}
-          onChange={(e) => setReconnectCode(digits(e.target.value))}
-          placeholder="— — — —"
-          inputMode="numeric"
-          maxLength={4}
-          aria-label={t('reconnectCodeAria')}
-          data-testid="reconnect-input"
-        />
-        <button
-          type="button"
-          className="hs-btn hs-btn--ghost"
-          data-testid="join-reconnect-btn"
-          disabled={!reconnectOk}
-          onClick={() => void session.joinReconnectSession(reconnectCode)}
-        >
-          {t('reconnectJoinAction')}
-        </button>
-      </div>
 
       {devices.length > 0 && (
         <button type="button" className="hs-textlink" data-testid="reset-identity-btn" onClick={onForget}>

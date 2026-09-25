@@ -6,7 +6,8 @@ import net from 'node:net';
  * Integration coverage for the 4-digit ROOM hardening in server/signaling-server.js (step 6a). The
  * 4-digit room/link/QR rendezvous now reuses the same anti-farming hygiene the words rooms had:
  *   - strictly 1:1 (creator + one joiner) — a 3rd joiner is bounced with 4002 'room full';
- *   - a TTL invalidates a room that never connects and FREES its 4-digit code (4009 afterwards);
+ *   - a TTL invalidates a room that never connects and FREES its 4-digit code (4009 afterwards;
+ *     a token room is join-or-create, so it can simply be taken again);
  *     after connected, closing signaling does NOT drop live P2P — that part is the client's job
  *     and is covered by the ws-close e2e (the 1:1 client closes its own socket on connect), so here
  *     we only assert the rendezvous-window teardown;
@@ -222,7 +223,7 @@ describe('4-digit room: lobby seat cap (codeType-dependent)', () => {
   });
 });
 
-describe('link/QR token rendezvous (codeType=token): high-entropy alloc, strict validator, strictly 1:1', () => {
+describe('token rendezvous (codeType=token) — link/QR + codeless reconnect: client-taken, join-or-create, strictly 1:1', () => {
   const PORT = 8095;
   let server: ChildProcess;
   beforeAll(async () => {
@@ -234,7 +235,10 @@ describe('link/QR token rendezvous (codeType=token): high-entropy alloc, strict 
     server?.kill();
   });
 
-  it('allocates a high-entropy 128-bit base64url token, NOT a 4-digit code (unguessable rendezvous)', async () => {
+  /** A client-drawn token, exactly as the app draws one (16 random bytes → 22 base64url chars). */
+  const drawToken = (): string => Buffer.from(Array.from({ length: 16 }, () => Math.floor(Math.random() * 256))).toString('base64url');
+
+  it('still allocates a 128-bit token on the compat create=1 path, NOT a 4-digit code', async () => {
     const a = client(PORT, 'app=filetransfer&create=1&codeType=token', '203.0.117.1');
     await a.opened();
     const token = (await a.waitFor('welcome')).room as string;
@@ -249,27 +253,74 @@ describe('link/QR token rendezvous (codeType=token): high-entropy alloc, strict 
     expect(close.reason).toMatch(/bad room/i);
   });
 
-  it('rejects a well-formed but unknown token on join with 4009 "room not found"', async () => {
-    const ghost = 'A'.repeat(22); // valid SHAPE, never allocated → not found (no ghost room on join)
-    const miss = client(PORT, `app=filetransfer&room=${ghost}&codeType=token`, '203.0.117.3');
+  it('JOIN-OR-CREATE: a well-formed token nobody holds is opened by its first arrival, and the second finds it', async () => {
+    // This is how a codeless reconnect meets: both devices derive the same token and each asks for
+    // it — whoever is first opens the room. A link/QR creator takes its own random token the same
+    // way, so on the wire the two are indistinguishable. (Used to be 4009 'room not found'.)
+    const token = drawToken();
+    const first = client(PORT, `app=filetransfer&room=${token}&codeType=token`, '203.0.117.3');
+    await first.opened();
+    const welcome = await first.waitFor('welcome');
+    expect(welcome.room).toBe(token); // the server echoes the CLIENT's token
+    expect(welcome.peers).toEqual([]); // alone — nobody to pair with yet
+
+    const second = client(PORT, `app=filetransfer&room=${token}&codeType=token`, '203.0.117.4');
+    await second.opened();
+    const w2 = await second.waitFor('welcome');
+    expect((w2.peers as unknown[]).length).toBe(1); // found the first arrival
+    await first.waitFor('peer-joined');
+  });
+
+  it('a 4-digit room join still requires an EXISTING room (4009) — join-or-create is the token shape only', async () => {
+    const miss = client(PORT, 'app=filetransfer&room=0000', '203.0.117.5');
     const close = await miss.waitClose();
     expect(close.code).toBe(4009);
   });
 
-  it('is strictly 1:1 — a third joiner is bounced with 4002 even though the 4-digit lobby allows 8', async () => {
-    const a = client(PORT, 'app=filetransfer&create=1&codeType=token', '203.0.117.10');
+  it('is strictly 1:1 — a third arrival is bounced with 4002 even though the 4-digit lobby allows 8', async () => {
+    const token = drawToken();
+    const a = client(PORT, `app=filetransfer&room=${token}&codeType=token`, '203.0.117.10');
     await a.opened();
-    const token = (await a.waitFor('welcome')).room as string;
+    await a.waitFor('welcome');
 
     const b = client(PORT, `app=filetransfer&room=${token}&codeType=token`, '203.0.117.11');
     await b.opened();
     await b.waitFor('welcome'); // the single intended receiver
 
-    // A second joiner (a forwarded link) is refused → guarantees ONE receiver.
+    // A third arrival (a forwarded link, a squatter) is refused → guarantees ONE peer.
     const c = client(PORT, `app=filetransfer&room=${token}&codeType=token`, '203.0.117.12');
     const close = await c.waitClose();
     expect(close.code).toBe(4002);
     expect(close.reason).toMatch(/full/i);
+  });
+});
+
+describe('token room opened by a JOIN is managed like one made by CREATE: TTL armed at first arrival', () => {
+  const PORT = 8103;
+  const TTL_MS = 800;
+  let server: ChildProcess;
+  beforeAll(async () => {
+    server = await startServer(PORT, { TRUST_PROXY: '1', TOKEN_ROOM_TTL_MS: String(TTL_MS) });
+  });
+  afterAll(() => {
+    server?.kill();
+  });
+
+  it('expires a token room nobody else reached (room-closed/expired + 4010), and the token can be taken again', async () => {
+    // A reconnecting device that waits alone hits this: it answers by taking the same token again
+    // (the client re-takes it well before the default 3-min TTL anyway). No 4009 exists for tokens.
+    const token = 'A'.repeat(22);
+    const a = client(PORT, `app=filetransfer&room=${token}&codeType=token`, '203.0.118.1');
+    await a.opened();
+    await a.waitFor('welcome');
+    const closed = await a.waitFor('room-closed', TTL_MS + 2000);
+    expect(closed.reason).toBe('expired');
+    const close = await a.waitClose();
+    expect(close.code).toBe(4010);
+
+    const again = client(PORT, `app=filetransfer&room=${token}&codeType=token`, '203.0.118.2');
+    await again.opened();
+    expect((await again.waitFor('welcome')).room).toBe(token);
   });
 });
 

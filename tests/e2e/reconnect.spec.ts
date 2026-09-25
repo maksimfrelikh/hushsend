@@ -9,8 +9,10 @@ import { BASE, enrollViaSas, forwardConsole, resetBoth, startReconnect } from '.
  *
  * Setup: two peers FIRST enroll (SAS room → authenticated connected → each pins the other's Ed25519
  * identity under a shared pairingId). Then, with the pins in place, they RECONNECT with NO human
- * step — a mutual signature under the pinned keys, channel-bound to this session's DTLS
- * fingerprints + fresh challenges, replaces SAS. We assert two paths:
+ * step and NO CODE (since 2026-09-25): each taps Reconnect, both derive the same rendezvous token
+ * from the pairing secret and meet there; a hello MAC under that secret gates the exchange, then a
+ * mutual signature under the pinned keys, channel-bound to this session's DTLS fingerprints + fresh
+ * challenges, replaces SAS. We assert these paths:
  *   - happy: enrolled peers reconnect → connected WITHOUT any SAS comparison → file byte-for-byte;
  *   - key-changed: one side presents a DIFFERENT identity key under the same pairingId (the DEV
  *     `forgeReconnectKey` knob) → the other side's check (1) fires a visible hard stop → both fail,
@@ -77,8 +79,6 @@ test.afterEach(async () => {
  *  in IndexedDB across dispose (only the per-session state resets), which is exactly what reconnect
  *  reads from. */
 
-/** A starts a reconnect (allocates a fresh room, announces its stored pairingId); B joins by code.
- *  Returns once B has joined. */
 
 test.beforeAll(() => {
   rmSync(TMP, { recursive: true, force: true });
@@ -125,14 +125,12 @@ test('happy reconnect: enrolled peers re-auth via the pinned key (no SAS) → co
 test('reconnect liveness deadline FIRES: a peer that never completes re-auth → the initiator fails at the deadline (no hang)', async ({
   browser,
 }) => {
-  // Closes the "mismatched-entry hang" residual (BACKLOG § Reconnect UX): on the reconnect path the
-  // re-auth wait (reconnect-init → reconnect-proof) now has its OWN liveness deadline, INDEPENDENT of
-  // the SAS pre-timer (which guards the SAS commit-reveal, not a stalled reconnect). Two DEV-only knobs
-  // drive the FIRING direction (prod keeps the fixed 120 s deadline and never stalls — both are
-  // tree-shaken out):
+  // The re-auth (hello → proof → ok) has its own liveness deadline. Two DEV-only knobs drive the
+  // FIRING direction (prod keeps the fixed 120 s deadline and never stalls — both are tree-shaken out):
   //   - ?stallReconnect / window.__HUSHSEND_STALL_RECONNECT__ — this side reaches the reconnect
-  //     handshake but withholds its reconnect-proof, standing in for the real bug (a peer that joined
-  //     via the plain-SAS lobby and never runs the reconnect protocol at all → no reconnect response);
+  //     handshake but withholds its reconnect-proof (its hello still goes out), standing in for a
+  //     device that stalls mid-handshake. Whichever role B draws (fingerprint order), A ends up
+  //     waiting for a proof that never comes;
   //   - ?reconnectTimeoutMs=N — shrink the reconnect deadline so its firing is observable in seconds,
   //     NOT a real 120 s wait (SEPARATE from the SAS knobs, so it can't pre-empt SAS state).
   // The knobs are INERT during the initial plain-SAS enrollment below (no reconnect state there).
@@ -145,12 +143,10 @@ test('reconnect liveness deadline FIRES: a peer that never completes re-auth →
 
   await enrollViaSas(a, b); // both pin each other (a fresh SAS pairing — reconnect knobs do nothing here)
   await resetBoth(a, b);
-  await startReconnect(a, b); // A = reconnect-initiator (announces the pairingId); B = responder (stalls its proof)
+  await startReconnect(a, b); // B stalls its proof, whichever role the fingerprints hand it
 
-  // B receives A's reconnect-init and would prove possession of its pinned key — but withholds the
-  // reconnect-proof. So A (the initiator) waits for a response that never comes, stays in `pairing`,
-  // and FAILS at the (shrunk) reconnect deadline rather than hanging — the firing direction under test.
-  // Without the deadline this exact combination hung forever in "agreeing on keys".
+  // A waits for a proof that never comes, stays in `pairing`/`confirming`, and FAILS at the (shrunk)
+  // reconnect deadline rather than hanging — the firing direction under test.
   await expect(a.getByTestId('status')).toHaveText('failed', { timeout: 30_000 });
   await expect(a.getByTestId('error')).toContainText('timed out');
   // The stalling side does not hang either — it fails at its own deadline (or on A's teardown).
@@ -197,8 +193,9 @@ test('key-changed hard-stop: a peer presenting a different key under the same pa
 });
 
 /**
- * REGRESSION (2026-09-17): a `reconnect-init` that arrives BEFORE the receiving side has processed
- * channel-open must be held and replayed, not dropped.
+ * REGRESSION (2026-09-17): a reconnect frame (today the `reconnect-hello` both sides send at
+ * channel-open) that arrives BEFORE the receiving side has processed channel-open must be held and
+ * replayed, not dropped.
  *
  * THE WINDOW IS REAL AND IS NOT A TEST ARTIFACT. `PeerConnection.setupChannel` wires `onmessage`
  * synchronously, while `onopen` runs the Max-privacy relay gate, which AWAITS `getStats()` before
@@ -213,12 +210,12 @@ test('key-changed hard-stop: a peer presenting a different key under the same pa
  * into a deterministic test. It stubs nothing else: the drop/hold decision, the replay, the deadline
  * and the state machine are all production code.
  *
- * Applied to the RESPONDER, because the responder is the side that must already be ready when the
- * initiator's announcement lands.
+ * Applied to ONE side: with both sides sending their hello at their own channel-open, the delayed
+ * side is the one that receives the peer's hello inside its window, whichever role it draws.
  */
-test('reconnect-init arriving before channel-open is held, not dropped', async ({ browser }) => {
-  const a = await openTab(browser); // creator → reconnect INITIATOR, announces immediately
-  const b = await openTab(browser, 'gateDelayMs=3000'); // joiner → responder, deliberately late
+test('reconnect-hello arriving before channel-open is held, not dropped', async ({ browser }) => {
+  const a = await openTab(browser); // sends its hello the instant its channel opens
+  const b = await openTab(browser, 'gateDelayMs=3000'); // deliberately late through its own gate
 
   await enrollViaSas(a, b);
   await resetBoth(a, b);
@@ -230,26 +227,21 @@ test('reconnect-init arriving before channel-open is held, not dropped', async (
   await expect(a.getByTestId('auth-state')).toContainText('reconnect');
   await expect(b.getByTestId('auth-state')).toContainText('reconnect');
 
-  // And it authenticated by the PIN, not by silently falling back to a fresh SAS comparison.
-  await expect(b.locator('.hs-diag')).toContainText('holding reconnect-init');
-  await expect(b.locator('.hs-diag')).toContainText('replaying held reconnect-init');
+  // And the frame took the hold-and-replay path, not a drop.
+  await expect(b.locator('.hs-diag')).toContainText('holding reconnect-hello');
+  await expect(b.locator('.hs-diag')).toContainText('replaying held reconnect-hello');
 });
 
 /**
- * REGRESSION (2026-09-18): the raw `pairingId` must NOT appear on the wire.
- *
- * A reconnect rendezvous is a plain 4-digit room — enumerable, bounded only by the server's per-IP
- * rate limit — so a code-guesser that wins the race reaches the open channel BEFORE any
- * authentication and used to be handed the initiator's `pairingId`: a stable per-pair identifier,
- * correlatable across sessions. It could never forge a proof, so this was linkability rather than an
- * auth break, which is exactly why it survived two audits as "small".
- *
- * The announcement is now `HMAC(pairingId, fp_min || fp_max)` truncated to the same length, so a
- * peer holding the pin recognises it by recomputing while a stranger sees bytes that differ every
- * session. This test reads the frames the DataChannel actually sent — asserting the crypto in a unit
- * test proves the tag differs from the id, not that the tag is what goes out.
+ * REGRESSION (2026-09-18, widened 2026-09-25): the raw `pairingId` must NOT appear on the wire —
+ * neither on the DataChannel nor, now that the rendezvous is DERIVED from it, in the room name the
+ * signaling socket asks the untrusted server for. The pairingId is the pairing SECRET: the token is
+ * a keyed, truncated HMAC of it under a time bucket, the hello carries a MAC and a challenge, and the
+ * proof carries a signature — nothing that goes out is the id, and nothing correlates across buckets.
+ * This test reads what was actually sent (frames on the channel, the socket URL) — asserting the
+ * crypto in a unit test proves the derivations differ from the id, not that they are what goes out.
  */
-test('the raw pairingId never goes on the wire', async ({ browser }) => {
+test('the raw pairingId never goes on the wire — not in a frame, not in the room name', async ({ browser }) => {
   const a = await openTab(browser);
   const b = await openTab(browser);
 
@@ -257,6 +249,9 @@ test('the raw pairingId never goes on the wire', async ({ browser }) => {
   // The pinned pairingId, read from A's own diagnostics — the value that must NOT be announced.
   const pinnedId = (await a.getByTestId('pinned-peer-id').textContent())?.trim() ?? '';
   expect(pinnedId, 'enrollment should have pinned a pairingId').toMatch(/^[0-9a-f]{32}$/);
+  // Every signaling socket A opens from here on, by URL (the room name rides the query string).
+  const socketUrls: string[] = [];
+  a.on('websocket', (ws) => socketUrls.push(ws.url()));
 
   // Capture every control frame A puts on the channel, from the test side.
   //
@@ -288,13 +283,65 @@ test('the raw pairingId never goes on the wire', async ({ browser }) => {
   await expect(a.getByTestId('auth-state')).toContainText('reconnect');
 
   const frames = await a.evaluate(() => (window as unknown as { __sentFrames?: string[] }).__sentFrames ?? []);
-  const init = frames.map((f) => { try { return JSON.parse(f); } catch { return null; } })
-    .find((f) => f && f.kind === 'reconnect-init');
-  expect(init, 'A should have announced itself with a reconnect-init').toBeTruthy();
+  const hello = frames.map((f) => { try { return JSON.parse(f); } catch { return null; } })
+    .find((f) => f && f.kind === 'reconnect-hello');
+  expect(hello, 'A should have sent a reconnect-hello').toBeTruthy();
 
-  // THE ASSERTION. The announced value is present, the right shape, and NOT the pinned id.
-  expect(init.pairingId).toMatch(/^[0-9a-f]{32}$/);
-  expect(init.pairingId, 'the raw pairingId must not be announced').not.toBe(pinnedId);
-  // And it appears nowhere else in anything A sent.
-  expect(frames.join('|'), 'the pairingId must not leak in any other frame either').not.toContain(pinnedId);
+  // THE ASSERTIONS. The hello carries a challenge + MAC and nothing else; nothing A sent contains
+  // the pinned id; and the room A asked the server for is a link-shaped token that is not the id.
+  expect(Object.keys(hello).sort()).toEqual(['challenge', 'kind', 'mac']);
+  expect(frames.join('|'), 'the pairingId must not leak in any frame').not.toContain(pinnedId);
+  const reconnectSockets = socketUrls.filter((u) => u.includes('codeType=token'));
+  expect(reconnectSockets.length, 'the reconnect should have opened a token-room socket').toBeGreaterThan(0);
+  for (const u of reconnectSockets) {
+    const room = new URL(u).searchParams.get('room') ?? '';
+    expect(room).toMatch(/^[A-Za-z0-9_-]{22}$/); // the same shape as a link/QR token
+    expect(room).not.toBe(pinnedId);
+    expect(u).not.toContain(pinnedId);
+    expect(u).not.toContain('create=1'); // join-or-create: the server cannot tell who initiated
+  }
+});
+
+/**
+ * Codeless means SYMMETRIC: it must not matter which device taps first. The helper has A tap first;
+ * here B does, sits on the wait screen, and A arrives later — the exact "I tapped it upstairs, then
+ * walked to the laptop" case, and the one the old create/join split got wrong ("both start → two
+ * rooms that never meet").
+ */
+test('order does not matter: the second device to tap finds the first one waiting', async ({ browser }) => {
+  const a = await openTab(browser);
+  const b = await openTab(browser);
+
+  await enrollViaSas(a, b);
+  await resetBoth(a, b);
+
+  await b.getByTestId('reconnect-btn').click();
+  await expect(b.getByTestId('reconnect-waiting')).toBeVisible({ timeout: 30_000 });
+  await b.waitForTimeout(1500); // genuinely waiting, not racing A to the room
+  await a.getByTestId('reconnect-btn').click();
+
+  await expect(a.getByTestId('status')).toHaveText('connected', { timeout: RECONNECT_ASSERT_TIMEOUT_MS });
+  await expect(b.getByTestId('status')).toHaveText('connected', { timeout: RECONNECT_ASSERT_TIMEOUT_MS });
+  await expect(a.getByTestId('auth-state')).toContainText('reconnect');
+  await expect(b.getByTestId('auth-state')).toContainText('reconnect');
+});
+
+/**
+ * Nobody came. The wait is bounded and the failure names the cause — "the other device did not
+ * show up" — rather than spinning forever or blaming the network. `?reconnectWaitMs=N` (DEV-only,
+ * tree-shaken) shrinks the 10-minute cap so the branch is observable in seconds.
+ */
+test('the other device never taps → a bounded wait ends in a clear "did not show up" failure', async ({ browser }) => {
+  const a = await openTab(browser, 'reconnectWaitMs=4000');
+  const b = await openTab(browser);
+
+  await enrollViaSas(a, b);
+  await resetBoth(a, b);
+
+  await a.getByTestId('reconnect-btn').click();
+  await expect(a.getByTestId('reconnect-waiting')).toBeVisible({ timeout: 30_000 });
+  // B never taps.
+  await expect(a.getByTestId('status')).toHaveText('failed', { timeout: 30_000 });
+  await expect(a.getByTestId('error')).toContainText('did not show up');
+  await expect(b.getByTestId('status')).toHaveText('idle'); // B was never touched
 });

@@ -117,3 +117,17 @@ test('qr post-scan: decoded link joins via the scan paste fallback → authentic
   await expect(sender.getByTestId('auth-state')).toContainText('authenticated');
   await expect(receiver.getByTestId('auth-state')).toContainText('authenticated');
 });
+
+/**
+ * A dead link (expired, already used, or never real): the receiver must be told at once, not left
+ * spinning. Token rooms are join-or-create since 2026-09-25 — the server no longer answers 4009 for
+ * an unknown token, it opens the room — so the receiver itself concludes from an EMPTY room that the
+ * sender is gone (the sender always opens the room before the link exists) and fails as before.
+ */
+test('link negative: a dead link (nobody in the token room) fails at once as "room not found"', async ({ context }) => {
+  const token = randomBytes(16).toString('base64url');
+  const secret = randomBytes(16).toString('base64url');
+  const receiver = await openJoiner(context, `#${token}.${secret}`);
+  await expect(receiver.getByTestId('status')).toHaveText('failed', { timeout: 30_000 });
+  await expect(receiver.getByTestId('error')).toContainText('not found');
+});

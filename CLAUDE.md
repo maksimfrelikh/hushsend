@@ -58,8 +58,9 @@ transfer progress, error). RTK's serializability check stays ON.
 map + a `canGo` guard. States: `idle | creating | awaitingPeer | joining | pairing |
 awaitingSas | confirming | connected | failed`. Illegal transitions are ignored (warn in dev).
 (Identity enrollment is an action on `connected`, not a state; SAS timeouts lead to `failed`
-without adding states. **Reconnect re-auth (4b-ii) adds NO states** — it reuses `pairing →
-confirming → connected | failed`, and `pairing → awaitingSas` when it falls back to SAS.)
+without adding states. **Reconnect re-auth (4b-ii) adds NO states** — it reuses `joining →
+awaitingPeer` (waiting for the other device at the derived rendezvous) `→ pairing → confirming →
+connected | failed`; there is no SAS fallback any more.)
 
 **Hard invariant:** no file bytes flow unless the connection is authenticated (status reaches
 `connected` / the `established` gate, i.e. after key-confirmation or mutual SAS-confirm). Keep
@@ -93,8 +94,8 @@ method used only by the words attempt-cap path).
   AND `room/SAS` branches all go through this gate** — the SAS branch was migrated off a bare
   `!this.established` to the same `peerLeftAbortsPairing(...)` as part of the room per-pair close, so the
   cross-channel race (a peer's post-connect `peer-left` arriving before its DataChannel `sas-confirm`)
-  can no longer tear down a SAS pair where both humans already confirmed. (The **reconnect** branch
-  still uses `!this.established` — it is a separate deferred scenario, reconnect-in-lobby; see BACKLOG.)
+  can no longer tear down a SAS pair where both humans already confirmed. The **reconnect** branch
+  goes through the same gate (since 2026-09-12).
 - **Guess-protection (words anti-bruteforce) is NOT weakened.** A guess is COUNTED whenever
   key-confirmation actually fails (tag mismatch → `onConfirmFailure`) or the transport collapses
   (`onChannelClose`) — both independent of signaling presence, both unchanged. `peer-left` is the SOLE
@@ -115,10 +116,9 @@ method used only by the words attempt-cap path).
   (deleted only when empty), **unrelated pairs are untouched** (their liveness is their own
   DataChannel/ICE — and `onPeerLeft` returns early for any `peer-left` whose id ≠ `this.peerId`, after
   the roster update), and the **other peer in our own pair** observes our `peer-left` already gated away
-  by channel-open (the SAS gate above). **Reconnect** runs over its own fresh socket (method `room`,
-  `sas` + `reconnect` set) and since 2026-09-12 is **INCLUDED** like every other method — the old
-  `this.reconnect != null` guard in `closeSignalingAfterConnect` is GONE, so the function now gates on
-  the method alone. Keeping the socket was itself a signal ("this pair has met before" + the session
+  by channel-open (the SAS gate above). **Reconnect** runs over its own fresh socket (method
+  `reconnect`, a derived token room, no `sas`) and since 2026-09-12 is **INCLUDED** like every other
+  method — `closeSignalingAfterConnect` gates on the method alone. Keeping the socket was itself a signal ("this pair has met before" + the session
   duration); `settleReconnect` calls the close, and the reconnect `onPeerLeft` branch moved to the
   `peerLeftAbortsPairing` gate so our own close cannot abort a peer mid-settle. **Failure paths**
   (`failDirect`, `failLink`, `failSas`, `failReconnect`, words retry) are untouched: the close is gated
@@ -151,10 +151,12 @@ and **enrollment** transcripts. **For a 1:1 creator↔joiner pair the OUTCOME is
 connection, same authentication; only WHICH side offers/reveals first is now id-ordered. **Fail
 closed**: an unresolved role (missing/equal id) hard-fails the pairing rather than defaulting a side
 (a default could land both on the same role and deadlock). **Exception — reconnect:** the reconnect
-PROTOCOL role (who announces the pairingId / who proves first / `lv(role)` in the reconnect
-transcript) **stays create/join** (creator = reconnect initiator), independent of `this.role`, so the
-verifier-first side is fixed and a key change is caught before a forger can settle; reconnect is 1:1
-creator↔joiner (mesh reconnect is a later step). This per-pairing-role pass is the foundation for the
+PROTOCOL role (who proves first / `lv(role)` in the reconnect transcript) is derived from the **DTLS
+fingerprints** (`crypto/reconnect.ts` `reconnectRoleFor`: the smaller fingerprint is the initiator =
+the verifier-first side), independent of `this.role` — there is no creator any more (the codeless
+reconnect is symmetric), and the readable ids are the server's to choose; the fingerprints are not
+(a MITM presenting its own fails the channel binding regardless). Changed 2026-09-25, from
+create/join. This per-pairing-role pass is the foundation for the
 **Room lobby** (below), which is now built (step 6): the room method no longer auto-pairs — the human
 picks whom to pair with, and the per-pairing role lets ANY pair (incl. joiner↔joiner) raise a correct
 1:1 channel. words/link/qr still auto-pair 1:1 with the single peer.
@@ -185,9 +187,9 @@ PICKS whom to raise a 1:1 channel with.
   peer's own session is undisturbed (it drops the stray offer/commit via the `from !== peerId` gate).
 - **Lobby control frames** (`pair-request` / `busy`) are handled in `onSignal` BEFORE the 1:1
   `from !== peerId` gate (a pick can come from a peer we are not yet paired with). `LobbyScreen` is
-  gated on the plain SAS room (`dev.reconnect.active` false); **reconnect** keeps the simple code screen
-  (`RoomCreateScreen`) and **auto-pairs** 1:1 (reconnect-in-lobby is deferred). **words/link/qr are NOT
-  lobbies** — they auto-pair 1:1 with the single peer (only `peers[0].id` is read from the new welcome
+  the `awaitingPeer` view of the room method only; **reconnect** is its own method (`ReconnectWaitScreen`)
+  and **auto-pairs** 1:1 at a derived token room — it never touches the lobby, so "reconnect-in-lobby"
+  is moot (superseded 2026-09-25). **words/link/qr are NOT lobbies** — they auto-pair 1:1 with the single peer (only `peers[0].id` is read from the new welcome
   form). `LobbyScreen` (`src/ui/screens/`) + `pickPeer`/`onPairRequest`/`onBusy` in `SessionController`;
   e2e in `tests/e2e/lobby.spec.ts` (joiner↔joiner + busy).
 
@@ -376,13 +378,17 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
 
 - **Secret S**: `LINK_SECRET_BYTES = 16` CSPRNG bytes (128 bits), base64url-encoded, never
   user-chosen. It is the key-confirmation IKM and **never reaches the server**.
-- **Rendezvous**: a **high-entropy token** (`codeType=token`) — the server allocates a 128-bit
-  CSPRNG, base64url, 22-char token (`server/signaling-server.js` `tokenCode`, `TOKEN_ROOM_BYTES=16`),
-  NOT the 4-digit room. The link already carries the rendezvous, so a high-entropy token costs nothing
-  in UX while making the rendezvous **unguessable**: a stranger can't enumerate/squat a token room the
-  way the 10k 4-digit space can be scanned, so interloper-resistance is **structural** (the old
-  link/qr lobby-race is closed by construction, not just by rate-limit). Public routing only. The
-  **room method keeps the 4-digit code; words keeps its word**; only link/qr moved to the token.
+- **Rendezvous**: a **high-entropy token** (`codeType=token`) — the CLIENT draws a 128-bit CSPRNG,
+  base64url, 22-char token (`link.ts` `generateRendezvousToken`) and TAKES that room on the server
+  (**token rooms are join-or-create since 2026-09-25** — the first arrival opens the room; the
+  server-side `create=1` allocator, `tokenCode.allocate`, is kept only for compatibility), NOT the
+  4-digit room. The link already carries the rendezvous, so a high-entropy token costs nothing in UX
+  while making the rendezvous **unguessable**: a stranger can't enumerate/squat a token room the way
+  the 10k 4-digit space can be scanned, so interloper-resistance is **structural** (the old link/qr
+  lobby-race is closed by construction, not just by rate-limit). Public routing only. The **room
+  method keeps the 4-digit code; words keeps its word**. The codeless reconnect uses the SAME shape
+  (a token derived from the pairing secret, taken join-or-create), so the server cannot tell a
+  reconnect from a link/QR meeting, nor which side of a link initiated.
 - **Link shape**: `<origin>/#<token>.<S>` (`buildLinkUrl`). The token is PUBLIC (routing); S rides in
   the **fragment**, which browsers never send to the server. Both halves are base64url with no
   padding, so neither contains `.` and `parseLink` splits cleanly on the first `.`.
@@ -394,7 +400,7 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
   mismatch (no S / wrong S / MITM with different certs) → `failed`, **no byte**. The words domain
   is unchanged — `makeConfirmation`/`verifyConfirmation` gained an optional trailing `domain` arg
   that defaults to `CPACE_CONFIRM_DOMAIN`, so the words call sites are byte-for-byte identical.
-- **Flow** (maps onto existing states, no new ones): A `create=1` → `awaitingPeer` shows the link
+- **Flow** (maps onto existing states, no new ones): A takes its token → `awaitingPeer` shows the link
   (creator only; surfaced as `credential[0]`, same as words surfaces its secret words) → `peer-joined`
   → at pairing start the WebRTC **initiator is the smaller readable id** (see **Per-pairing role**;
   either side may offer, not necessarily the creator) → DTLS → key-confirmation over S → `connected`.
@@ -410,8 +416,10 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
 - **Fragment scrub**: the joiner reads `location.hash` on page load, extracts the token + S, **scrubs
   the fragment immediately** via `history.replaceState` (before any await — see `LinkFragmentJoin`
   in `App.tsx`), and sends only the token to the server (`join`, `codeType=token`). A malformed/absent
-  fragment is a no-op (stay home); a valid-but-dead room surfaces later as the "room not found"
-  failure. `parseLink` validates strictly (token = `RENDEZVOUS_TOKEN_LEN`=22 base64url chars, S decodes
+  fragment is a no-op (stay home); a valid-but-dead link surfaces as the "room not found" failure the
+  moment the joiner finds the token room EMPTY (`onWelcome`: token rooms are join-or-create, so the
+  server no longer says 4009 — but the sender always opens the room before the link exists, so
+  "nobody here" means expired/used; `link.spec.ts` "dead link"). `parseLink` validates strictly (token = `RENDEZVOUS_TOKEN_LEN`=22 base64url chars, S decodes
   to exactly 16 bytes) — the input is attacker-influenced; an old 4-digit-style code is now rejected.
 - **qr**: the SAME link, rendered to an SVG QR locally (`src/ui/qr.ts`, `qrcode`); the joiner SCANS
   it with the camera (`getUserMedia` + the `barcode-detector` ponyfill — native `BarcodeDetector`,
@@ -463,27 +471,40 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
   success each side pins `pairingId → peerPublicKey`. Frames (`enroll-init {pairingId, pubKey,
   sig}`, `enroll-ack {pubKey, sig}`) are zod-validated to exact lengths (pairingId 16B, pubKey
   32B, sig 64B).
-- **Reconnect (TOFU re-auth, done — 4b-ii)**: when both sides ALREADY hold a pin for the same
-  `pairingId` (from a prior enrollment), they reconnect with **NO human step** — a mutual signature
-  under the pinned keys replaces SAS/words. It reuses the room rendezvous and rides on top of the
-  SAS state, which stays primed as the fallback. Path selection: the initiator announces the
-  pairingId (`reconnect-init`); both look up their pin.
-  **What is actually announced is a BLINDED tag, not the pairingId (since 2026-09-18).** The
-  rendezvous is a plain 4-digit room and auto-pairs, so a code-guesser can reach the open channel
-  before any authentication and used to be handed a stable per-pair identifier. The initiator now
-  sends `HMAC(key = pairingId, DOMAIN ‖ fp_min ‖ fp_max)` truncated to the id's own length
-  (`blindPairingId`); the responder recognises it by RECOMPUTING it against each pin it holds
-  (`matchBlindedPairingId`) rather than looking it up. The wire field keeps its historical name and
-  length on purpose — an older peer still parses the frame, matches nothing and falls back to SAS,
-  instead of failing validation and hanging. The signing transcript below is UNCHANGED: it still
-  binds the real pairingId, which both sides know. Both-have-pin → reconnect-auth; a pin
-  missing on either side → `reconnect-fallback` → the normal first connect (SAS + enrollment).
-  **Reconnect's `role` is the EXCEPTION to the per-pairing rule: it stays create/join** (creator =
-  reconnect initiator = the side that announces the pairingId and is the verifier-first), NOT the
-  id-derived `this.role`. This is deliberate — the verifier-first side must be fixed so a key change
-  is caught before a forger can settle; reconnect is 1:1 creator↔joiner (mesh reconnect is a later
-  step). `lv(role)` in the transcript below uses this reconnect role.
-  Each side proves possession of its pinned private key over a fresh, channel-bound transcript:
+- **Reconnect (TOFU re-auth, done — 4b-ii; CODELESS since 2026-09-25)**: when both sides ALREADY
+  hold a pin for the same `pairingId` (from a prior enrollment), they reconnect with **NO human step
+  and NO code** — each taps **Reconnect** on the other's recent-devices row, and the pin does the
+  rest. The `pairingId` (16 CSPRNG bytes minted at enrollment over the authenticated channel, held
+  only in the two keystores, in no signaling schema) is the **pairing SECRET** three things are keyed
+  by (`crypto/reconnect.ts`, all pure + unit-tested):
+  1. **Rendezvous — WHERE.** `reconnectRendezvous(pairingId, bucket)` =
+     `HMAC(pairingId, lv("hushsend/identity/reconnect-rendezvous") ‖ lv(bucket))[0..16]`, base64url →
+     a 22-char token of exactly the link/QR shape. `bucket = floor(now / RECONNECT_BUCKET_MS)` (10 min).
+     Each side asks the server for that token room **join-or-create** (`{join: token, codeType:
+     'token'}`, never `create`) — whoever taps first opens it, the other finds it, order is irrelevant.
+     The server sees a token room indistinguishable from a link/QR one, cannot tell "these two have
+     met before", and cannot link one bucket's token to the next. A side waiting alone
+     (`ReconnectWaitScreen`, `awaitingPeer`) **re-takes the rendezvous** at every bucket boundary (so
+     two clocks that disagree by less than a bucket still meet, at worst after the skew has elapsed)
+     and every `RECONNECT_REFRESH_MS` (2 min, well inside the server's 3-min token TTL — a fresh room
+     for a late peer), answers a `room-closed`/server close with another take (bounded by
+     `RECONNECT_MAX_REJOINS` = 8), and gives up at `reconnectWaitMs()` (10 min; DEV knob
+     `?reconnectWaitMs=N` / `__HUSHSEND_RECONNECT_WAIT_MS__`) with the stable
+     `RECONNECT_NO_SHOW_REASON` ("did not show up" — its own FailedScreen variant). Nothing about the
+     token is projected to the store. `SessionController.reconnectRendezvous.test.ts`.
+  2. **Hello — WHO.** Meeting at the token is not authentication: the untrusted server can put
+     anyone into any room. At channel-open both sides derive the **role from the DTLS fingerprints**
+     (`reconnectRoleFor`: fp_min = initiator; equal/missing → fail closed) and send
+     `reconnect-hello {challenge, mac}` with `mac = HMAC(pairingId, lv(domain) ‖ lv(challenge) ‖
+     lv(fp_min) ‖ lv(fp_max) ‖ lv(role))`. A verified hello is the ONLY thing that unlocks the next
+     step, so the long-term identity key is disclosed to a proven pin-holder alone — a stranger cannot
+     produce one and learns nothing from ours (128-bit secret; channel-bound; role-bound, so our own
+     hello reflected back fails). Mismatch → hard stop `RECONNECT_STRANGER_REASON`.
+  3. **Proof — the pinned key.** Verifier-first ordering: the **responder proves first** (after the
+     initiator's hello verified), the initiator verifies, proves, and **settles only on the responder's
+     `reconnect-ok`** — so the two sides never disagree about the outcome (a responder that hard-stops
+     on the initiator's proof never leaves the initiator connected to nobody). Each proof is the
+     channel-bound signature under the pinned identity:
 ```
   sign( lv("hushsend/identity/reconnect") || lv(pairingId) || lv(challengeInitiator) || lv(challengeResponder) || lv(fp_min) || lv(fp_max) || lv(role) )
 ```
@@ -494,32 +515,24 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
   changed** hard stop (SSH-style — the peer under this id is using a different key; a visible stop,
   never a toast, no bytes). (2) does the signature verify under the PINNED key over the transcript
   rebuilt with OUR fingerprints + the peer's role? No (key matched) → channel-binding / **MITM**
-  hard stop, no bytes. Both pass → authenticated reconnect (`connected`, no re-enrollment).
-  **Replay** is closed by the channel binding (a fresh DTLS cert per session) AND the explicit
-  challenges (so freshness does not rely on assuming the cert is fresh). Frames (`reconnect-init
-  {pairingId, challenge}`, `reconnect-proof {challenge, pubKey, sig}`, `reconnect-fallback {}`) are
-  zod-validated to exact lengths (pairingId 16B, challenge 16B, pubKey 32B, sig 64B). DEV/TEST knob
-  `?forgeReconnectKey=1` makes a side present a fresh key under the real pairingId, driving the
-  key-changed e2e.
-  **Liveness deadline (the reconnect wait has a timeout — fail-closed):** the re-auth wait
-  (reconnect-init → reconnect-proof/fallback) has its OWN deadline, **INDEPENDENT of the SAS timers**.
-  The reconnect path keeps `this.sas` primed as the fallback, so the SAS pre-timer is also armed — but
-  that guards the SAS commit-reveal, NOT a stalled reconnect-init/-proof. Without this, a **mismatched
-  entry** (one side on the reconnect path while the peer joined via the plain-SAS lobby → a fresh SAS,
-  never a reconnect response) would hang in `pairing` ("agreeing on keys") forever. The deadline is
-  **prod-fixed at 120 s** (same as the pre-SAS default; reconnect is automatic, so the exact value is
-  not critical — only that a stalled re-auth fails closed) and read through a **DEV-only override**
-  `reconnectTimeoutMs()` (`?reconnectTimeoutMs=N` / `window.__HUSHSEND_RECONNECT_TIMEOUT_MS__`,
-  `import.meta.env.DEV`-gated → tree-shaken in prod, kept SEPARATE from the SAS knobs). Armed at
-  pairing start (`beginPairing`, reconnect path only); cleared on settle/fallback/fail/dispose (a
-  Max-privacy ICE failure also clears it via `failDirect`; `failSas` cross-closes it too, so a
-  parallel reconnect timer can't fire a second teardown on a reconnect→SAS fallback); expiry →
-  `failReconnect` (→ `failed` +
-  close), the SAME
-  terminal path as a key-change / MITM. This is a **LIVENESS bound, not a security one** — the two-check
-  verify, the reconnect **role (stays create/join)**, the wire frames, and the crypto are UNCHANGED;
-  it only turns the mismatched-entry hang into a clean `failed`. DEV knob `?stallReconnect=1` (withholds
-  the reconnect-proof) drives the firing e2e (`tests/e2e/reconnect.spec.ts`).
+  hard stop, no bytes. Both pass → authenticated reconnect (`connected`, no re-enrollment; path
+  attestation starts like every method). **Replay** is closed by the channel binding (a fresh DTLS
+  cert per session) AND the explicit challenges. Frames (`reconnect-hello {challenge, mac}`,
+  `reconnect-proof {challenge, pubKey, sig}`, `reconnect-ok {}`) are zod-validated to exact lengths
+  (challenge 16B, mac 32B, pubKey 32B, sig 64B); the old `reconnect-init` / `reconnect-fallback` are
+  gone. DEV/TEST knob `?forgeReconnectKey=1` makes a side present a fresh key under the real
+  pairingId, driving the key-changed e2e.
+  **No SAS fallback.** A device that lacks the pin cannot derive the token, so it never arrives; the
+  other side's wait ends in "did not show up" and the copy says to pair afresh by any method (which
+  pins again). Nothing rides on top of `this.sas` any more.
+  **Liveness deadline (fail-closed):** once a peer is engaged at the rendezvous the hello → proof →
+  ok exchange has a deadline **prod-fixed at 120 s** (`reconnectTimeoutMs()`, DEV override
+  `?reconnectTimeoutMs=N` / `window.__HUSHSEND_RECONNECT_TIMEOUT_MS__`, tree-shaken in prod). Armed at
+  pairing start (`beginPairing`, reconnect path only, which also disarms the wait/refresh timers);
+  cleared on settle/fail/dispose (a Max-privacy ICE failure also clears it via `failDirect`); expiry
+  → `failReconnect` (→ `failed` + close), the SAME terminal path as a key-change / MITM. A liveness
+  bound, not a security one. DEV knob `?stallReconnect=1` (withholds the reconnect-proof) drives the
+  firing e2e (`tests/e2e/reconnect.spec.ts`).
 - **Keystore** (IndexedDB, behind a `KeystoreBackend` port — an IndexedDB impl for the app, an
   in-memory impl for unit tests): stores own identity (non-extractable `CryptoKey` or noble seed)
   and pinned peer keys (`pairingId → { peerPublicKey, firstSeen, label? }`). Pinning on first
@@ -788,10 +801,13 @@ X-Forwarded-For; binds to `127.0.0.1` (only the local nginx reaches it). Run wit
   validator + allocator. THREE codeTypes for `filetransfer`: **''** (default, 4-digit `code`/`allocate`
   — the ROOM method); **`word`** (server keeps its own EFF short #2 copy, allocates a rendezvous word
   via the same collision-retry loop, validates membership on join — the WORDS method); **`token`** (a
-  128-bit CSPRNG base64url token, `TOKEN_ROOM_BYTES=16` → 22 chars, allocated via `randomBytes` +
-  `allocateCode`, validated by `TOKEN_RE` strict format/length on join — the link/QR method). The
-  client selects via `?codeType=word` / `?codeType=token`. Word/token rooms expire on TTL or
-  cap-reached; freed words return to the pool.
+  128-bit base64url token, 22 chars, validated by `TOKEN_RE` strict format/length — the link/QR
+  method AND the codeless reconnect). **Token rooms are JOIN-OR-CREATE** (`tokenCode.joinMayCreate`,
+  since 2026-09-25): the client takes a token (`room=<token>&codeType=token`) and the first arrival
+  opens the room, exactly like the second finds it — so the server cannot tell a link/QR meeting from
+  a reconnect, nor which side initiated. (`create=1&codeType=token` still allocates one server-side,
+  compatibility only.) The client selects via `?codeType=word` / `?codeType=token`. Word/token rooms
+  expire on TTL or cap-reached; freed words return to the pool.
 - **Managed-room hardening (all codeTypes — done in 6a; token added pre-deploy)**: the `filetransfer`
   app is flagged **`managed: true`**, which governs the TTL + per-IP rate-limit for ALL its rooms
   (4-digit, word, token). The **seat cap is a SEPARATE, codeType-dependent decision** (`managed` ≠ 1:1):
@@ -806,13 +822,15 @@ X-Forwarded-For; binds to `127.0.0.1` (only the local nginx reaches it). Run wit
     mesh has no `wordCode`/`tokenCode` → `is1to1` is always false → it keeps its own `cfg.maxPeers`
     lobby, unchanged.)
   - **TTL until connected** — `closeRoom(key,'expired')` notifies members (`{type:'room-closed'}`),
-    closes their sockets (**4010**), and FREES the code (a later join → **4009 `'room not found'`**),
-    via the extracted `makeTtlTimer(key, ttlMs)` (unref'd). The **4-digit lobby uses an IDLE timeout**
-    (`ROOM_TTL_MS`, default **180000** ~3 min): armed on CREATE and **re-armed on every JOIN** (only
-    when `cfg.managed && !is1to1`), so an actively-joined lobby lives while a stale one expires.
-    The **1:1 words AND token rooms arm their TTL once at CREATE and NEVER re-arm** (`WORD_ROOM_TTL_MS`
-    / `TOKEN_ROOM_TTL_MS`, default 180000) — a re-arm would let an attacker keep a 1:1 room alive by
-    rejoining (for words it would also defeat the guessing bound). All env-overridable. The creator may
+    closes their sockets (**4010**), and FREES the code (a later 4-digit/word join → **4009 `'room not
+    found'`**; a token is simply taken again), via the extracted `makeTtlTimer(key, ttlMs)` (unref'd).
+    Armed whenever a managed room COMES INTO BEING (`created` — a CREATE, or the first arrival at a
+    join-or-create token). The **4-digit lobby uses an IDLE timeout** (`ROOM_TTL_MS`, default
+    **180000** ~3 min): **re-armed on every JOIN** (only when `cfg.managed && !is1to1`), so an
+    actively-joined lobby lives while a stale one expires. The **1:1 words AND token rooms arm their
+    TTL once and NEVER re-arm** (`WORD_ROOM_TTL_MS` / `TOKEN_ROOM_TTL_MS`, default 180000) — a re-arm
+    would let an attacker keep a 1:1 room alive by rejoining (for words it would also defeat the
+    guessing bound). A reconnecting client waiting alone re-takes its token every 2 min itself. All env-overridable. The creator may
     also tear down early via `{type:'destroy'}`
     (reason `'destroyed'`). After `connected`, closing signaling does NOT drop the live P2P channel —
     the TTL only bounds the pre-connection rendezvous window (client treats the close as benign once
@@ -914,8 +932,11 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
        on first successful connect, channel-bound).
      - **4b-ii** — **reconnect**: mutual challenge-response signatures (channel-bound, replay-
        resistant) under the pinned keys; two-check verify (key-changed vs MITM) + "key changed" hard
-       stop; falls back to SAS + enrollment when a pin is missing. `reconnect.ts` + e2e (happy +
-       key-changed).
+       stop. **Codeless since 2026-09-25**: a rendezvous token derived from the pairing secret
+       (join-or-create), a hello MAC before any identity key is shown, roles from the DTLS
+       fingerprints, `reconnect-ok` so both sides agree; the SAS fallback and the 4-digit reconnect
+       code are gone. `reconnect.ts` + e2e (happy, order-independent, stall, key-changed, held frame,
+       wire hygiene, no-show).
 5. **Real UI screens** — kit-based, status-driven screens (no router), persistent state across
    tabs / reload.
    - ✅ **5a (this step)** — real screens for the existing methods: home (method select + recent
@@ -956,8 +977,9 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
      as the SAS reader/picker; unit-tested in `pairingRole.test.ts`), NOT create/join. This breaks the
      joiner↔joiner deadlock (both `responder` → no WebRTC offer + SAS commit-reveal stall) for the
      mesh lobby: the WebRTC offer, CPace init, SAS nonce/commit order, and key-confirmation/enrollment
-     `lv(role)` all follow it; reconnect's protocol role stays create/join (the exception). 1:1 outcome
-     unchanged. Foundation for the lobby-UI (next). See **Per-pairing role** §.
+     `lv(role)` all follow it; reconnect's protocol role is the exception — from the DTLS
+     fingerprints since 2026-09-25 (was create/join). 1:1 outcome unchanged. Foundation for the
+     lobby-UI (next). See **Per-pairing role** §.
    - ✅ **6c — Room lobby UI (mesh roster + pick→connect)** — the room method no longer auto-pairs:
      creator AND joiners land in `awaitingPeer` (`joining → awaitingPeer`, no new state) and see a
      `LobbyScreen` — the 4-digit code + a roster (`connection.roster` = `{id, device, joinedAt}` from
@@ -966,12 +988,11 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
      clear notice (no hang). Works for ANY pair incl. **joiner↔joiner**. Signaling protocol grew:
      `welcome.peers` + `peer-joined` now carry `{id, device, joinedAt}` (coarse device label sent by
      the client, server-capped ≤32 + server-stamped joinedAt). words/link/qr are NOT lobbies (auto-pair
-     with one peer); reconnect keeps the simple code screen + auto-pairs. `LobbyScreen` +
+     with one peer); reconnect is its own codeless method (own wait screen, auto-pairs). `LobbyScreen` +
      `pickPeer`/`onPairRequest`/`onBusy`; `tests/e2e/lobby.spec.ts` (joiner↔joiner + busy),
      `connectionSlice.test.ts` (roster), `room-server.test.ts` (roster protocol). See **Room lobby** §.
-     **Deferred:** reconnect-in-lobby (lobby picks always do a fresh SAS; reconnect stays a separate
-     by-code path — when it gains lobby support its reconnect role must move to id-order too),
-     return-to-lobby after a finished/aborted session, and link/qr lobby-race resistance — see BACKLOG.
+     **Deferred:** return-to-lobby after a finished/aborted session — see BACKLOG. (reconnect-in-lobby
+     was superseded by the codeless reconnect on 2026-09-25; link/qr lobby-race resistance is done.)
    - ✅ **6d — TURN relay + Reliable / Max-privacy (STRICT) mode** *(DONE)* —
      **server side**: the signaling server mints short-lived HMAC coturn credentials on a
      `turn-request` frame (`use-auth-secret` scheme, `TURN_SECRET` shared with coturn + never sent to
@@ -1035,15 +1056,17 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
 - ✅ `src/core/crypto/` — `cpace` (CFRG draft-21 vectors passing), `keyConfirmation` (channel
   binding + MITM tests), `sas` (commit-before-reveal, HKDF-SHA512, fingerprint binding, timeouts,
   zod length checks), `identity` (Ed25519, WebCrypto non-extractable + noble fallback),
-  `enrollment` (TOFU exchange + pin, channel-bound), `reconnect` (TOFU re-auth: channel-bound
-  signature under the pinned key + fresh challenges, two-check verify, key-change detection). Words
-  wordlist (EFF short #2) programmatic.
+  `enrollment` (TOFU exchange + pin, channel-bound), `reconnect` (TOFU re-auth, codeless: the
+  derived rendezvous token + time bucket, roles from the DTLS fingerprints, the hello MAC, the
+  channel-bound signature under the pinned key + fresh challenges, two-check verify, key-change
+  detection, the hello/proof/ok wire schemas). Words wordlist (EFF short #2) programmatic.
 - ✅ `src/core/keystore/` — IndexedDB (+ in-memory backend for unit tests) behind
   `KeystoreBackend`; own identity key + pinned peer keys (`pairingId → peer key`). Cross-tab
   identity-generation single-flight via `navigator.locks`; "key changed" detection on reconnect.
 - ✅ `src/core/words/` — `generateWords` (CSPRNG, rejection-sampled), rate-limit counter (≤10
   attempts), TTL handling (does not kill live P2P).
 - ✅ `src/core/link/` — `link.ts` (pure): `generateLinkSecret` (16 CSPRNG bytes, base64url),
+  `generateRendezvousToken` (the client-drawn token room the creator takes — join-or-create),
   `buildLinkUrl` (`<origin>/#<token>.<S>`), `parseLink` (strict: 22-char base64url rendezvous TOKEN +
   16-byte S, no throw; rejects an old 4-digit code). The rendezvous is a high-entropy token
   (`RENDEZVOUS_TOKEN_BYTES = 16`), so link/qr can't be enumerated/squatted. Used by the link/qr
@@ -1065,7 +1088,11 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   transport/crypto role is fixed from the readable ids in `SessionController.beginPairing` via
   `src/core/pairingRole.ts` `pairingRoleFor` (smaller id = initiator; same id order as
   `sasRole.ts`; `pairingRole.test.ts`) — drives the WebRTC offer, CPace init, SAS nonce/commit
-  order, and key-confirmation/enrollment `lv(role)`; reconnect's protocol role stays create/join.
+  order, and key-confirmation/enrollment `lv(role)`; reconnect's protocol role comes from the DTLS
+  fingerprints instead (`reconnectRoleFor`). The codeless reconnect's wait logic (derive the token,
+  re-take it at bucket boundaries / before the TTL / on a server close, give up with a clear reason)
+  lives in `reconnectTo` / `takeReconnectRendezvous` / `rejoinReconnectRendezvous`
+  (`SessionController.reconnectRendezvous.test.ts`, fake signaling + fake timers).
   Pre-PC WebRTC signals (offer/answer/ICE arriving for the active pairing while `this.peer` is null —
   e.g. a Reliable answerer still awaiting coturn creds in `startPeer`) are buffered in
   `pendingPeerSignals` and replayed by `flushPendingPeerSignals` after the PC is built, then cleared on
@@ -1085,13 +1112,13 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
 - ✅ `src/ui/` — **real, status-driven screens (steps 5a + 5b)**, built on kit tokens (monochrome,
   inversion-as-emphasis, light/dark via `[data-theme]`, EN/RU). `ScreenRouter` picks a screen by
   FSM status (+ method/phase); `HomeScreen` (landing → method picker [link / qr / words / room] →
-  words-receive + QR-scan-receive, **a "Reconnect a device" section with an EXPLICIT create-vs-join
-  split** — a one-line hint + **Start** [tap a recent device → `createReconnectSession` opens a room +
-  shows a code] vs **Join — enter the code the other side is showing** [`joinReconnectSession`], so
-  "both start → two rooms" / "reconnect + plain join → handshake mismatch" stop being easy mistakes
-  (UI-only; protocol/roles/wire unchanged), join-by-code, **functional "Max
-  privacy" / Reliable toggle** — step 6d, drives `iceServers`), `RoomCreateScreen` (reconnect create
-  path — code + waiting), `LobbyScreen` (step
+  words-receive + QR-scan-receive, **a "Reconnect a device" section with ONE button per recent
+  device** — tap **Reconnect** here and on the other device, no code shown or typed
+  (`session.reconnectTo(pairingId)`; the create/join split and the code input are gone with the
+  code, 2026-09-25), join-by-code (room), **functional "Max privacy" / Reliable toggle** — step 6d,
+  drives `iceServers`), `ReconnectWaitScreen` (the reconnect's `awaitingPeer`: "waiting for the other
+  device — open hushsend there and tap Reconnect", deliberately shows no code and no token; the old
+  `RoomCreateScreen` is deleted), `LobbyScreen` (step
   6c — the room mesh lobby: code + roster [`connection.roster` id/device/joinedAt] + a Connect button
   per peer → `pickPeer`), `WordsCreateScreen`, `LinkCreateScreen` (one-time link +
   copy/share), `QrCreateScreen` (the link as an SVG QR), `ScanScreen` (qr receive: camera +
@@ -1105,7 +1132,8 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   `transferActions.reset()`s the per-transfer projection + clears the local pick → a CLEAN
   ready-to-send per send, no leftover progress/file-name from the prior transfer; the drop zone shows
   only in a clean `idle`. Does NOT touch the connection or clear the history records), `FailedScreen`
-  (+ key-changed hard stop). The link fragment auto-join + scrub lives in `App.tsx`
+  (+ key-changed hard stop, + the reconnect "did not show up" variant keyed off
+  `RECONNECT_NO_SHOW_REASON`). The link fragment auto-join + scrub lives in `App.tsx`
   (`LinkFragmentJoin`). Shared `ui.tsx` (TopBar, StatusBeacon, PrivacyToggle, CopyButton,
   ShareButton, Eyebrow, …), `components/` (`WordPicker`, DEV-only `Diagnostics`), `qr.ts`
   (link→SVG QR via `qrcode`; `qr.test.ts`), `prefs.tsx` + `i18n.ts` (lang/theme/**privacy mode**, the
@@ -1113,9 +1141,10 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   (+ `sasOptions.test.ts`: SAS pick-from-3 decoys + scoring) over `random.ts` (CSPRNG),
   `recentDevices.ts` (recent devices read from the keystore, **deduped by `peerPublicKey`** —
   `dedupeByPeerKey`, ONE row per distinct peer key keeping the most-recent pin; its `pairingId` drives
-  the reconnect tap [`createReconnectSession(pairingId?)`], its `label`/`firstSeen` the row — so a peer
-  that holds several pins under distinct pairingIds [fresh-enroll / dual-pin] shows once. Display-only:
-  pins are NOT GC'd; reconnect wire protocol unchanged. `recentDevices.test.ts`). **Transfer history is
+  the reconnect tap [`reconnectTo(pairingId)`] — and since both sides pinned that freshest pin at the
+  same enrollment, both derive the same rendezvous from it — its `label`/`firstSeen` the row — so a
+  peer that holds several pins under distinct pairingIds [fresh-enroll / dual-pin] shows once.
+  Display-only: pins are NOT GC'd. `recentDevices.test.ts`). **Transfer history is
   SESSION-ONLY** — an in-memory Redux slice (`src/store/historySlice.ts`), NOT persisted (file names are
   a privacy trail; gone on reload), kept **bounded** (`HISTORY_CAP = 12`) + **clearable** (`forgotten`,
   via the home "forget"); the per-send transfer reset does NOT clear it (`transferSlice.test.ts` /
@@ -1130,11 +1159,13 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   rate-limit). **Seat cap is codeType-dependent (NOT `managed`):** the 4-digit **room** rendezvous is a
   **mesh LOBBY** (`maxPeers` = `FILETRANSFER_MAX_PEERS`, default 8); the **words** AND link/qr **token**
   rendezvous are strictly 1:1 (`ONE_TO_ONE_MAX_PEERS = 2`); a joiner past the cap → 4002. The **token**
-  codeType (`tokenCode`) allocates a 128-bit base64url token (`TOKEN_ROOM_BYTES=16`, `TOKEN_RE`
-  validator) so link/qr rendezvous is unguessable. **TTL until connected** frees the code
-  (4010 close / 4009 later): the 4-digit lobby TTL is an **idle timeout** (`ROOM_TTL_MS`, re-armed on
-  each join via `makeTtlTimer`); the 1:1 words AND token TTLs stay from CREATE (`WORD_ROOM_TTL_MS` /
-  `TOKEN_ROOM_TTL_MS`, no re-arm). Per-IP
+  codeType (`tokenCode`, `TOKEN_RE` validator, 22 base64url chars) is **join-or-create** (since
+  2026-09-25): the client TAKES a token and the first arrival opens the room — link/QR (a random
+  token) and the codeless reconnect (a token derived from the pairing secret) look identical to the
+  server. **TTL until connected** frees the code (4010 close; a later 4-digit/word join → 4009; a
+  token can simply be taken again): the 4-digit lobby TTL is an **idle timeout** (`ROOM_TTL_MS`,
+  re-armed on each join via `makeTtlTimer`); the 1:1 words AND token TTLs are armed once when the
+  room comes into being (`WORD_ROOM_TTL_MS` / `TOKEN_ROOM_TTL_MS`, no re-arm). Per-IP
   create/join rate-limit unchanged (`IP_RL_MAX` / `IP_RL_WINDOW_MS`, 4011, loopback-exempt), creator
   destroy. `clipboard` mesh opts out. **TURN creds (6d, server side — done):** `turn-request` →
   `turn-credentials` mints short-lived HMAC coturn creds (`use-auth-secret`; `TURN_SECRET` shared with
@@ -1177,40 +1208,43 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   relay candidates are stripped, renegotiation after channel-open is refused, the step-1
   unauthenticated path is deleted, protocol strings are length-bounded, the 1:1 confirm path got its
   own liveness deadline, and the SAS refusals carry the same weight as the confirms. Regressions in
-  `SessionController.auditFixes.test.ts` + `sasRole.test.ts` + `relax.test.ts`. Full write-up and the
-  two items left open (path attestation; blinded `pairingId`) in **BACKLOG.md § Security audit /
-  Second pass**.
+  `SessionController.auditFixes.test.ts` + `sasRole.test.ts` + `relax.test.ts`. Full write-up in
+  **BACKLOG.md § Security audit / Second pass**; of its two open items, path attestation is built
+  (advisory) and the `pairingId` disclosure is closed structurally by the codeless reconnect
+  (2026-09-25: nothing is announced any more).
 - 🔍 **Internal security-audit pass done 2026-09-12** (reasoning + code review, no devices): the
-  reconnect create/join role and the `peerLeftAbortsPairing` narrowing both hold (with sharper
-  arguments now recorded); the **Max-privacy strict relay claim did NOT** — a peer-reflexive candidate
+  reconnect create/join role (since replaced by fingerprint-order roles behind the hello gate,
+  2026-09-25 — BACKLOG § Security audit (a)) and the `peerLeftAbortsPairing` narrowing both held
+  (with sharper arguments recorded); the **Max-privacy strict relay claim did NOT** — a peer-reflexive candidate
   could still complete a relayed path in a mixed-privacy pair, **now fixed** by the selected-path check
   above (§ Max-privacy strict model). Verdicts, the remaining findings, and the doc corrections they
   forced are in **BACKLOG.md § Security audit**. An INDEPENDENT audit is still wanted before a public
   launch.
 
 ## Known residuals / deferred
-- **`pairingId` linkability** (reconnect) — **restated after the 2026-09-12 audit; the earlier text
-  named the wrong mechanism.** The id is an identifier, not a secret, and it carries no key material
-  (the signature under the pinned key is what authenticates). It does **NOT** reach the relay: every
-  reconnect frame rides the **DataChannel** (`sendReconnect` → `this.peer.send`, DTLS-protected) and
-  `pairingId` appears in no signaling schema (`src/types/protocol.ts`). Two real residuals remain:
-  - ✅ **To the untrusted server — FIXED 2026-09-12.** A reconnect pair used to be the ONLY pair that
-    kept its signaling socket open for the whole session, since every other method closes it on
-    `connected`. That behavioural fingerprint told the server both "these two have paired before" and
-    how long the session ran — the exact thing the close exists to deny. `settleReconnect` now calls
-    `closeSignalingAfterConnect` like every other settle, and the reconnect `onPeerLeft` branch moved
-    to the `peerLeftAbortsPairing` gate so the `peer-left` our own close provokes cannot tear down a
-    peer that has not settled yet. (`SessionController.sasPeerLeft.test.ts`; e2e `ws-close.spec.ts`.)
-  - **To a code-guesser:** a reconnect session rendezvous over a plain 4-digit code and auto-pairs with
-    the first joiner, so whoever wins that race receives the `reconnect-init` and learns the raw
-    `pairingId` before authenticating (it cannot forge a proof — hard stop / fallback). A blinded
-    announcement (`HMAC(pairingId, fp_min‖fp_max)`) would fix it. Both tracked in
-    **BACKLOG.md § Security audit / Findings**.
+- **`pairingId` — the pairing secret (restated 2026-09-25).** Earlier text called it "an identifier,
+  not a secret"; that stopped being true on 2026-09-18 (the blinded announcement was keyed by it) and
+  is the opposite of true now: the codeless reconnect derives the rendezvous token and the hello MAC
+  from it. It is 16 CSPRNG bytes minted over the authenticated channel at enrollment, lives only in
+  the two keystores (IndexedDB — see the private-key storage limitation in `keystore/types.ts`; an
+  XSS or a hostile extension that can read pins can read it), reaches no signaling schema, and is
+  never announced: the old code-guesser residual ("whoever wins the 4-digit race learns the
+  pairingId") is **closed structurally** — there is no 4-digit reconnect room and nothing on the
+  channel carries the id. Two small residuals remain, both stated in `crypto/reconnect.ts`:
+  - **Within one 10-minute bucket the token is the same**, so two reconnect attempts in the same
+    bucket show the server the same room name (it already sees the same IPs and timing). Across
+    buckets nothing links.
+  - **Clock skew between the two devices delays the meeting** by up to the skew (each side re-takes
+    the rendezvous at its own boundary); skew of more than a bucket needs the 10-minute wait to
+    absorb it. Not a security property — a stranger cannot compute a token for any bucket.
 - **Dual-pin under different pairingIds if one side loses its keystore** (reconnect). If a peer
-  clears storage (or the keystore is wiped) it no longer holds the pin, so the next connect falls
-  back to SAS + a FRESH enrollment → a NEW pairingId. The other side keeps the stale pin AND gains
-  the new one (two pins for the same human). Benign (the fresh enrollment is itself human-verified),
-  but the keystore accumulates a dead pin. Not fixed (no GC / pin-merge yet).
+  clears storage (or the keystore is wiped) it no longer holds the pin, so it cannot derive the
+  rendezvous: a Reconnect tap on the other side ends in "did not show up" (there is no in-band SAS
+  fallback any more — the copy says to pair afresh by any method). That fresh pairing runs a FRESH
+  enrollment → a NEW pairingId; the other side keeps the stale pin AND gains the new one (two pins
+  for the same human). Benign (the fresh enrollment is itself human-verified), but the keystore
+  accumulates a dead pin, and the recent-devices row keeps pointing at the freshest one, which is
+  the one both sides share. Not fixed (no GC / pin-merge yet).
   (Server cap/TTL/rate-limit for 4-digit rooms is **done — step 6a**; see Signaling server §
   *Managed-room hardening*.)
 
@@ -1292,7 +1326,7 @@ Three paths now do this, and they are the pattern to copy for a fourth:
 |---|---|---|
 | `enroll-*` | `pendingEnrollFrame` | `startEnrollment` (at settle) |
 | `path-attest` | `pendingPathAttest` | `startPathAttestation` |
-| `reconnect-*` | `pendingReconnectFrame` | `onReconnectChannelOpen` (before it decides to send or wait) |
+| `reconnect-*` | `pendingReconnectFrames` | `onReconnectChannelOpen` (right after it sends our own hello) |
 
 The reconnect one was missing until 2026-09-17 and cost a 120 s stall on roughly 1 CI engine-matrix
 night in 5 — see BACKLOG § Third pass for the full chain, including how it was finally proved with the

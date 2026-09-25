@@ -37,9 +37,12 @@ swept under the rug.
 | **Words** | one public word from the EFF short list | **CPace PAKE** over 4 secret words (~41 bits), ≤10 attempts | reading a phrase aloud, over a call |
 | **Room** | 4-digit code → a **mesh lobby** (up to 8 peers, pick who to pair with) | **SAS** — asymmetric pick-from-3: one side reads its phrase, the other picks blind | a room of people, any pair including joiner↔joiner |
 
-Paired once, two devices can **reconnect with no human step**: each proves possession of the pinned
-Ed25519 identity key, channel-bound to the fresh DTLS fingerprints. A key that changed under a known
-pairing is an SSH-style hard stop, never a dismissable toast.
+Paired once, two devices can **reconnect with no human step and no code**: tap *Reconnect* on both,
+in either order, and they meet at a rendezvous derived from the pairing secret they share. Each then
+proves it holds that secret before showing any identity key, and proves possession of the pinned
+Ed25519 identity key, channel-bound to the fresh DTLS fingerprints. To the server a reconnect is
+indistinguishable from a first link meeting. A key that changed under a known pairing is an SSH-style
+hard stop, never a dismissable toast.
 
 ## Privacy modes
 
@@ -116,10 +119,11 @@ be verified without a reference hash.
 
 ## Status
 
-**Feature-complete and deployed.** All four methods, reconnect, the mesh lobby, TURN, i18n (EN/RU),
-light/dark, and the deployment are built and live. **273 vitest tests** and a Playwright e2e suite —
-**39 per engine** across chromium / firefox / webkit, plus a phone profile and 5 cross-engine pairs —
-cover the protocol paths. Counts verified 2026-09-19; refresh them here whenever the suite grows.
+**Feature-complete and deployed.** All four methods, the codeless reconnect, the mesh lobby, TURN,
+i18n (EN/RU), light/dark, and the deployment are built and live. **290 vitest tests** and a
+Playwright e2e suite — **40 per engine** across chromium / firefox / webkit (plus 2 opt-in size
+cases), plus a phone profile and 5 cross-engine pairs — cover the protocol paths. Counts verified
+2026-09-25; refresh them here whenever the suite grows.
 
 A second internal audit on **2026-09-12** (modelling a fully malicious signaling server, not just a
 passive one) found and fixed three complete breaks — SAS certificate grinding, server-chosen pairing

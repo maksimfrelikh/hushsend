@@ -11,9 +11,9 @@ import { Screen, Eyebrow, BackLink, CopyButton } from '../ui';
  * "Connect" button. Picking a peer raises a 1:1 channel with exactly that peer (`pickPeer`), which
  * runs its own SAS — for ANY pair, including joiner↔joiner (the per-pairing role decides who offers).
  *
- * This screen is for the PLAIN SAS room only. The reconnect create path (also room + awaitingPeer)
- * keeps the simple code screen (RoomCreateScreen) — reconnect auto-pairs 1:1, no pick. words/link/qr
- * are not lobbies at all. The hard invariant is unchanged: no file UI here — only `connected` shows it.
+ * This screen is for the PLAIN SAS room only. Reconnect is codeless and has its own wait screen
+ * (ReconnectWaitScreen) — it auto-pairs 1:1 at a derived token, no pick. words/link/qr are not
+ * lobbies at all. The hard invariant is unchanged: no file UI here — only `connected` shows it.
  */
 export function LobbyScreen(): ReactElement {
   const session = useSession();

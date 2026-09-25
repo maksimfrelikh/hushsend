@@ -13,22 +13,23 @@ them as progress.
 - **Target:** the live deploy — `https://hushsend.frelikh.dev` (production build).
 - **Scope closes:** BACKLOG § Step 6 / 6e "Remaining (real devices, post-deploy)" and DEPLOY.md § 0
   "Still pending" (in-browser P2P/SAS/transfer on two devices + cross-network TURN relay).
-- **Out of scope:** the three deferred security-audit items and lobby-pick reconnect (BACKLOG
-  § Security audit). Do not mix reconnect with a plain room join except where a case says so.
+- **Out of scope:** the deferred security-audit items (BACKLOG § Security audit). Reconnect is
+  codeless since 2026-09-25 — there is no reconnect code to mix with a plain room join any more.
 
 > **Plan currency.** Cases B7, B8, C6 and E6 were added on 2026-09-18 for behaviour that landed
 > after this plan was first written (STUN cross-check, the network-exposure disclosure, volume
-> padding, and the reconnect early-frame fix). If you are reading this after further changes, check
+> padding, and the reconnect early-frame fix); Phase E was rewritten on 2026-09-25 for the codeless
+> reconnect (E3/E4 changed meaning, E7 added). If you are reading this after further changes, check
 > `git log --oneline -- src/` against the date above before trusting the coverage: a device pass that
 > silently skips a new feature is worse than one that has not run.
 
 ## 0. Read this before starting
 
 **The production build has no in-app diagnostics.** `Diagnostics` is `import.meta.env.DEV`-gated and
-so is every DEV knob — 13 query params (`?forceBlob=1`, `?forceIceFail=1`, `?forcePathMismatch=1`,
+so is every DEV knob — 14 query params (`?forceBlob=1`, `?forceIceFail=1`, `?forcePathMismatch=1`,
 `?forceRelayPath=1`, `?forgeReconnectKey=1`, `?gateDelayMs=N`, `?maxAttempts=N`, `?preSasTimeoutMs=N`,
-`?reconnectTimeoutMs=N`, `?sasTimeoutMs=N`, `?signalingUrl=…`, `?stallReconnect=1`,
-`?stallSasNonce=1`) and their 13 `__HUSHSEND_*__` global twins. **Verify this rather than assume it**
+`?reconnectTimeoutMs=N`, `?reconnectWaitMs=N`, `?sasTimeoutMs=N`, `?signalingUrl=…`,
+`?stallReconnect=1`, `?stallSasNonce=1`) and their 14 `__HUSHSEND_*__` global twins. **Verify this rather than assume it**
 — the 2026-09-12 audit found three of them (`maxAttempts`, `forceBlob`, `__HUSHSEND_MAX_BYTES__`)
 shipping live in the deployed bundle because they lacked the gate their siblings had, and this very
 paragraph asserted otherwise.
@@ -206,7 +207,7 @@ evidence to exist**:
 | Track | Cases | Count |
 |---|---|---|
 | **T1** — Claude alone, closes the case outright | A4a, A4b, A6, A7 · B7, B9 · D1–D5 · E1–E5 · F3, F5, F6, F7 | 20 |
-| **T1 + T2** — T1 closes the DESKTOP half on real engines; the handset half is a separate tick | A1, A3, A4, A5, A6a · B2, B8 · E6 · F2, F8 | 10 |
+| **T1 + T2** — T1 closes the DESKTOP half on real engines; the handset half is a separate tick | A1, A3, A4, A5, A6a · B2, B8 · E6, E7 · F2, F8 | 11 |
 | **T2** — needs one physical act from you | A2 · B1, B3, B4 · C1–C6 · F1, F4, F9 | 13 |
 | **T1 + T3** — T1 closes the desktop half; the rest is your eyes | B5 (native share sheet) · B6 (phone ergonomics) | 2 |
 
@@ -445,31 +446,50 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
 - [ ] **D5 · SAS mismatch** — on a fresh pair, deliberately pick the **wrong** phrase. Expected: a hard
       failure with a clear message; no transfer possible afterwards.
 
-## Phase E — reconnect (its own by-code path — do not route it through the lobby) · T1, except E6 on a real link
+## Phase E — reconnect (codeless since 2026-09-25: tap Reconnect on both, no code) · T1, except E6/E7 on real devices
 
 - [ ] **E1 · pin created** — after any successful fresh pairing (A1–A4), both devices list the peer
       under recent devices, **once** (the dedup-by-peer-key fix — pair the same two devices 3 times and
       confirm still exactly one row).
-- [ ] **E2 · reconnect happy path** — on MBP-A press **Start** on the IPH row (it opens a room + shows a
-      code); on IPH use **Join** and enter that code. Expected: `connected` **without any SAS screen**
-      (pin-based re-auth), then transfer works.
-- [ ] **E3 · both press Start** — expected: two separate rooms, no rendezvous, and the UI's split hint
-      makes that obvious. Confirm it is understandable, not a mystery hang.
-- [ ] **E4 · mismatched entry fails closed** — one side **Start (reconnect)**, the other joins the same
-      code via the **regular room join**. Expected: the reconnect side ends in **`failed` within ~120 s**
-      (the liveness deadline), NOT an endless "agreeing on keys". Time it.
-- [ ] **E6 · reconnect over a SLOW link — the case the 2026-09-17 race lived in.** An early
-      `reconnect-init` used to be dropped for good when it arrived before the receiving side had
-      processed channel-open, leaving both peers in "agreeing on keys" until the 120 s deadline. It is
-      fixed (held and replayed), and the window widens when the channel-open path is slow — which is
-      exactly what a phone on a weak cellular signal produces. So: reconnect **IPH on LTE with one
-      bar (or with the Network Link Conditioner on a bad profile) ↔ MBP-A**, five times. Expected:
-      `connected` without a SAS screen, every time. Any run that sits in "agreeing on keys" and then
-      fails at ~120 s is the same bug returning — capture the DEV log, which now names which guard
-      dropped what (`reconnect: dropped …` / `holding …` / `replaying held …`).
-- [ ] **E5 · key change** — on IPH press **forget** (clears pins), then reconnect from MBP-A using the
-      stale pin. Expected: the key-changed hard stop on the pinned side, or a clean fall back to a fresh
-      SAS — whichever the design says, but never a silent auto-accept.
+- [ ] **E2 · reconnect happy path** — on MBP-A tap **Reconnect** on the IPH row; MBP-A shows "Waiting
+      for the other device" with **no code anywhere**. On IPH tap **Reconnect** on the MBP-A row.
+      Expected: `connected` **without any SAS screen** (pin-based re-auth), then transfer works. In
+      devtools → WS on either side: the socket URL carries `room=<22-char token>&codeType=token` and
+      no `create=1` — the same shape as a link (this is the "server cannot tell a reconnect from a
+      first meeting" claim; record it).
+- [ ] **E3 · order does not matter** — repeat E2 with IPH tapping first and MBP-A a minute later, and
+      once more tapping both within a second of each other. Expected: `connected` every time. (Under
+      the old by-code design "both press Start" opened two rooms that never met; that is the bug this
+      case now proves gone.)
+- [ ] **E4 · nobody came** — tap Reconnect on MBP-A only. Expected: the wait screen, then after
+      **10 minutes** a clear "The other device did not show up" failure — never a silent spinner.
+      Meanwhile in devtools → WS: the socket is re-taken every ~2 minutes (a fresh room, same token
+      within the 10-minute bucket; a new token at a bucket boundary). Also try: MBP-A on Reconnect
+      while IPH does a **plain room join** with any 4-digit code — expected: nothing meets, MBP-A ends
+      the same way; no hang, no handshake mismatch (there is no shared room to mismatch in).
+- [ ] **E6 · reconnect over a SLOW link — the case the 2026-09-17 race lived in.** An early reconnect
+      frame (today the `reconnect-hello` both sides send at channel-open) used to be dropped for good
+      when it arrived before the receiving side had processed channel-open, leaving both peers in
+      "agreeing on keys" until the 120 s deadline. It is fixed (held and replayed), and the window
+      widens when the channel-open path is slow — which is exactly what a phone on a weak cellular
+      signal produces. So: reconnect **IPH on LTE with one bar (or with the Network Link Conditioner on
+      a bad profile) ↔ MBP-A**, five times. Expected: `connected` without a SAS screen, every time. Any
+      run that sits in "agreeing on keys" and then fails at ~120 s is the same bug returning — capture
+      the DEV log, which names which guard dropped what (`reconnect: dropped …` / `holding …` /
+      `replaying held …`).
+- [ ] **E5 · the other side forgot the pairing** — on IPH press **forget** (clears pins), then tap
+      Reconnect on MBP-A using the stale row. Expected: IPH has no row to tap and cannot derive the
+      rendezvous; MBP-A waits and ends in "did not show up" (E4), whose copy says to pair afresh. Then
+      pair afresh by any method (A1–A4): expected `connected`, and afterwards MBP-A lists IPH **once**
+      (the dedup) — a reconnect from that new row works. **Never a silent auto-accept.** (The
+      key-changed hard stop itself — a peer presenting a DIFFERENT key under the SAME pairing — cannot
+      be produced on real devices without the DEV forge knob; it is covered by the e2e.)
+- [ ] **E7 · clock skew — NEW 2026-09-25.** The rendezvous is derived from each device's OWN clock in
+      10-minute buckets. Set IPH's clock **+4 minutes** by hand (disable automatic time), then E2.
+      Expected: they still meet — at worst after a delay of up to the skew (each side re-derives at
+      its own bucket boundary), never a failure. Then set it **+15 minutes** (more than a bucket):
+      expected: they meet only once the wait has absorbed the skew, or MBP-A ends in "did not show
+      up" at 10 minutes — record which, this is the stated limit. Restore automatic time.
 
 ## Phase F — real-world robustness · mixed: F3/F5/F6/F7 are T1, the rest need a radio or a dialog
 

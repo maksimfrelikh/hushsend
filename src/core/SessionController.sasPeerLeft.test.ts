@@ -108,7 +108,7 @@ interface MockSignaling {
   destroyRoom: ReturnType<typeof vi.fn>;
 }
 interface SCInternals {
-  method: 'room' | 'words' | 'link' | 'qr' | null;
+  method: 'room' | 'words' | 'link' | 'qr' | 'reconnect' | null;
   sas: TestSas | null;
   reconnect: unknown;
   peer: MockPeer | null;
@@ -217,8 +217,9 @@ describe('SessionController — SAS peer-left channelOpen gate (Part A) + room p
 
   it('Part B: a RECONNECT session closes its signaling socket too — it is not a special case', () => {
     const { internals, signaling } = newController();
-    internals.sas = midComparisonSas();
-    internals.reconnect = { fellBack: false, settled: false };
+    internals.method = 'reconnect'; // codeless reconnect: its own method, no SAS underneath
+    internals.sas = null;
+    internals.reconnect = { settled: false };
 
     // Reconnect used to be excluded, which made it the ONE pairing that held its socket for the whole
     // session — readable by the untrusted server as "these two have met before", plus the duration
@@ -229,7 +230,7 @@ describe('SessionController — SAS peer-left channelOpen gate (Part A) + room p
 
   it('Part B prerequisite: a post-channel-open `peer-left` does NOT abort a reconnect pairing', () => {
     const { internals, failReconnect } = newController();
-    internals.reconnect = { fellBack: false, settled: false };
+    internals.reconnect = { settled: false };
     internals.peerId = 'peer-a';
     internals.channelOpen = true; // transport up — the DataChannel is the liveness authority now
     internals.established = false; // ...and we have not settled yet: the race this gate closes
@@ -242,7 +243,7 @@ describe('SessionController — SAS peer-left channelOpen gate (Part A) + room p
 
   it('reconnect still fails on a peer-left BEFORE the transport is up (the gate only disarms later)', () => {
     const { internals, failReconnect } = newController();
-    internals.reconnect = { fellBack: false, settled: false };
+    internals.reconnect = { settled: false };
     internals.peerId = 'peer-a';
     internals.channelOpen = false;
     internals.established = false;

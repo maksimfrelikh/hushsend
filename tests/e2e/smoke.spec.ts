@@ -116,12 +116,11 @@ test('smoke · reconnect: enrolled peers re-auth via the pinned key with NO SAS 
   await expect(a.getByTestId('status')).toHaveText('idle');
   await expect(b.getByTestId('status')).toHaveText('idle');
 
-  await a.getByTestId('create-reconnect-btn').click();
+  // Codeless: one tap on each device, no code shown or typed — they meet at the derived rendezvous.
+  await a.getByTestId('reconnect-btn').click();
   await expect(a.getByTestId('status')).toHaveText('awaitingPeer', { timeout: 30_000 });
-  const reCode = (await a.getByTestId('room-code').textContent())?.trim() ?? '';
-  expect(reCode).toMatch(/^\d{4}$/);
-  await b.getByTestId('reconnect-input').fill(reCode);
-  await b.getByTestId('join-reconnect-btn').click();
+  await expect(a.getByTestId('reconnect-waiting')).toBeVisible();
+  await b.getByTestId('reconnect-btn').click();
 
   await expect(a.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
   await expect(b.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });

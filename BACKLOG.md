@@ -35,15 +35,14 @@ the same pass as CLAUDE.md when items land.
   role 6b); glare/dedup handled; **busy-reject** returns the picker to the lobby with a clear notice (no
   hang). Works for ANY pair incl. joiner↔joiner. Signaling protocol grew: `welcome.peers` + `peer-joined`
   now carry `{id, device, joinedAt}` (coarse client device label, server-capped ≤32 + server-stamped
-  joinedAt). words/link/qr stay 1:1 auto-pair; reconnect stays the by-code auto-pair path.
+  joinedAt). words/link/qr stay 1:1 auto-pair; reconnect is its own codeless method (since 2026-09-25).
   `tests/e2e/lobby.spec.ts` (joiner↔joiner + busy) + `connectionSlice.test.ts` + `room-server.test.ts`.
   (See CLAUDE.md § Room lobby.) **Deferred follow-ups below.**
-  - **reconnect-in-lobby** *(deferred)* — let a lobby pick target a previously-paired peer and reconnect
-    via the pinned key (no SAS) instead of a fresh SAS. Today lobby picks ALWAYS do a fresh SAS;
-    reconnect remains a SEPARATE by-code path (auto-pairs, simple code screen). **When built, the
-    reconnect PROTOCOL role must move to id-order** (it is currently create/join, which is well-defined
-    only for the 1:1 by-code path — a mesh pick has no creator/joiner) AND the key-changed-before-settle
-    ordering must be re-checked under id-roles. Until then, do NOT route reconnect through the lobby.
+  - ✅ **reconnect-in-lobby — SUPERSEDED 2026-09-25 by the codeless reconnect** (§ Reconnect UX below).
+    The goal was to reach a pinned peer without the separate by-code path; the by-code path no longer
+    exists — a tap on the recent-devices row meets the other device at a rendezvous derived from the
+    pairing secret, and the lobby is not involved. The role question it carried (create/join is
+    undefined for a mesh pick) was answered by deriving the reconnect role from the DTLS fingerprints.
   - **return-to-lobby (general)** *(deferred)* — after a FINISHED or aborted 1:1 session (transfer done,
     SAS mismatch, peer left), return to the lobby to pick another peer without re-joining. Only the
     narrow busy-bounce return is built (pre-connection); a post-`connected` return needs channel/transfer
@@ -380,23 +379,61 @@ the same pass as CLAUDE.md when items land.
   CLAUDE.md § Current state.)
 
 ## Caveats (not scheduled — see CLAUDE.md § Known residuals)
-pairingId relay-linkability · dual-pin if a keystore is wiped.
+the reconnect rendezvous repeats within one 10-min bucket · clock skew delays a reconnect by up to the
+skew · dual-pin if a keystore is wiped (the wiped side can no longer reconnect; it pairs afresh).
 
 (✅ **Pre-SAS pairing deadline firing-direction — now tested** (pre-deploy cleanup): `?stallSasNonce=1`
 makes a peer reach the SAS but withhold its nonce reveal, `?preSasTimeoutMs=N` shrinks the pre-SAS
 deadline (both DEV-only / tree-shaken), and `tests/e2e/room-sas.spec.ts` asserts the other side fails
 at the deadline rather than hanging. See CLAUDE.md § room/SAS Timeouts.)
 
-## Reconnect UX — lobby-pick reconnect + entry-point ergonomics (PARTIALLY DONE; observed in the manual test pass)
+## Reconnect UX — DONE 2026-09-25 by removing the code (codeless reconnect)
+
+**What changed.** Reconnect used to rendezvous over a plain 4-digit room: one side pressed Start and
+read a code, the other typed it. That entry-point split produced every failure mode listed in the
+history below, and the code itself was the security weak spot (an enumerable room, auto-pairing with
+whoever won the race, which is what forced the blinded announcement on 2026-09-18). The rendezvous
+is now **derived**: both devices hold the `pairingId` (16 secret bytes minted at enrollment), so each
+computes `HMAC(pairingId, time-bucket)` → a 22-char token of exactly the link/QR shape and asks the
+server for that token room **join-or-create**. Tap Reconnect on both devices, in either order; they
+meet. Server-side, token rooms became join-or-create (the running `hush-signaling-server` was
+updated the same day) and the link/QR creator now draws its own token too, so the server cannot
+tell a reconnect from a first link meeting, nor which side initiated. Before any identity key is
+shown, each side proves it holds the pairing secret with a MAC (`reconnect-hello`); the proof under
+the pinned key follows, the responder first, and the initiator settles only on the responder's
+`reconnect-ok` so the two sides never disagree about the outcome. Roles come from the DTLS
+fingerprints, not create/join (there is no creator) and not the server's ids. No SAS is primed
+underneath any more: a device without the pin cannot derive the token, never arrives, and the
+waiting side ends with "the other device did not show up" (10-min cap; the room is re-taken every
+2 min and at every bucket boundary meanwhile). `crypto/reconnect.ts` (rendezvous, role, hello,
+schemas — unit-tested), `SessionController` (`reconnectTo`, the wait/refresh/rejoin logic —
+`SessionController.reconnectRendezvous.test.ts`), `ReconnectWaitScreen`, `room-server.test.ts`
+(join-or-create + TTL on a joined token), `tests/e2e/reconnect.spec.ts` (happy, stall, key-changed,
+held hello, wire hygiene incl. the socket URL, order independence, no-show), `link.spec.ts` (dead
+link still fails at once). See CLAUDE.md § Crypto / Reconnect and § Known residuals.
+
+**What this closed:** both failure modes below; the "reconnect + plain room join" mismatch (a plain
+join lands in a lobby, a reconnect never enters one — nothing to mix); the `pairingId` disclosure to
+a code-guesser (nothing is announced); `RoomCreateScreen`, the reconnect code input, the split-hint
+copy, `blindPairingId`, `reconnect-init`/`reconnect-fallback`, the SAS-fallback hold in
+`trySasReady` — all deleted, not gated.
+
+**What it did NOT do:** return-to-lobby (unrelated, still deferred below); keystore GC / pin-merge
+(the dual-pin caveat stands — a wiped side pairs afresh and the other side gains a second pin).
+
+**New residuals, small, recorded in CLAUDE.md § Known residuals:** the token repeats within one
+10-minute bucket; clock skew delays the meeting by up to the skew.
+
+### History (the by-code design, kept for the record)
 
 Expands the deferred **reconnect-in-lobby** item (Step 6 / 6c follow-ups). The manual cross-browser
-pass confirmed reconnect works correctly via its intended path (one side `reconnect` [create], the
-other `reconnect-by-code`), and surfaced two concrete failure modes from how the entry points
-combine. **The two LOW-RISK parts are now DONE** (interim liveness deadline + entry-point ergonomics —
-see ✅ items under "What done looks like"); the SECURITY-SENSITIVE parts (lobby-pick reconnect +
-reconnect role create/join → id-order) remain **deferred (post-audit)**.
+pass confirmed reconnect worked via its intended path (one side `reconnect` [create], the other
+`reconnect-by-code`), and surfaced two concrete failure modes from how the entry points combined.
+The two LOW-RISK parts were done first (interim liveness deadline + entry-point ergonomics); the
+SECURITY-SENSITIVE parts (lobby-pick reconnect + reconnect role create/join → id-order) stayed
+deferred (post-audit) until the code was removed altogether.
 
-The two failure modes (both now fail-closed / less likely, not yet fully fixed):
+The two failure modes (both now gone with the code):
 
 - ✅ **Mismatched entry → permanent "agreeing on keys" hang — FIXED (verified 2026-09-17, the text
   below had gone stale).** If one side takes the **reconnect** path (pin-based auto-pair, role
@@ -453,7 +490,9 @@ The two failure modes (both now fail-closed / less likely, not yet fully fixed):
   `reconnect-input` / `join-reconnect-btn`) are stable. This makes "reconnect on both" and "reconnect +
   regular join" no longer easy mistakes.
 
-**Deferred (post-audit) — security-sensitive, NOT in this pass:** lobby-pick reconnect AND moving the
+**Deferred (post-audit) — security-sensitive, NOT in this pass** *(resolved 2026-09-25: the code was
+removed instead; the role moved to fingerprint order behind the hello gate — see the top of this
+section and § Security audit (a))*: lobby-pick reconnect AND moving the
 reconnect PROTOCOL role from create/join to id-order. The role move changes the **verifier-first
 ordering** the two-check **key-changed-vs-MITM** verify depends on (today create/join fixes the
 verifier-first side so a key change is caught before a forger can settle); re-deriving it from the
@@ -487,8 +526,9 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   via `dedupeByPeerKey` — one row per distinct peer key, keeping the **most-recent pin** (by
   `firstSeen`), whose `pairingId` drives the reconnect tap (both sides pinned it at the freshest
   enrollment → valid) and whose `label`/`firstSeen` show in the row; rows ordered newest-first. The
-  home reconnect button now passes the selected row's `pairingId` to `createReconnectSession(pairingId?)`
-  (UI selection only — the reconnect protocol / wire format / create-join role are unchanged).
+  home reconnect button now passes the selected row's `pairingId` to the reconnect entry point
+  (today `reconnectTo(pairingId)`; both sides share that freshest pin, so both derive the same
+  rendezvous from it).
   `src/ui/recentDevices.test.ts` (in-memory keystore backend). This is a **display** fix; pins are NOT
   removed from the keystore.
   - **keystore-GC / pin-merge** *(still deferred)* — collapsing the redundant pins to one canonical pin
@@ -535,7 +575,18 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   the side that has no pairingId to announce. So a lobby-pick reconnect needs an **announcer role
   separate from the transcript role**, not a reuse of `pairingRoleFor`. Recorded here so the next
   attempt does not rediscover it.
-  (→ § Reconnect UX / "Deferred (post-audit)" + CLAUDE.md § Per-pairing role + § Crypto / Reconnect.)
+  **MOVED 2026-09-25 — the role now comes from the DTLS fingerprints (`reconnectRoleFor`), and the
+  argument above is satisfied differently.** The disclosure-ordering property ("a stranger who reaches
+  the channel never extracts an identity key") no longer rests on WHICH side proves first: it rests on
+  the `reconnect-hello` MAC under the pairing secret, which every side must verify before it sends a
+  proof — so the responder discloses its key only to a peer that has already proven it holds the
+  pairing (i.e. already holds that key). Fingerprint order is not the server's to choose (the ids
+  were), and a MITM that presents its own certificates fails the channel binding whatever role it
+  lands in. The plumbing blocker is gone too: nobody announces a pairingId — both sides derived the
+  rendezvous from it. The key-changed-before-settle ordering was re-checked under the new roles:
+  both branches still run the two-check verify BEFORE any settle, and the initiator now settles only
+  on the responder's `reconnect-ok`, which is stronger than before (no half-connected pair).
+  (→ § Reconnect UX + CLAUDE.md § Per-pairing role + § Crypto / Reconnect.)
 - [x] **(b) Guess-narrowing of `peerLeftAbortsPairing` (WS-close) — REVIEWED 2026-09-12: CONFIRMED, the
   bound is intact.** The docs' argument (the authoritative counters are confirmation-mismatch and
   channel-close, both untouched) is correct but not the load-bearing one. The bound actually rests on
@@ -642,6 +693,10 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   prove the tag differs from the id and not that the tag is what goes out. **Negative control run:
   with both halves reverted the e2e fails on precisely that assertion while the reconnect itself
   still succeeds**, so the test isolates the leak rather than the feature.
+  **Superseded 2026-09-25:** `blindPairingId` / `matchBlindedPairingId` and the `reconnect-init` frame
+  are deleted — the codeless reconnect announces nothing at all (the rendezvous is derived from the
+  pairingId, the hello is a MAC under it). The e2e that read the wire now asserts the hello carries
+  only `{challenge, mac}` and that the socket URL's room name is a link-shaped token, not the id.
 - ✅ **(F1) The Max-privacy channel-open gate read "cannot tell" as "no relay" — FIXED 2026-09-13.**
   `openChannelUnlessRelayed` asked `selectedPathIsRelayed()`, which took `isForbiddenRemoteCandidate`'s
   `!remote → false` branch for an answer. But `selectedRemoteCandidate` returns null until ICE
@@ -897,10 +952,30 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   **Still open, and it is the operational half:** this is the client side of a property that only
   starts to exist when the STUN servers are run by DIFFERENT people. Today app, signaling and STUN
   are one IP (the repos are separate, the machines are not).
-- **`pairingId` disclosure to whoever wins the reconnect join race** — tracked as ONE open entry,
-  under the first pass above. It was duplicated here and two copies can drift apart; nothing has
-  changed since, except that finding (4) made it worse before it was fixed and the enrollment gate
-  put it back to linkability + nuisance.
+- **`pairingId` disclosure to whoever wins the reconnect join race** — closed twice: blinded on
+  2026-09-18 (the entry under the first pass above), then made moot on 2026-09-25 when the 4-digit
+  reconnect room was removed with the code — nothing is announced any more (§ Reconnect UX).
+
+### Codeless reconnect (2026-09-25)
+
+- ✅ **The reconnect code is gone — see § Reconnect UX for the design and what it closed.** From the
+  audit's point of view, what moved: (1) the reconnect rendezvous went from an enumerable 4-digit room
+  to a 128-bit token derived from the pairing secret, taken join-or-create, indistinguishable on the
+  wire from link/QR (link/QR creators draw their own token now, so `create=1` is no longer a signal of
+  who initiated either); (2) a `reconnect-hello` MAC under the pairing secret gates every proof, so
+  the long-term identity key is disclosed only to a proven pin-holder — this is what let the role move
+  off create/join (item (a) above); (3) the initiator settles only on `reconnect-ok`; (4) the SAS
+  fallback that ran UNDER the reconnect is gone, which also removes the "mismatched entry" class
+  entirely. **Open for the independent audit:** the pairingId is now load-bearing as a secret — its
+  storage is the same IndexedDB as the pins (readable by an XSS or a hostile extension; the identity
+  key has the non-extractable WebCrypto protection, the pairingId does not), and the derivations
+  (rendezvous, hello) should be read with that in mind. The 10-min bucket is a stated linkability
+  trade (same-bucket retries show the same token); the time input is the client's own clock, never
+  the server's.
+- **Server-side, `hush-signaling-server`:** token rooms are join-or-create and the managed TTL is
+  armed whenever a room comes into being (`created`), not only on `create=1`. Integration-tested
+  (`room-server.test.ts`: first arrival opens, second finds, third bounced 4002, TTL fires on a
+  joined token, the 4-digit shape still says 4009). Deployed to the running copy the same day.
 
 ### Volume padding + a receiver bound (2026-09-17)
 

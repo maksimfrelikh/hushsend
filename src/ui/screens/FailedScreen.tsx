@@ -47,24 +47,39 @@ export function FailedScreen(): ReactElement {
   // Max-privacy STRICT model: a direct ICE failure is terminal (Max-privacy never relays). Surface a
   // hint to switch to Reliable. Keyed off the stable reason DIRECT_FAIL_REASON sets in the core.
   const isDirectFail = /connect directly|max privacy/.test(lower);
+  // Codeless reconnect: the wait cap fired with nobody at the rendezvous. Keyed off the stable
+  // RECONNECT_NO_SHOW_REASON marker the core sets.
+  const isNoShow = /did not show up/.test(lower);
 
   const eyebrow = isMismatch
     ? t('erMismatchEyebrow')
-    : isExpired
-      ? t('exEyebrow')
-      : isDirectFail
-        ? t('directFailEyebrow')
-        : t('erGenericEyebrow');
+    : isNoShow
+      ? t('noShowEyebrow')
+      : isExpired
+        ? t('exEyebrow')
+        : isDirectFail
+          ? t('directFailEyebrow')
+          : t('erGenericEyebrow');
   const title = isMismatch
     ? t('erMismatchTitle')
-    : isExpired
-      ? t('exTitle')
-      : isDirectFail
-        ? t('directFailTitle')
-        : t('erGenericTitle');
-  const desc = isMismatch ? t('erMismatchDesc') : isExpired ? t('exDesc') : isDirectFail ? t('directFailHint') : '';
+    : isNoShow
+      ? t('noShowTitle')
+      : isExpired
+        ? t('exTitle')
+        : isDirectFail
+          ? t('directFailTitle')
+          : t('erGenericTitle');
+  const desc = isMismatch
+    ? t('erMismatchDesc')
+    : isNoShow
+      ? t('noShowDesc')
+      : isExpired
+        ? t('exDesc')
+        : isDirectFail
+          ? t('directFailHint')
+          : '';
   const glyphClass = isMismatch ? 'hs-glyph hs-glyph--warn' : 'hs-glyph';
-  const glyph = isMismatch ? '△' : isExpired ? '⌕' : '!';
+  const glyph = isMismatch ? '△' : isExpired || isNoShow ? '⌕' : '!';
 
   return (
     <Screen center>

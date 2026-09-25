@@ -221,11 +221,13 @@ export async function resetBoth(a: Page, b: Page): Promise<void> {
   await expect(b.getByTestId('status')).toHaveText('idle');
 }
 
+/** Codeless reconnect: each side taps Reconnect on the other's row and they meet at the derived
+ *  rendezvous. No code is shown or typed; A waits on the wait screen until B taps. Order does not
+ *  matter (see reconnect.spec.ts) — A first here so the wait screen is asserted along the way. */
 export async function startReconnect(a: Page, b: Page): Promise<void> {
-  await a.getByTestId('create-reconnect-btn').click();
+  await a.getByTestId('reconnect-btn').click();
   await expect(a.getByTestId('status')).toHaveText('awaitingPeer', { timeout: 30_000 });
-  const code = (await a.getByTestId('room-code').textContent())?.trim() ?? '';
-  expect(code).toMatch(/^\d{4}$/);
-  await b.getByTestId('reconnect-input').fill(code);
-  await b.getByTestId('join-reconnect-btn').click();
+  await expect(a.getByTestId('reconnect-waiting')).toBeVisible();
+  await expect(a.getByTestId('room-code')).toHaveCount(0); // nothing to carry — no code, ever
+  await b.getByTestId('reconnect-btn').click();
 }

@@ -15,8 +15,9 @@ and § Crypto carry the mechanisms. Do not answer the readiness question from `R
 is written for a general audience, not for someone whose safety depends on the details.
 
 **Do not trust this file over the code.** Claims below were verified on 2026-09-12, re-verified
-against the LIVE HOST and the SERVED bundle on 2026-09-13, and reviewed again on 2026-09-18 (when
-volume padding, the STUN cross-check and the `pairingId` blinding landed); the repo rule is that docs
+against the LIVE HOST and the SERVED bundle on 2026-09-13, reviewed again on 2026-09-18 (when
+volume padding, the STUN cross-check and the `pairingId` blinding landed) and on 2026-09-25 (the
+codeless reconnect, which replaced that blinding); the repo rule is that docs
 which drift are bugs. If you are about to rely on something here, re-check it — the audits that produced this document
 found three complete breaks in claims that had been written down confidently, and the 2026-09-13 pass
 found three more (F1/F2/F4, all fixed — `BACKLOG.md` § Third pass) plus one unlisted exposure (F3,
@@ -54,6 +55,12 @@ is not something the architecture attempts to conceal.
 - **No file bytes before authentication**, both directions, enforced in the core rather than the UI.
 - **The signaling socket closes the moment a pair authenticates**, for every method including
   reconnect. A server that stays off the path therefore learns no session duration.
+- **A reconnect looks like a first meeting to the server** (since 2026-09-25). Two paired devices
+  meet at a room name derived from their pairing secret — the same 128-bit token shape a link/QR
+  meeting uses, taken the same join-or-create way — and prove they belong there with a MAC under that
+  secret before either shows its identity key. The server sees a token room like any other: not
+  "these two have met before", not which side initiated, and nothing that links one day's token to
+  the next (the token changes every 10 minutes). No code is shown or typed on either device.
 - **Max privacy never requests a TURN relay**, and unsolicited TURN credentials are inert. Verified
   2026-09-13 against the SERVED bundle, not the source: the ICE-server builder pushes the TURN entry
   only when `mode === "reliable"`.
@@ -190,12 +197,18 @@ The identity key falls back to a raw seed in IndexedDB on engines without WebCry
 Safari/Firefox); the path check runs once at channel-open and is not re-run on mid-session
 re-nomination. All in `BACKLOG.md`.
 
-**Closed 2026-09-18:** the `pairingId` disclosure that used to sit here. A code-guesser winning the
-4-digit reconnect race was handed a stable per-pair identifier before any authentication — never an
-auth break, but a link between two anonymous rendezvous and one relationship, which for this
-audience is not the small thing the old wording implied. The initiator now announces an
-HMAC blinded under the pairingId itself and bound to the session's DTLS fingerprints: the peer
-holding the pin recognises it by recomputation, a stranger sees a value that differs every session.
+**Closed 2026-09-18, then removed 2026-09-25:** the `pairingId` disclosure that used to sit here. A
+code-guesser winning the 4-digit reconnect race was handed a stable per-pair identifier before any
+authentication — never an auth break, but a link between two anonymous rendezvous and one
+relationship, which for this audience is not the small thing the old wording implied. First the
+announcement was blinded; then the 4-digit reconnect room was removed altogether with the code, and
+nothing is announced any more (the rendezvous is derived, the hello is a MAC). What the pairingId
+now IS: the pairing secret. It lives in the same IndexedDB as the pins and, unlike the identity key,
+has no non-extractable protection — an XSS or a hostile extension that can read the pins can read
+it, and could then compute the pair's rendezvous and pass the hello. It could still not forge the
+proof under the identity key, so the outcome is a hard stop, not a silent impostor; but the wait
+screen on the honest side would end in "the other side does not know this pairing" rather than a
+clean meeting. Same exposure class as the pins themselves; tracked with them.
 
 ---
 

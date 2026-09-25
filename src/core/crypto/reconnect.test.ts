@@ -3,7 +3,23 @@ import { ed25519 } from '@noble/curves/ed25519.js';
 import { bytesToHex, concatBytes, utf8ToBytes } from '@noble/hashes/utils.js';
 import { restoreIdentity } from './identity';
 import { PAIRING_ID_BYTES } from './enrollment';
-import { RECONNECT_CHALLENGE_BYTES, reconnectTranscript, signReconnect, verifyReconnect, presentedKeyMatchesPin, generateChallenge, blindPairingId, matchBlindedPairingId } from './reconnect';
+import {
+  RECONNECT_BUCKET_MS,
+  RECONNECT_CHALLENGE_BYTES,
+  reconnectTranscript,
+  signReconnect,
+  verifyReconnect,
+  presentedKeyMatchesPin,
+  generateChallenge,
+  reconnectBucket,
+  msUntilNextBucket,
+  reconnectRendezvous,
+  reconnectRoleFor,
+  oppositeRole,
+  reconnectHelloMac,
+  verifyReconnectHello,
+  reconnectFrameSchema,
+} from './reconnect';
 
 const FP_A = 'sha-256 11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00';
 const FP_B = 'sha-256 AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89';
@@ -154,56 +170,100 @@ describe('presentedKeyMatchesPin (check 1 — key-change detection in the keysto
   });
 });
 
-describe('blindPairingId / matchBlindedPairingId — the announced value (2026-09-18)', () => {
+describe('reconnectRendezvous — WHERE two pinned peers meet, with no code (2026-09-25)', () => {
   const ID_A = new Uint8Array(PAIRING_ID_BYTES).map((_, i) => (i + 1) & 0xff);
   const ID_B = new Uint8Array(PAIRING_ID_BYTES).fill(0x77);
-  const FP1 = 'sha-256 AA:BB:CC';
-  const FP2 = 'sha-256 11:22:33';
 
-  it('is the same length as the raw id it replaces — so an older peer still parses the frame', () => {
-    expect(blindPairingId(ID_A, FP1, FP2)).toHaveLength(PAIRING_ID_BYTES);
+  it('has exactly the shape of a link/QR token (22 base64url chars) — the server cannot tell them apart', () => {
+    expect(reconnectRendezvous(ID_A, 12345)).toMatch(/^[A-Za-z0-9_-]{22}$/);
   });
 
-  it('both sides derive it, whichever of them is "local"', () => {
-    expect(blindPairingId(ID_A, FP1, FP2)).toEqual(blindPairingId(ID_A, FP2, FP1));
+  it('is deterministic: both pin-holders derive the same token for the same bucket', () => {
+    expect(reconnectRendezvous(ID_A, 12345)).toBe(reconnectRendezvous(ID_A, 12345));
   });
 
-  it('REVEALS NOTHING CORRELATABLE: the same pair announces a different value every session', () => {
-    const session1 = blindPairingId(ID_A, FP1, FP2);
-    const session2 = blindPairingId(ID_A, 'sha-256 DE:AD:BE', 'sha-256 EF:00:11');
-    expect(session1).not.toEqual(session2); // the whole point — this is the leak being closed
-    expect(session1).not.toEqual(ID_A); // and it is not the id itself
+  it('changes every bucket — the server cannot link one reconnect to the next by the room name', () => {
+    expect(reconnectRendezvous(ID_A, 12345)).not.toBe(reconnectRendezvous(ID_A, 12346));
   });
 
-  it('different pairs announce different values in the same session', () => {
-    expect(blindPairingId(ID_A, FP1, FP2)).not.toEqual(blindPairingId(ID_B, FP1, FP2));
+  it('differs per pair — two pairs never collide on a token', () => {
+    expect(reconnectRendezvous(ID_A, 12345)).not.toBe(reconnectRendezvous(ID_B, 12345));
   });
 
-  it('a peer holding the pin recognises it by recomputation', () => {
-    const announced = blindPairingId(ID_B, FP1, FP2);
-    const hex = bytesToHex(ID_B);
-    expect(matchBlindedPairingId(announced, [bytesToHex(ID_A), hex], FP1, FP2)).toBe(hex);
+  it('is not the pairingId in disguise (keyed HMAC, truncated)', () => {
+    const tok = reconnectRendezvous(ID_A, 12345);
+    expect(tok).not.toContain(bytesToHex(ID_A));
+    expect(Buffer.from(tok, 'base64url')).not.toEqual(Buffer.from(ID_A));
   });
 
-  it('a stranger holding no pin for this pair matches nothing → SAS fallback', () => {
-    const announced = blindPairingId(ID_B, FP1, FP2);
-    expect(matchBlindedPairingId(announced, [bytesToHex(ID_A)], FP1, FP2)).toBeNull();
-    expect(matchBlindedPairingId(announced, [], FP1, FP2)).toBeNull();
+  it('buckets the clock and knows the distance to the next boundary', () => {
+    const t = 7 * RECONNECT_BUCKET_MS + 1234;
+    expect(reconnectBucket(t)).toBe(7);
+    expect(msUntilNextBucket(t)).toBe(RECONNECT_BUCKET_MS - 1234);
+    expect(reconnectBucket(t + msUntilNextBucket(t))).toBe(8);
+  });
+});
+
+describe('reconnectRoleFor — from the DTLS fingerprints, not create/join and not the server', () => {
+  it('the lexicographically smaller fingerprint is the initiator, and the two sides are opposite', () => {
+    expect(reconnectRoleFor(FP_A, FP_B)).toBe('initiator'); // '11…' < 'AB…'
+    expect(reconnectRoleFor(FP_B, FP_A)).toBe('responder');
+    expect(oppositeRole('initiator')).toBe('responder');
+    expect(oppositeRole('responder')).toBe('initiator');
   });
 
-  it('the right pin under the WRONG session fingerprints does not match — it is channel-bound', () => {
-    const announced = blindPairingId(ID_B, FP1, FP2);
-    expect(matchBlindedPairingId(announced, [bytesToHex(ID_B)], 'sha-256 99:99:99', FP2)).toBeNull();
+  it('fails closed on degenerate fingerprints (equal / missing) rather than defaulting a side', () => {
+    expect(reconnectRoleFor(FP_A, FP_A)).toBeNull();
+    expect(reconnectRoleFor('', FP_A)).toBeNull();
+    expect(reconnectRoleFor(FP_A, '')).toBeNull();
+  });
+});
+
+describe('reconnect hello MAC — WHO is in the room, proven before any identity key is shown', () => {
+  it('verifies under the same pairingId, the sender challenge, this channel and the sender role', () => {
+    const mac = reconnectHelloMac(PAIRING_ID, CHAL_I, FP_A, FP_B, 'initiator');
+    // The receiver labels local/remote the other way round and supplies the PEER role.
+    expect(verifyReconnectHello(PAIRING_ID, CHAL_I, FP_B, FP_A, 'initiator', mac)).toBe(true);
   });
 
-  it('a malformed entry in the keystore does not abort the scan', () => {
-    const announced = blindPairingId(ID_B, FP1, FP2);
-    expect(matchBlindedPairingId(announced, ['nothex!!', bytesToHex(ID_B)], FP1, FP2)).toBe(bytesToHex(ID_B));
+  it('a stranger without the pairing secret cannot produce one', () => {
+    const other = new Uint8Array(PAIRING_ID_BYTES).fill(0x42);
+    const mac = reconnectHelloMac(other, CHAL_I, FP_A, FP_B, 'initiator');
+    expect(verifyReconnectHello(PAIRING_ID, CHAL_I, FP_B, FP_A, 'initiator', mac)).toBe(false);
   });
 
-  it('an OLD peer announcing a raw pairingId matches nothing → SAS fallback, never a hang', () => {
-    // The compatibility path: the field is the same length, so the frame parses; it simply is not a
-    // tag we can recognise, and the responder falls back exactly as it would for an unknown pair.
-    expect(matchBlindedPairingId(ID_B, [bytesToHex(ID_B)], FP1, FP2)).toBeNull();
+  it('is channel-bound: a relay re-terminating DTLS presents other fingerprints and fails it', () => {
+    const mac = reconnectHelloMac(PAIRING_ID, CHAL_I, FP_A, FP_M, 'initiator');
+    expect(verifyReconnectHello(PAIRING_ID, CHAL_I, FP_B, FP_A, 'initiator', mac)).toBe(false);
+  });
+
+  it('is bound to the role: our own hello echoed back to us does not verify (reflection)', () => {
+    const mac = reconnectHelloMac(PAIRING_ID, CHAL_I, FP_A, FP_B, 'initiator');
+    // We are the initiator; a reflected hello would be checked under the PEER role, responder.
+    expect(verifyReconnectHello(PAIRING_ID, CHAL_I, FP_A, FP_B, 'responder', mac)).toBe(false);
+  });
+
+  it('is bound to the challenge: a replay with a different challenge fails', () => {
+    const mac = reconnectHelloMac(PAIRING_ID, CHAL_I, FP_A, FP_B, 'initiator');
+    expect(verifyReconnectHello(PAIRING_ID, CHAL_R, FP_B, FP_A, 'initiator', mac)).toBe(false);
+  });
+
+  it('rejects a MAC of the wrong length before comparing', () => {
+    expect(verifyReconnectHello(PAIRING_ID, CHAL_I, FP_B, FP_A, 'initiator', new Uint8Array(16))).toBe(false);
+  });
+});
+
+describe('reconnect wire frames — hello / proof / ok, exact lengths, nothing identifying in the hello', () => {
+  it('a hello carries a 16-byte challenge and a 32-byte MAC, and no other field', () => {
+    const ok = reconnectFrameSchema.safeParse({ kind: 'reconnect-hello', challenge: 'ab'.repeat(16), mac: 'cd'.repeat(32) });
+    expect(ok.success).toBe(true);
+    expect(reconnectFrameSchema.safeParse({ kind: 'reconnect-hello', challenge: 'ab'.repeat(16), mac: 'cd'.repeat(31) }).success).toBe(false);
+    expect(reconnectFrameSchema.safeParse({ kind: 'reconnect-hello', challenge: 'ab'.repeat(15), mac: 'cd'.repeat(32) }).success).toBe(false);
+  });
+
+  it('the old reconnect-init / reconnect-fallback frames are no longer part of the protocol', () => {
+    expect(reconnectFrameSchema.safeParse({ kind: 'reconnect-init', pairingId: 'ab'.repeat(16), challenge: 'cd'.repeat(16) }).success).toBe(false);
+    expect(reconnectFrameSchema.safeParse({ kind: 'reconnect-fallback' }).success).toBe(false);
+    expect(reconnectFrameSchema.safeParse({ kind: 'reconnect-ok' }).success).toBe(true);
   });
 });
