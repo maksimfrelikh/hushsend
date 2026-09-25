@@ -56,7 +56,7 @@ and production reads the URL in exactly two places: `SignalingClient.connect`, b
 query (`app` / `room` / `codeType` / `device`), and the link-join scrub that rewrites the address to
 `pathname + search` to strip the secret fragment. A third occurrence is a knob that shipped.
 
-Last run 2026-09-19: no globals, and 1 + 1. **Re-run it after any deploy** — do not trust this line. Every build renames the bundle, so naming a hash here only guarantees the note goes stale; what the host is serving right now is
+Last run 2026-09-25 (after the codeless-reconnect deploy): no globals, and 1 + 1. **Re-run it after any deploy** — do not trust this line. Every build renames the bundle, so naming a hash here only guarantees the note goes stale; what the host is serving right now is
 `grep -o 'index-[^"]*\.js' /var/www/hushsend/dist/index.html`. So:
 
 - **Failure injection is NOT available on prod** — those paths are covered by e2e. This pass observes
@@ -67,12 +67,14 @@ Last run 2026-09-19: no globals, and 1 + 1. **Re-run it after any deploy** — d
 ### 0.1 Preconditions
 
 - [x] Frontend redeployed from current `main` (`bash ~/projects/hushsend/deploy/deploy-frontend.sh`)
-      — re-done 2026-09-19; `/var/www/hushsend/dist` is byte-identical to the local build and serves
-      `index-CXiHn4Vx.js`. **Re-run it if `main` has moved since**, and re-tick. It had gone stale
+      — re-done 2026-09-25 (commit `2eebc0e`, the codeless reconnect); `/var/www/hushsend/dist` is
+      byte-identical to the local build and serves `index-jPhzeF87.js`. The signaling server was
+      updated the same day (`hush-signaling-server` `2b5b913`, token rooms join-or-create) and the
+      live host was checked to open a token room for its first arrival. **Re-run it if `main` has moved since**, and re-tick. It had gone stale
       once already (ticked 2026-09-12, `main` moved, nobody re-ticked) — this tick is only worth the
       date next to it.
 - [x] **Verify the new bundle is live:** `grep -r 'stun.l.google' /var/www/hushsend/dist` returns
-      nothing — re-confirmed 2026-09-19 (the pre-2026-09-12 bundle matched; this was the BACKLOG
+      nothing — re-confirmed 2026-09-25 (the pre-2026-09-12 bundle matched; this was the BACKLOG
       "verify after redeploy" item). The only STUN in the served bundle is
       `stun:turn.hushsend.frelikh.dev:3478`, i.e. our own — which is also the whole of BACKLOG's
       "separate the STUN server" item: one operator still holds app, signaling and STUN.

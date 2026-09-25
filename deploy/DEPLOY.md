@@ -96,7 +96,10 @@ External smoke — all green: security headers (HSTS/CSP/Permissions-Policy/nosn
 `GET /health` → `ok`; `http` → `301 https`; `/assets/*.js|css` immutable-cached; **`/assets/*.wasm`
 → `application/wasm`** (the QR-scan compile path); `/ws` → `426 Upgrade Required` (reaches Node, not
 served as static); unknown deep-link → `200` (SPA fallback). Re-checked 2026-09-12: `/` → 200,
-`/health` → `ok`, all three units (`nginx`, `hushsend-signaling`, `coturn`) active. **Still pending:**
+`/health` → `ok`, all three units (`nginx`, `hushsend-signaling`, `coturn`) active; re-checked again
+2026-09-25 after deploying the codeless reconnect (frontend `2eebc0e` via `deploy-frontend.sh`,
+signaling `2b5b913` pulled into the running copy + relaunched — token rooms are join-or-create, and
+the live host was seen opening a token room for its first arrival). **Still pending:**
 the in-browser P2P/SAS/transfer test on two devices, and a cross-network TURN relay check (only
 provable across different networks).
 
@@ -211,6 +214,13 @@ env from `.env`, bound to `127.0.0.1:8080`.
 
 > **GOTCHA.** `npm ci` in `server/` not the repo root — the server is self-contained with its own
 > `package.json` (only `ws`).
+
+> **Restarting without sudo** (an agent session / non-interactive shell, where `systemctl restart`
+> fails with "requires interactive authentication"): with `Restart=on-failure` in the unit, after
+> `git pull` in the running copy do `kill -9 "$(systemctl show -p MainPID --value hushsend-signaling)"`
+> — SIGKILL counts as a failure and systemd relaunches from the updated checkout in `RestartSec`
+> (SIGTERM would not; a clean exit is not restarted). Then check `MainPID`/`NRestarts`, `/health` and
+> the `[config]` line. Used for the 2026-09-25 signaling deploy.
 
 ---
 
