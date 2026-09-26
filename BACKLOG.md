@@ -546,6 +546,25 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
 
 ## UX bugs — found in the manual test pass (Phase 1)
 
+- [ ] **Peer gone after `connected` is never surfaced (found 2026-09-26, Brave↔Brave T1).** Once
+  `established`, `SessionController.onChannelClose` has no branch: the peer navigates away, its
+  DataChannel closes, and this side stays on "Secure channel open" / `connected` indefinitely. A
+  later Send fails visibly ("transfer error · data channel is not open"), so it is not a hang, but
+  the screen lies until then. Expected: a "peer left" terminal state (or a notice + return home).
+  Distinct from TESTPLAN F3 (mid-transfer), which is still to run.
+- [ ] **A link pasted into an already-open hushsend tab does nothing (found 2026-09-26).** Only the
+  fragment differs, so the browser does a same-document navigation and `App.tsx` reads
+  `location.hash` at load only. Either listen to `hashchange` (join if idle) or document that the
+  link must be opened in a fresh tab. Test-drivers hit this too: always load `/health` first.
+- [ ] **"direct path confirmed" can label a RELAYED Reliable session — to confirm.** `localCandidateAddresses`
+  attests every local candidate including `relay`, so a peer relaying through coturn attests its
+  relay address, the selected remote address matches, verdict `ok`, label "direct path confirmed"
+  (`i18n` `pathOk`). Seen on a Brave↔Brave Reliable session whose Max-privacy twin cannot connect
+  directly, i.e. most likely relayed — not yet proven with `webrtc-internals`. If confirmed: exclude
+  relay candidates from the attested set or reword the label.
+- **Multi-file sends are one `hushsend-files.zip` (stored)** — design since `1082b7d`, undocumented in
+  CLAUDE.md / README, and TESTPLAN A7 describes per-file transfers. Document or change; not a bug.
+
 - ✅ **Mixed-privacy room never connects (early offer dropped) — DONE.** When the two sides used
   DIFFERENT privacy modes, a **Reliable-mode answerer** is still fetching coturn creds (`ensureTurnReady`)
   inside `startPeer` when the **Max-privacy offerer**'s offer arrives — so `this.peer` is still null and

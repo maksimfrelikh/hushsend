@@ -7,7 +7,7 @@ e2e across four engine projects, feature-detection review, self-hosted QR WASM);
 This used to open "the last open item before the security audit" — the audit has since run twice
 internally (2026-09-12 and 2026-09-13, BACKLOG § Security audit), so that ordering is gone: the
 device pass is now the last open item before a public launch, not before the audit. **Progress: 0 of
-the 45 A–F cases have been run.** The two ticks in § 0.1 are PRECONDITIONS, not cases; do not read
+the 45 A–F cases are closed; T1 rehearsals started 2026-09-26 (§ Result log).** The two ticks in § 0.1 are PRECONDITIONS, not cases; do not read
 them as progress.
 
 - **Target:** the live deploy — `https://hushsend.frelikh.dev` (production build).
@@ -167,8 +167,8 @@ Last run 2026-09-26 (after the second deploy of the day, `efe8b29`, `index-BBI2z
 |---|---|---|---|---|---|---|---|
 | MBP-A | MacBook | | Chrome | Blink | Claude (MCP) | FSA streaming (unbounded) | native/ponyfill |
 | MBP-A | MacBook | | Brave (shields up) | Blink | Claude (MCP) | FSA streaming | native/ponyfill |
-| MBP-A | MacBook | | Safari | **WebKit (the real one)** | Claude (MCP) | Blob (1 GiB cap) | zxing ponyfill |
-| MBP-A | MacBook | | Firefox | Gecko | Claude (MCP) | Blob (1 GiB cap) | zxing ponyfill |
+| MBP-A | MacBook | | Safari | **WebKit (the real one)** | **owner clicks** — no MCP driver for WebKit (found 2026-09-26) | Blob (1 GiB cap) | zxing ponyfill |
+| MBP-A | MacBook | | Firefox | Gecko | **owner clicks** — no MCP driver for Gecko (found 2026-09-26) | Blob (1 GiB cap) | zxing ponyfill |
 | MBP-B | MacBook | | Chrome | Blink | Claude (MCP) | FSA streaming | native/ponyfill |
 | IPH | iPhone | | Safari (WebKit) | WebKit + phone limits | Claude via Safari Web Inspector (USB) | Blob (512 MiB cap) | zxing ponyfill |
 | AND-1 | Android | | Chrome | Blink | Claude via `chrome://inspect` (USB) | Blob (512 MiB cap) | native BarcodeDetector |
@@ -539,6 +539,51 @@ proves the mechanism, a T2 run on the named MBP↔iPhone pairing is what closes 
 not say which produced the tick cannot tell them apart later. For a failure capture:
 the selected candidate pair (webrtc-internals / about:webrtc), the WS message trace, the console
 output, and whether it reproduced on the other engine.
+
+### 2026-09-26 · T1 rehearsal · Brave 154 (Chromium 154, macOS), two tabs of ONE profile
+
+Setup: production bundle `index-BBI2zUuS.js` (`efe8b29`); both peers are tabs of the same Brave
+profile, driven over the Claude-in-Chrome MCP from laptop-server. **Same profile = shared
+`localStorage` and shared keystore**, so this setup cannot run the reconnect cases (E) honestly and
+its privacy-mode toggle is global to both tabs. Two corrections to § 0.4 / § 0.5 found on the first
+try: **the MCP extension is Chromium-only — Firefox and Safari cannot be driven by Claude at all**
+(they are T2-style: the owner clicks, Claude observes its own side + the server); and `chrome://`
+pages (`webrtc-internals`) are unreachable through it, so ICE evidence needs the owner's eyes.
+
+- A1 · T1 · Brave↔Brave · **Max privacy · FAIL 2/2** — `pairing` → `failed` at 15.0 s both runs,
+  "Couldn't connect directly" with the switch-to-Reliable hint (so B9's "fails visibly, never a
+  silent hang" holds). **Not the app:** a raw STUN-only `RTCPeerConnection` pair between the same
+  two tabs also ends `connectionState=failed` at 15 s with ZERO candidate pairs in `getStats()`.
+  Candidates gathered: one mDNS host (`<uuid>.local`) + one srflx `192.168.1.1` (the router's LAN
+  address — the hairpinned STUN reply). Root cause open; suspects are macOS "Local Network"
+  permission for Brave and Brave's WebRTC IP-handling policy. To be re-run on Chrome.
+- A1 · T1 · Brave↔Brave · **Reliable · PASS 2/3** — connected in 2 s and in <10 s, no SAS screen,
+  fragment scrubbed from the address bar. One run failed at 17 s with "channel closed during
+  pairing"; `deploy/verify-relay.sh` in the same minute: 16 messages relayed, 0 lost. Unexplained.
+- A5 · T1 · Brave→Brave · Reliable · **PASS** — 5 000 000 B in <3 s, sender "Delivered" / receiver
+  "Received" at 100 %, "New transfer" button present. Reverse direction ran as A7. **Bytes on disk
+  NOT verified** (Brave ships no `showSaveFilePicker` → Blob download into the Mac's Downloads;
+  expected sha256 `5ae91e7e…e2d9`).
+- A6 · T1 · link · Reliable · **PASS** — `ss -tn` on the host: 0 established nginx↔signaling
+  (`:8080`) sockets while both peers were `connected`, and still 0 during the transfer.
+- A7 · T1 · Brave→Brave · **PASS, with a note** — three files are sent as ONE `hushsend-files.zip`
+  (2 700 362 B, stored). That has been the behaviour since the first transfer commit (`1082b7d`)
+  but no doc says so, and this case's "progress is per-transfer / no stale filename" wording
+  assumes three transfers. Fix the wording, or the behaviour — decide, then re-tick.
+- F6 · T1 · **PASS** — reload → history gone.
+- B9 · partial — Brave 154 shields default: `showSaveFilePicker` **undefined** (so B1's FSA path
+  cannot be run on Brave; it needs Chrome), `BarcodeDetector` present. Max privacy fails visibly
+  (above). The WebRTC-policy value and the candidate-pair evidence are still to be read by the owner.
+- **New UX bug (→ BACKLOG):** after `connected`, a peer that leaves (tab navigated away) is never
+  surfaced — the other side sits on "Secure channel open" indefinitely; a later Send fails with
+  "transfer error · data channel is not open" while the status still says `connected`.
+  `onChannelClose` has no `established` branch. Related to F3 but a distinct case (idle, not
+  mid-transfer).
+- **New UX bug (→ BACKLOG):** a link opened in a tab that already shows hushsend is a hash-only,
+  same-document navigation; the app parses the fragment at load only (`App.tsx` `parseLink`), so
+  nothing happens. Pasting a link into the address bar of an open hushsend tab does exactly this.
+- Tool note, not app: the extension's ref-based clicks did not toggle the privacy radio nor open
+  Invite; coordinate clicks did.
 
 **When the pass is done:** fold the results into `BACKLOG.md` § Step 6 / **6e** (and its
 "Remaining (real devices, post-deploy)" line) and `CLAUDE.md` § Current state / Build order in the
