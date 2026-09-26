@@ -11,9 +11,14 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:a11y": "playwright test -c tests/a11y/playwright.config.ts",
+    "visual": "playwright test -c visual/playwright.config.ts",
+    "visual:update": "playwright test -c visual/playwright.config.ts --update-snapshots"
   },
   "dependencies": {
+    "@fontsource-variable/archivo": "^5.3.0",
+    "@fontsource/ibm-plex-mono": "^5.2.7",
     "@noble/curves": "^2.0.0",
     "@reduxjs/toolkit": "^2.5.0",
     "barcode-detector": "^3.2.0",
@@ -27,6 +32,7 @@
     "zxing-wasm": "3.1.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@eslint/js": "^9.17.0",
     "@playwright/test": "^1.61.0",
     "@types/node": "^22.10.0",

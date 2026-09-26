@@ -1,7 +1,7 @@
 import { type ReactElement } from 'react';
 import { useSession } from '../SessionProvider';
 import { useT } from '../prefs';
-import { Screen, Eyebrow, PulseGlyph, Waiting, BackLink } from '../ui';
+import { Screen, Space, MeetDots, BackLink } from '../ui';
 
 /**
  * The codeless reconnect while `awaitingPeer`: this device has taken the derived rendezvous and is
@@ -15,13 +15,14 @@ export function ReconnectWaitScreen(): ReactElement {
   const t = useT();
   return (
     <Screen center>
-      <PulseGlyph />
-      <Eyebrow parts={[t('rwEyebrow')]} />
-      <h2 className="hs-h2" data-testid="reconnect-waiting">
+      <MeetDots />
+      <Space h={28} />
+      <h2 className="hs-h3" data-testid="reconnect-waiting">
         {t('rwTitle')}
       </h2>
-      <p className="hs-sub">{t('rwDesc')}</p>
-      <Waiting label={t('rwWaiting')} />
+      <Space h={12} />
+      <p className="hs-p hs-p--muted hs-p--narrow">{t('rwDesc')}</p>
+      <Space h={28} />
       <BackLink onClick={() => session.dispose()} />
     </Screen>
   );

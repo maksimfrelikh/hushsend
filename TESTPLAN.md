@@ -261,11 +261,13 @@ Both peers on the home Wi-Fi, default **Max-privacy**. Baseline: if these fail, 
       from the creator and no longer from the id order, precisely so the untrusted server cannot make
       BOTH peers the blind picker. Just check that **exactly one** side reads and the other picks —
       re-pair a few times and expect the roles to land differently. Correct pick → `connected`.
-- [ ] **A4a · the SAS refusal is reachable and equal-weight** — on the picker screen confirm
-      "None of these match — stop" is a full-width button, not a faint link, and on the reader screen
-      that the warning ("only continue once you have HEARD your peer say these words back") is
-      legible on a phone. Tap the picker's refusal: expected **both** sides end in the
-      "channel may be compromised" hard stop, no transfer UI on either.
+- [ ] **A4a · the SAS refusal is reachable** — since the 2026-09-26 redesign the refusals are the
+      tertiary label under the confirm pill ("None of these match — stop" on the picker, "Stop — they
+      don't have this phrase" on the reader): confirm each is a 44 px target that reads as an action
+      on a phone, and that the reader's sentence "Only continue once you have HEARD your peer say
+      these words back." sits directly above the confirm pill and is legible. Tap the picker's
+      refusal: expected **both** sides end in the "channel may be compromised" hard stop, no transfer
+      UI on either.
 - [ ] **A4b · the reader can still stop after confirming** — reader taps "They read it back correctly"
       BEFORE the picker answers, then taps the abort on the waiting screen. Expected: the session
       fails closed. (A reject is accepted even after our own approval, up to settle — a reader who

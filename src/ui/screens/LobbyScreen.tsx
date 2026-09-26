@@ -2,18 +2,20 @@ import { type ReactElement } from 'react';
 import { useSession } from '../SessionProvider';
 import { useAppSelector } from '../../store/hooks';
 import { useT } from '../prefs';
-import { Screen, Eyebrow, BackLink, CopyButton } from '../ui';
+import { Screen, Space, Grow, BackLink, CopyPill, AlertLine, Glyph } from '../ui';
 
 /**
- * Mesh-LOBBY view for the room method while `awaitingPeer`. The 4-digit code names a lobby that
- * several peers can sit in; BOTH the creator and every joiner land here (joining → awaitingPeer) and
- * see the same thing: the shareable code + a roster of everyone else in the room, each with a
- * "Connect" button. Picking a peer raises a 1:1 channel with exactly that peer (`pickPeer`), which
- * runs its own SAS — for ANY pair, including joiner↔joiner (the per-pairing role decides who offers).
+ * Mesh-LOBBY view for the room method while `awaitingPeer`. The 4-digit code is the hero (mono,
+ * capped for text zoom, wrapping to 2 × 2 when a row cannot hold it); several peers can sit in the
+ * lobby, and BOTH the creator and every joiner land here and see the same thing: the code, Copy
+ * code, and a roster of everyone else in the room. Each roster ROW is the tap target: picking a peer
+ * raises a 1:1 channel with exactly that peer (`pickPeer`), which runs its own SAS — for ANY pair,
+ * including joiner↔joiner (the per-pairing role decides who offers).
  *
- * This screen is for the PLAIN SAS room only. Reconnect is codeless and has its own wait screen
- * (ReconnectWaitScreen) — it auto-pairs 1:1 at a derived token, no pick. words/link/qr are not
- * lobbies at all. The hard invariant is unchanged: no file UI here — only `connected` shows it.
+ * A bounced pick (the peer is already pairing with someone else) surfaces as a one-time notice line
+ * above the roster (role=alert), never as a row state; the picker is back in the lobby and may pick
+ * another peer. This screen is for the PLAIN SAS room only — the codeless reconnect has its own wait
+ * screen. The hard invariant is unchanged: no file UI here — only `connected` shows it.
  */
 export function LobbyScreen(): ReactElement {
   const session = useSession();
@@ -23,53 +25,61 @@ export function LobbyScreen(): ReactElement {
   const notice = useAppSelector((s) => s.connection.notice);
 
   return (
-    <Screen center>
-      <Eyebrow parts={[t('lobbyRoomEyebrow')]} />
+    <Screen>
       <h2 className="hs-h2">{t('lobbyRoomTitle')}</h2>
-
-      <div className="hs-code" data-testid="room-code">
+      <Space h={28} />
+      <span
+        className="hs-code"
+        role="img"
+        aria-label={`${t('roomCodeLabel')} ${room}`}
+        data-testid="room-code"
+      >
         {room.split('').map((d, i) => (
-          <span key={i} className="hs-code__box">
-            {d}
-          </span>
+          <span key={i}>{d}</span>
         ))}
-      </div>
-      <CopyButton value={room} />
+      </span>
+      <Space h={20} />
+      <CopyPill value={room} label={t('copyCode')} className="hs-half" />
+      <Space h={32} />
 
       {notice?.kind === 'busy' && (
-        <p className="hs-meta hs-meta--warn" data-testid="lobby-busy">
-          {t('lobbyBusyPrefix')} {notice.peerId} {t('lobbyBusySuffix')}
-        </p>
+        <>
+          <AlertLine testId="lobby-busy">
+            {notice.peerId} {t('lobbyBusySuffix')}
+          </AlertLine>
+          <Space h={12} />
+        </>
       )}
 
       {roster.length === 0 ? (
-        <p className="hs-sub" data-testid="lobby-empty">
+        <p className="hs-p hs-p--muted" data-testid="lobby-empty">
           {t('lobbyEmpty')}
         </p>
       ) : (
-        <div className="hs-stack" data-testid="lobby-roster">
+        <div className="hs-rows" data-testid="lobby-roster">
           {roster.map((peer) => (
-            <div key={peer.id} className="hs-device" data-testid={`lobby-peer-${peer.id}`}>
-              <span className="hs-dot hs-dot--on" aria-hidden="true" />
-              <div className="hs-row__body">
-                <div className="hs-row__title">{peer.id}</div>
-                <div className="hs-meta">
-                  {peer.device || t('lobbyDeviceUnknown')} · {t('lobbyJoined')} {joinedClock(peer.joinedAt)}
-                </div>
-              </div>
+            <div key={peer.id} data-testid={`lobby-peer-${peer.id}`}>
               <button
                 type="button"
-                className="hs-btn hs-btn--primary hs-btn--sm"
+                className="hs-row"
                 data-testid={`lobby-connect-${peer.id}`}
                 onClick={() => session.pickPeer(peer.id)}
               >
-                {t('lobbyConnect')}
+                <span className="hs-row__body">
+                  <span className="hs-row__title hs-row__title--mono">{peer.id}</span>
+                  <span className="hs-row__desc">
+                    {t('lobbyJoined')} {joinedClock(peer.joinedAt)}
+                  </span>
+                </span>
+                <Glyph name="arrow" size={18} className="hs-row__arrow" />
               </button>
             </div>
           ))}
         </div>
       )}
 
+      <Grow />
+      <Space h={20} />
       <BackLink onClick={() => session.dispose()} />
     </Screen>
   );

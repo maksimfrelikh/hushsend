@@ -754,48 +754,106 @@ commit (NOT on the npm registry: `npm install stark-ui-kit` fetches an unrelated
 with the TPM SSH agent (`SSH_AUTH_SOCK=/run/user/1000/ssh-tpm-agent.sock` in a non-interactive shell) —
 npm caches a git dep by sha, so the bump IS the install. The rules for changing the kit and how a change
 travels live in the kit's own `CLAUDE.md`; its `README.md` is the consumer contract.
+- **The reference is the Claude Design canvas** https://claude.ai/artifact/XRjdVX5U8SC8m2cDSgzDSP
+  (implemented 2026-09-26). Read it with the Artifact tool: `project/canvas.json` places the boards,
+  `project/<Name>.dc.html` is one board (Main, HomeEmpty, Method, Share, Scan*, WordsRead*, WordsEnter*,
+  Lobby*, SasReader*, SasPicker, Connecting, ReconnectWait, Transfer*, Failed*, KeyChanged; Dark /
+  Desktop / Tablet / Stress / Zoom suffixes are the same screens at other themes and widths),
+  `Components` names the kit token for every element, `Checks` is the per-screen WCAG 2.2 AA table.
+  **Take composition, hierarchy, states and copy from the boards; take every VALUE (colour, type,
+  spacing rhythm, radius, motion) from the kit's tokens, never from the artboards** (kit rule 6).
+  `uploads/design-reference/` is the OLD prototype (and `_ds/` its drifted token copy) — **no longer
+  the reference**, kept only as history.
 - **Design language = "Stark"**, published as a Claude Design system generated from the reference site
   frelikh.com: https://claude.ai/artifact/Da7if9WhD7hxZjf5sL6m2F (brand book, tokens, kit + site
-  components, reference screenshots). `uploads/design-reference/_ds/` is an OLDER extracted copy of the
-  same language and drifts from it (its high-contrast hairline `#c4c4c4` is 1.74:1 on white, under the
-  3:1 of SC 1.4.11) — values come from the kit, never from there.
-- **Imports, in this order, once, at the app root (`src/main.tsx`):** `stark-ui-kit/styles.css` (tokens +
-  a11y base), `stark-ui-kit/theme-mono.css` (the house palette — the ONLY source of every `--brand-*`
-  value; **this app declares none of its own**, `src/ui/theme.css` was deleted in the 0.3.0 migration),
-  then `src/ui/app.css` (the app component layer). A colour or font value is changed in the kit and
-  arrives here by a pin bump, never by an override in this repo.
-- **Strictly MONOCHROME — there is NO accent colour.** Emphasis / selected / danger is the single
-  ink-INVERSION language: `--ink` (the strong ink) on `--ink-fg` (text on ink). Do not add any
-  colour/accent token, ever.
+  components). Values come from the kit, never from there either.
+- **Imports, in this order, once, at the app root (`src/main.tsx`):** the two webfonts
+  (`@fontsource-variable/archivo/wght.css`, `@fontsource/ibm-plex-mono/{400,500,600}.css` — the
+  families `theme-mono.css` names, self-hosted through the bundle because the CSP allows `font-src
+  'self'` only), `stark-ui-kit/styles.css` (tokens + a11y base), `stark-ui-kit/theme-mono.css` (the house
+  palette — the ONLY source of every `--brand-*` value; **this app declares none of its own**), the
+  three kit component stylesheets the screens adopt — `controls.css` (`.pill`: the lozenge and its ink
+  inversion on hover / press; the app's `.hs-pill` adds the boards' geometry on top), `theme-toggle.css`
+  (`.theme-toggle`, the half-filled circle; `app.css` sets `--theme-toggle-flip: 180deg` on
+  `[data-theme="light"]` and the button keeps `aria-pressed` = light active), `layout.css` (`.wrap`: the
+  column — its `padding-inline: var(--gut)` IS the design's 20 / 34 / 72 gutter at 375 / 680 / 1440;
+  `.hs-main` narrows `--maxw` to the design's ~520px single column) — then `src/ui/app.css` (the app
+  component layer). A colour or font value is changed in the kit and arrives here by a pin bump, never
+  by an override in this repo. `links.css`, `lang-switch.css`, `prose.css`, `command-palette.css` are
+  not imported (nothing renders them). Nothing was promoted INTO the kit (kit rule 5: two consumers).
+- **Strictly MONOCHROME — there is NO accent colour, no shadow, no gradient, no illustration.**
+  Emphasis / selected / danger is the single ink-INVERSION language: `--ink` on `--ink-fg`. The
+  key-changed hard stop inverts the WHOLE viewport (`.hs-app--inverted` re-reads every semantic token
+  from a swapped set). Do not add any colour/accent token, ever.
 - **Theme is switched via `[data-theme]` on `<html>`.** `index.html` ships `data-theme="light"` on
   `<html>` so the first paint is light; `prefs.tsx` then reflects the stored choice (`hushsend.theme`,
   default light) from an effect. The attribute must stay in `index.html`: `theme-mono.css` follows
   `prefers-color-scheme` only when the attribute is ABSENT, and without it a dark-OS browser would paint
-  the pre-hydration frame dark and then cut to light (verified 2026-09-25 with `colorScheme: 'dark'`:
-  boots light, toggle → dark, dark survives reload). The switch itself is a CUT — `prefs.tsx` sets
-  `data-theme-switching` around the flip and the kit zeroes all transitions for that frame. An
-  OS-following default is possible but would need an inline script before the bundle, which the CSP
-  (`script-src 'self'`, no inline) forbids — not planned.
-- **Build ALL styling on the kit's real tokens** (do not invent scales): semantic colours
-  `--bg` / `--fg` / `--muted` / `--faint` / `--line` / `--line-2` / `--ink` / `--ink-fg`, plus 0.3.0's
-  `--scrim` / `--tap-highlight` / `--scroll-shadow`; radii `--r-*`; typography `--t-*` + weight / label
-  tokens; fonts `--font-grotesk` / `--font-mono`; spacing `--gut` / `--maxw` / `--scale`; motion
-  `--ease-*` / `--dur-*`. (These are the ACTUAL kit names — NOT the prototype's `--line2` / `--inkfg` /
-  `--sans`.) `prefers-contrast: more` is handled by the kit's palette (hairlines 3.45:1 light / 3.06:1
-  dark); the app carries no contrast overrides.
+  the pre-hydration frame dark and then cut to light. The switch itself is a CUT — `prefs.tsx` sets
+  `data-theme-switching` around the flip and the kit zeroes all transitions for that frame (asserted by
+  `visual/tokens.spec.ts`). An OS-following default would need an inline script before the bundle,
+  which the CSP (`script-src 'self'`, no inline) forbids — not planned.
+- **Values: kit tokens only.** Semantic colours `--bg` / `--fg` / `--muted` / `--faint` / `--line` /
+  `--line-2` / `--ink` / `--ink-fg` (+ `--scrim` / `--tap-highlight` / `--scroll-shadow`); radii `--r-*`;
+  the fluid type roles `--t-h1/h2/h3/lead/body/meta` (so the h1 is 38px at 375 and the kit's 73.6px at
+  1440 — the tokens, not the board's 48), weights `--w-*` + the label system `--label-*`; fonts
+  `--font-grotesk` / `--font-mono`; rhythm `--gut` / `--maxw`; motion `--ease-*` / `--dur-*`.
+  Derived, not invented: the wash behind quiet pills / rows / the file zone is `--fg` at 4 % light /
+  9 % dark (`--hs-wash`, the same mixes the kit uses for its focus tint and active row), the inactive
+  mode title is `--fg` at 45 %. Three literal display caps are the owner's decisions for 200 % text
+  zoom: room code `min(132px, 35vw)`, code words `min(44px, 11.7vw)`, phrase `min(56px, 15vw)`. The
+  mode titles are weight **700** (the one weight outside the kit's 600 — the board asks for it, and axe
+  counts 19px text as large only when bold). Control geometry (heights, paddings, gaps) is literal px
+  following the boards — the kit has no spacing scale. `prefers-contrast: more` is the kit's palette;
+  the app carries no contrast overrides.
+- **Control edges:** `--fg` at rest where the edge alone identifies the control (text inputs, the room
+  code input, the five word fields, phrase cards, the file zone); `--line-2` where a label identifies it
+  (pills, method / device / peer rows). Focus is the kit's 2px ring; on fields it sits ON the edge
+  (offset −1) so the field reads as one thicker line.
+- **Screen set (the decisions taken with the owner — do not relitigate):** base width 375, breakpoints
+  680 (top bar 56 → 64, gutter 20 → 34) and 1440 (gutter 72). Link and QR are ONE screen (Share: QR +
+  link + Copy + Share); no "Waiting for your peer…" copy anywhere, waiting is implied. Home: h1, the
+  Max privacy / Reliable two-word radio group with a one-line description, Invite someone, the room
+  code form, Enter code words / Scan a QR code, a Reconnect section (paired devices, per-device
+  Reconnect + a per-device × that forgets every pin of that peer — `recentDevices.forgetDevice` — and
+  the global "Forget pinned devices"), then "About privacy and security" as collapsible details. Room
+  lobby: the 4-digit code is the hero, Copy code, the roster ROWS are the tap targets, the busy reply is
+  a one-time notice line above the roster (role=alert). Code words: read = five numbered mono words,
+  the attempt line after a wrong guess, NO copy button (spoken, never pasted); enter = five fields with
+  a listbox of up to three prefix matches on touch and inline completion (Enter / Tab) on pointer,
+  "No matching word" under the active field, Connect enabled at five words. SAS reader: the phrase is
+  the largest text in the app and the sentence "Only continue once you have HEARD your peer say these
+  words back." sits directly above the confirm button (the only gate on this side); picker: three
+  phrase cards as buttons with aria-pressed, selected = inversion. Transfer: the only happy-path status
+  is the heading "Secure channel open" (the verified text stays in the DOM as sr-only `auth-state`);
+  the path check renders as disclosure rows ONLY in the non-ok states ("direct path not confirmed"
+  muted, "route did not match" and "address servers disagree" fg + glyph, each opening its hint); one
+  transfer = one row, one progress bar, one Cancel; delivered / declined / cancelled / error in the same
+  container, then "New transfer". Failed is ONE screen with variants (compromised, room not found,
+  nobody came, verification interrupted with "Restart verification", direct failed ± relay hint,
+  generic, words with "New words"); no "Try again". Header: the existing Wordmark + the kit toggle.
+  **Note (2026-09-26):** the SAS refusals ("Stop — they don't have this phrase", "None of these match —
+  stop") are the tertiary label under the confirm pill, as the boards compose them; this supersedes the
+  2026-09-12 audit's equal-weight buttons (BACKLOG § Security audit / Second pass records both).
+- **Language: ENGLISH ONLY for now.** `i18n.ts` keeps the table, `ru` is optional with a fallback to
+  `en`, new strings get `en` only, and the header shows no EN|RU switch until the Russian half is
+  complete (BACKLOG § Nice-to-have). Copy is the owner's placeholder, taken from the boards as-is.
 - For focus-trap, scroll-lock, and copy-to-clipboard use the kit's hooks/utilities — do not reimplement.
   `copyToClipboard` imports from the root `stark-ui-kit` entry (the only kit JS this app uses today);
-  `useFocusTrap` / `useScrollLock` live on `stark-ui-kit/react` (the root entry is framework-free since
-  0.2.0) — import them from there when a screen needs them.
-- The kit ships **tokens + a11y base CSS + optional component stylesheets + headless hooks (no React
-  components).** Screens are composed from the app component layer in `src/ui/app.css` (classes prefixed
-  `.hs-*`, all built on the kit tokens above). The 0.3.0 component stylesheets (`controls.css`,
-  `links.css`, `layout.css`, `lang-switch.css`, `theme-toggle.css`, …) are NOT imported: `.hs-btn` /
-  `.hs-seg` / `.hs-icon-btn` etc. predate them and stay app-local until the screen set is redesigned
-  (BACKLOG § Nice-to-have "stark-ui-kit componentization").
-- Build screens against the Claude Design mockups in `uploads/design-reference/` (HTML prototype
-  + screenshots; bilingual EN/RU). Design priority: **the kit is the source of truth**; mockups are
-  reference for layout/flow/copy — where they conflict with kit components/tokens, the kit wins.
+  `useFocusTrap` / `useScrollLock` live on `stark-ui-kit/react` — import them from there when a screen
+  needs them (no dialog exists in the app today).
+- **Gates (all green before a UI change is done):** `npx tsc --noEmit && npx eslint . && npx vitest
+  run`; the e2e on this host `E2E_SIGNALING_PORT=8191 E2E_VITE_PORT=5291 E2E_STUN_URLS=stun:127.0.0.1:3478
+  npx playwright test` (both default ports are live services here); **`npm run test:a11y`**
+  (`tests/a11y/` — axe-core with the tags wcag2a/aa, wcag21a/aa, wcag22aa over every screen state ×
+  both themes, plus the keyboard contracts: the word listbox on a phone profile, inline completion on a
+  pointer, the phrase cards, the mode radios, the theme toggle, the disclosure rows); **`npm run
+  visual`** (`visual/` — screenshots of every state at 375 / 680 / 1440 × both themes, the three 200 %
+  text-zoom boards, the resolved value of every token per theme × contrast, and the controls' computed
+  geometry; baselines committed under `visual/baseline/`, re-record with `npm run visual:update` only
+  with a reviewed reason). Both new gates run against the Vite DEV server and drive every state by
+  dispatching store actions through the DEV-only `window.__hsStore` / `__hsKeystore` hooks `main.tsx`
+  exposes (`visual/scenes.ts`) — no peer, no signaling server; the e2e is where the protocol runs.
 
 ## Signaling server (`server/signaling-server.js`)
 Self-contained Node + `ws`; PURE signaling, never carries file data. Already corrected:
@@ -1123,51 +1181,56 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   hint) is in PeerConnection + SessionController. **Max-privacy never relays** — the relax-offer / `connection.relax`
   / `relax` signaling frame / `relaxConnection`/`declineRelax` / `restartIce`-over-relay machinery was
   removed (strict model, this pass).
-- ✅ `src/ui/` — **real, status-driven screens (steps 5a + 5b)**, built on kit tokens (monochrome,
-  inversion-as-emphasis, light/dark via `[data-theme]`, EN/RU). `ScreenRouter` picks a screen by
-  FSM status (+ method/phase); `HomeScreen` (landing → method picker [link / qr / words / room] →
-  words-receive + QR-scan-receive, **a "Reconnect a device" section with ONE button per recent
-  device** — tap **Reconnect** here and on the other device, no code shown or typed
-  (`session.reconnectTo(pairingId)`; the create/join split and the code input are gone with the
-  code, 2026-09-25), join-by-code (room), **functional "Max privacy" / Reliable toggle** — step 6d,
-  drives `iceServers`), `ReconnectWaitScreen` (the reconnect's `awaitingPeer`: "waiting for the other
-  device — open hushsend there and tap Reconnect", deliberately shows no code and no token; the old
-  `RoomCreateScreen` is deleted), `LobbyScreen` (step
-  6c — the room mesh lobby: code + roster [`connection.roster` id/device/joinedAt] + a Connect button
-  per peer → `pickPeer`), `WordsCreateScreen`, `LinkCreateScreen` (one-time link +
-  copy/share), `QrCreateScreen` (the link as an SVG QR), `ScanScreen` (qr receive: camera +
-  paste-link fallback), `ConnectingScreen` (creating/joining/pairing-lobby/confirming — a Max-privacy
-  ICE failure routes to the FailedScreen with a switch-to-Reliable hint, NOT a relay offer; step 6d
-  STRICT), `SasScreen`
-  (**asymmetric pick-from-3**: reader shows its phrase; picker is blind among the real + 2 local
-  decoys — **role per-pairing by readable-id order**, `src/core/sasRole.ts` → `connection.sasRole`,
-  fail-closed "restart verification" on a missing id), `TransferScreen` (a finished/aborted transfer
-  parks on its terminal plaque with an explicit **"New transfer"** button [`new-transfer-btn`] that
-  `transferActions.reset()`s the per-transfer projection + clears the local pick → a CLEAN
-  ready-to-send per send, no leftover progress/file-name from the prior transfer; the drop zone shows
-  only in a clean `idle`. Does NOT touch the connection or clear the history records), `FailedScreen`
-  (+ key-changed hard stop, + the reconnect "did not show up" variant keyed off
-  `RECONNECT_NO_SHOW_REASON`). The link fragment auto-join + scrub lives in `App.tsx`
-  (`LinkFragmentJoin`). Shared `ui.tsx` (TopBar, StatusBeacon, PrivacyToggle, CopyButton,
-  ShareButton, Eyebrow, …), `components/` (`WordPicker`, DEV-only `Diagnostics`), `qr.ts`
-  (link→SVG QR via `qrcode`; `qr.test.ts`), `prefs.tsx` + `i18n.ts` (lang/theme/**privacy mode**, the
-  last pushed into the core via `<PrivacyModeSync>` → `setPrivacyMode`), `sasOptions.ts`
-  (+ `sasOptions.test.ts`: SAS pick-from-3 decoys + scoring) over `random.ts` (CSPRNG),
-  `recentDevices.ts` (recent devices read from the keystore, **deduped by `peerPublicKey`** —
-  `dedupeByPeerKey`, ONE row per distinct peer key keeping the most-recent pin; its `pairingId` drives
-  the reconnect tap [`reconnectTo(pairingId)`] — and since both sides pinned that freshest pin at the
-  same enrollment, both derive the same rendezvous from it — its `label`/`firstSeen` the row — so a
-  peer that holds several pins under distinct pairingIds [fresh-enroll / dual-pin] shows once.
-  Display-only: pins are NOT GC'd. `recentDevices.test.ts`). **Transfer history is
+- ✅ `src/ui/` — **real, status-driven screens, REDESIGNED 2026-09-26 from the Claude Design canvas**
+  (§ UI / styling has the reference, the rules and the gates), built on kit tokens + the kit's
+  `controls.css` / `theme-toggle.css` / `layout.css` (monochrome, inversion-as-emphasis, light/dark via
+  `[data-theme]`, English only — the RU table is kept, the switch hidden). `ScreenRouter` picks a screen by
+  FSM status (+ method); `HomeScreen` (h1, the **Max privacy / Reliable radio group** — step 6d, drives
+  `iceServers` — Invite someone → the method picker [Link or QR code / Code words / Room], the room code
+  form, Enter code words → `WordPicker`, Scan a QR code → `ScanScreen`, a **Reconnect section** listing
+  paired devices with a per-device Reconnect [`session.reconnectTo(pairingId)`, no code shown or typed]
+  and a per-device × [`recentDevices.forgetDevice` — removes every pin of that peer key] plus the global
+  "Forget pinned devices" [`resetIdentity` + history `forgotten`], and "About privacy and security" as
+  three `<details>` items), `ReconnectWaitScreen` (the reconnect's `awaitingPeer`: two dots meeting +
+  "Waiting for the other device", deliberately no code and no token), `LobbyScreen` (step 6c — the room
+  mesh lobby: the 4-digit code as the hero + Copy code + the roster [`connection.roster`] as tap-target
+  rows → `pickPeer`, the busy reply as a notice line), `WordsCreateScreen` (five numbered words, the
+  attempt line after a wrong guess, no copy), `ShareScreen` (link AND qr: the QR + the link + Copy link +
+  Share — `LinkCreateScreen` / `QrCreateScreen` are merged into it), `ScanScreen` (qr receive: camera in
+  the viewfinder + the paste-link fallback), `ConnectingScreen` (creating/joining/pairing/confirming — a
+  Max-privacy ICE failure routes to the Failed screen with a switch-to-Reliable hint, NOT a relay offer;
+  step 6d STRICT), `SasScreen` (**asymmetric pick-from-3**: reader shows its phrase as the largest text
+  in the app + the HEARD sentence above the confirm; picker is blind among the real + 2 local decoys as
+  aria-pressed cards — role from the SAS material, `connection.sasRole`; fail-closed "verification
+  interrupted / Restart verification" on a missing role, rendered through the Failed layout),
+  `TransferScreen` (the heading "Secure channel open" + sr-only `auth-state`; the path check as
+  disclosure rows only in the non-ok states; the file zone + Choose files, the picked list, Send; ONE
+  row per transfer with its progress; incoming Accept / Decline; delivered / declined / cancelled /
+  error inside the same container, then **"New transfer"** [`new-transfer-btn`] which
+  `transferActions.reset()`s the per-transfer projection → a CLEAN ready-to-send per send, never
+  touching the connection or the history), `FailedScreen` (ONE screen, variants by reason + method;
+  `FailureLayout` is shared with the SAS restart; the reconnect key-changed hard stop inverts the whole
+  viewport via `hs-app--inverted` set in `App.tsx`). The link fragment auto-join + scrub lives in
+  `App.tsx` (`LinkFragmentJoin`). Shared `ui.tsx` (Glyph, Space/Grow, Pill on the kit's `.pill`,
+  TextLink, IconButton, AlertLine, Collapsible, Disclosure, MeetDots, CopyPill, SharePill, TopBar with
+  the kit theme toggle, Wordmark, StatusBeacon, Screen, Kicker), `components/` (`WordPicker` — five
+  fields, listbox on touch / inline completion on pointer; DEV-only `Diagnostics`), `qr.ts` (link→SVG QR
+  via `qrcode`; `qr.test.ts`), `prefs.tsx` + `i18n.ts` (lang/theme/**privacy mode**, the last pushed
+  into the core via `<PrivacyModeSync>` → `setPrivacyMode`; `translate` falls back to `en`),
+  `sasOptions.ts` (+ `sasOptions.test.ts`: SAS pick-from-3 decoys + scoring) over `random.ts` (CSPRNG),
+  `recentDevices.ts` (paired devices read from the keystore, **deduped by `peerPublicKey`** —
+  `dedupeByPeerKey`, ONE row per distinct peer key keeping the most-recent pin whose `pairingId` drives
+  the reconnect tap — plus `forgetDevice(peerPublicKey)`, which removes EVERY pin of that key so a
+  stale sibling cannot resurface as a row; `recentDevices.test.ts`). **Transfer history is
   SESSION-ONLY** — an in-memory Redux slice (`src/store/historySlice.ts`), NOT persisted (file names are
   a privacy trail; gone on reload), kept **bounded** (`HISTORY_CAP = 12`) + **clearable** (`forgotten`,
   via the home "forget"); the per-send transfer reset does NOT clear it (`transferSlice.test.ts` /
-  `historySlice.test.ts`). localStorage now holds **only prefs** (lang/theme/privacy mode); there is no
-  longer a `persistence.ts`. The `dev` store slice stays as the auxiliary projection
-  feed (identity pubkey / pinned peer / public DTLS fingerprints / **ICE config: privacy mode + relay
-  + TURN creds** / log) the SessionController publishes; all fields are serializable + non-sensitive
-  (RTK `serializableCheck` stays ON), and the DEV-only `Diagnostics` is what surfaces them (display
-  gated behind `import.meta.env.DEV`).
+  `historySlice.test.ts`). localStorage holds **only prefs** (lang/theme/privacy mode); there is no
+  `persistence.ts`. The `dev` store slice stays as the auxiliary projection feed (identity pubkey /
+  pinned peer / public DTLS fingerprints / **ICE config** / log) the SessionController publishes; all
+  fields are serializable + non-sensitive (RTK `serializableCheck` stays ON), and the DEV-only
+  `Diagnostics` is what surfaces them (display gated behind `import.meta.env.DEV`). `main.tsx` also
+  exposes `window.__hsStore` / `__hsKeystore` in DEV only, for the visual and a11y gates.
 - ✅ Server — signaling, corrected `clientIp()`, word + token rendezvous allocation (`codeSpec`).
   **Managed-room hardening (done — 6a)** for ALL `filetransfer` rooms (`managed: true` → TTL + per-IP
   rate-limit). **Seat cap is codeType-dependent (NOT `managed`):** the 4-digit **room** rendezvous is a
@@ -1198,7 +1261,7 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   browsers per test and runs link-pairing + a hashed transfer across chrome/firefox/webkit in both
   directions — run it with `E2E_SIGNALING_PORT=… npx playwright test`, engines absent from the host
   skip with a printed reason; the WHOLE suite also runs per engine as its own project —
-  chromium/firefox/**webkit** 33/33 each (count as of 2026-09-12) — where **webkit needs
+  chromium/firefox/**webkit** 40/40 each (count as of 2026-09-26) — where **webkit needs
   `E2E_STUN_URLS` on a headless host**:
   it cannot disable mDNS obfuscation, so without a STUN server its only host candidate is
   `<uuid>.local` and two of its tabs never pair. plus a `mobile-webkit` project (WebKit + the iPhone device descriptor) that is the ONLY place the
@@ -1221,7 +1284,9 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   DEV knobs that shipped live are gated, the RECEIVE side of the no-bytes gate is closed, SDP-embedded
   relay candidates are stripped, renegotiation after channel-open is refused, the step-1
   unauthenticated path is deleted, protocol strings are length-bounded, the 1:1 confirm path got its
-  own liveness deadline, and the SAS refusals carry the same weight as the confirms. Regressions in
+  own liveness deadline, and the SAS refusals were given the same weight as the confirms (superseded
+  2026-09-26 by the redesign, which composes them as the tertiary label under the confirm pill — see
+  § UI / styling). Regressions in
   `SessionController.auditFixes.test.ts` + `sasRole.test.ts` + `relax.test.ts`. Full write-up in
   **BACKLOG.md § Security audit / Second pass**; of its two open items, path attestation is built
   (advisory) and the `pairingId` disclosure is closed structurally by the codeless reconnect

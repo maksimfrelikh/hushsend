@@ -1,22 +1,48 @@
 /* ============================================================
    hushsend — application component layer
    ------------------------------------------------------------
-   Real screen styling, built ENTIRELY on stark-ui-kit tokens
-   (--bg/--fg/--muted/--faint/--line/--line-2/--ink/--ink-fg,
-   --r-*, --t-*, --font-grotesk/--font-mono, --label-*, --ease-*,
-   --dur-*, --gut, --maxw, --scale). No new colour / spacing /
-   radius scales, and NO accent colour — the system is strictly
-   monochrome. Hierarchy comes from weight, scale, hairlines and
-   ink-inversion (the single "emphasis / selected / danger"
-   language). Light / dark switch via [data-theme] on <html>;
-   the palette itself is stark-ui-kit/theme-mono.css — this app
-   declares no --brand-* of its own.
+   Composition, hierarchy, states and copy come from the Claude
+   Design canvas (CLAUDE.md § UI / styling). EVERY colour, font,
+   radius, motion and gutter value here is a stark-ui-kit token:
+   --bg/--fg/--muted/--faint/--line/--line-2/--ink/--ink-fg,
+   --r-*, --t-*, --w-*, --label-*, --font-*, --ease-*, --dur-*,
+   --gut. Nothing is copied from the artboards (kit rule 6).
 
-   This file is real declarations (not the token contract), so it
-   is imported AFTER the kit base layer — see main.tsx. ========= */
+   Type: the kit's fluid roles --t-h1/h2/h3/lead/body/meta, plus
+   the three display caps the owner fixed for 200 % text zoom
+   (room code, code words, phrase). Control geometry — heights,
+   paddings, gaps — is literal px following the boards, because
+   the kit ships no spacing scale beyond --gut / --maxw.
 
-/* ---------- App shell ---------- */
+   Kit component stylesheets in use (imported in main.tsx):
+   controls.css (.pill — the lozenge and its ink inversion),
+   theme-toggle.css (.theme-toggle), layout.css (.wrap — the
+   column, whose padding-inline IS the design's 20 / 34 / 72
+   gutter: that is what --gut resolves to at 375 / 680 / 1440).
+
+   Strictly MONOCHROME: no accent, shadow, gradient or picture.
+   Emphasis / selected / danger is ink inversion. Light / dark
+   via [data-theme] on <html>; the palette is theme-mono.css and
+   this app declares no --brand-* of its own.
+
+   Real declarations, so imported AFTER the kit — see main.tsx. */
+
+/* ---------- App scope ---------- */
 .hs-app {
+  /* The wash: --fg at a low alpha, the same derivation the kit uses for its focus tint (4 %) and
+     active row (9 %, command-palette.css). Fills the quiet pill, rows, the file zone and containers. */
+  --hs-wash: color-mix(in srgb, var(--fg) 4%, transparent);
+  /* The inactive mode title: --fg at 45 % (3.1:1 — AA for large text only, which it is). */
+  --hs-dim: color-mix(in srgb, var(--fg) 45%, transparent);
+  /* Values the key-changed inversion swaps in (see .hs-app--inverted below). Declared here so the
+     child scope reads the NORMAL tokens of this theme, not its own overrides. */
+  --hs-inv-bg: var(--ink);
+  --hs-inv-fg: var(--ink-fg);
+  --hs-inv-ink: var(--bg); /* the strong ink of the inverted world is this theme's page colour */
+  --hs-inv-ink-fg: var(--fg);
+  --hs-inv-muted: color-mix(in srgb, var(--ink-fg) 58%, var(--ink));
+  --hs-inv-line-2: color-mix(in srgb, var(--ink-fg) 18%, var(--ink));
+
   min-height: 100vh;
   min-height: 100dvh;
   display: flex;
@@ -24,495 +50,553 @@
   background: var(--bg);
   color: var(--fg);
 }
-
-.hs-main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  max-width: 620px;
-  margin: 0 auto;
-  padding: clamp(28px, 6vh, 64px) var(--gut) 64px;
+[data-theme='dark'] .hs-app {
+  --hs-wash: color-mix(in srgb, var(--fg) 9%, transparent);
 }
 
-/* A single screen: a centred column with a consistent vertical rhythm. */
-.hs-screen {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  width: 100%;
-  margin: 0 auto;
-  max-width: 460px;
+/* The kit's theme toggle rotates its half-filled circle where LIGHT is active (its host contract). */
+:root[data-theme='light'] {
+  --theme-toggle-flip: 180deg;
 }
-.hs-screen--center {
-  align-items: center;
-  text-align: center;
+
+/* Danger = inversion of the WHOLE viewport (key changed). The header and main re-read every
+   semantic token from the inverted set; the primary pill becomes bg-on-fg by the same swap. */
+.hs-app--inverted {
+  background: var(--ink);
+  color: var(--ink-fg);
 }
-.hs-screen--wide {
-  max-width: 560px;
+.hs-app--inverted > * {
+  --bg: var(--hs-inv-bg);
+  --fg: var(--hs-inv-fg);
+  --ink: var(--hs-inv-ink);
+  --ink-fg: var(--hs-inv-ink-fg);
+  --muted: var(--hs-inv-muted);
+  --faint: var(--hs-inv-muted);
+  --line-2: var(--hs-inv-line-2);
+  --hs-wash: color-mix(in srgb, var(--hs-inv-fg) 9%, transparent);
 }
 
 /* ---------- Top bar ---------- */
 .hs-topbar {
+  height: 56px;
+  padding-inline: var(--gut);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 15px clamp(16px, 4vw, 28px);
-  border-bottom: 1px solid var(--line);
+  flex: none;
 }
 .hs-wordmark {
   display: block;
   width: auto;
-  height: 22px;
+  height: 20px;
   color: var(--fg); /* source for the SVG's fill="currentColor" */
 }
 .hs-topbar__right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
 }
 
-/* segmented language toggle */
-.hs-seg {
-  display: inline-flex;
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-pill);
-  overflow: hidden;
+/* ---------- The column ---------- */
+/* .wrap (kit layout.css) gives padding-inline: var(--gut) and max-width: var(--maxw); the column
+   itself is the design's ~520px single column. */
+.hs-main {
+  --maxw: 520px;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding-block: 16px 20px;
 }
-.hs-seg__btn {
-  font-family: var(--label-font);
-  font-size: var(--t-meta);
-  font-weight: var(--label-weight);
-  letter-spacing: var(--label-track);
-  text-transform: var(--label-case);
-  padding: 5px 12px;
-  color: var(--faint);
-  transition: color var(--dur-fast) var(--ease-soft);
+.hs-screen {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
-.hs-seg__btn[aria-pressed='true'] {
-  background: var(--ink);
-  color: var(--ink-fg);
-}
-
-.hs-icon-btn {
-  width: 32px;
-  height: 32px;
-  display: inline-flex;
+.hs-screen--center {
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-sm);
-  color: var(--fg);
-  transition:
-    border-color var(--dur-fast) var(--ease-soft),
-    background var(--dur-fast) var(--ease-soft);
+  text-align: center;
 }
-.hs-icon-btn:hover {
-  border-color: var(--ink);
+.hs-space {
+  flex: none;
 }
-.hs-theme-glyph {
-  width: 16px;
-  height: 16px;
-  border-radius: var(--r-circle);
-  border: 1.5px solid currentColor;
-  background: linear-gradient(90deg, currentColor 0 50%, transparent 50% 100%);
+.hs-grow {
+  flex: 1 1 auto;
+}
+
+@media (min-width: 680px) {
+  .hs-topbar {
+    height: 64px;
+  }
+  .hs-main {
+    padding-block: 40px var(--gut);
+  }
 }
 
 /* ---------- Type ---------- */
-.hs-eyebrow {
-  font-family: var(--label-font);
-  font-weight: var(--label-weight);
-  font-size: var(--t-meta);
-  letter-spacing: 0.16em;
-  text-transform: var(--label-case);
-  color: var(--faint);
-}
-.hs-eyebrow .sep {
-  margin: 0 0.5em;
-  opacity: 0.5;
-}
 .hs-h1 {
   font-family: var(--font-display);
   font-weight: var(--w-display);
   font-size: var(--t-h1);
-  line-height: 1.08;
+  line-height: 1.05;
   letter-spacing: -0.025em;
-  max-width: 13ch;
+  text-wrap: balance;
 }
 .hs-h2 {
   font-family: var(--font-display);
   font-weight: var(--w-display);
   font-size: var(--t-h2);
-  line-height: 1.12;
-  letter-spacing: -0.025em;
-  max-width: 22ch;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
 }
-.hs-screen--center .hs-h1,
-.hs-screen--center .hs-h2 {
-  margin-inline: auto;
+.hs-h3 {
+  font-family: var(--font-display);
+  font-weight: var(--w-display);
+  font-size: var(--t-h3);
+  line-height: 1.2;
+  letter-spacing: -0.01em;
 }
-.hs-sub {
+.hs-p {
   font-size: var(--t-body);
-  color: var(--muted);
-  max-width: 34ch;
-  line-height: 1.5;
+  line-height: 1.55;
 }
-.hs-screen--center .hs-sub {
-  margin-inline: auto;
+.hs-p--muted {
+  color: var(--muted);
+}
+.hs-p--narrow {
+  max-width: 340px;
 }
 .hs-meta {
-  font-family: var(--font-mono);
   font-size: var(--t-meta);
-  color: var(--faint);
+  line-height: 1.5;
+  color: var(--muted);
 }
 .hs-mono {
   font-family: var(--font-mono);
-  word-break: break-all;
+}
+/* uppercase tracked label (the kit's label system) */
+.hs-label {
+  font-family: var(--label-font);
+  font-size: var(--t-meta);
+  font-weight: var(--label-weight);
+  letter-spacing: var(--label-track);
+  text-transform: var(--label-case);
+  line-height: 1;
+}
+/* the mono kicker above a failure title */
+.hs-kicker {
+  font-family: var(--font-mono);
+  font-size: var(--t-meta);
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+/* the raw reason line under a failure ("ice · no direct candidate") */
+.hs-reason {
+  font-family: var(--font-mono);
+  font-size: var(--t-meta);
+  color: var(--faint);
+  overflow-wrap: anywhere;
 }
 
-/* ---------- Buttons ---------- */
-.hs-btn {
-  display: inline-flex;
-  align-items: center;
+/* ---------- Pills (on the kit's .pill) ---------- */
+/* controls.css gives .pill its border, colour and the ink inversion on hover / press. The app adds
+   the boards' geometry: sentence-case body type, 52px tall, centred, full width where asked. */
+.hs-pill {
   justify-content: center;
   gap: 8px;
-  padding: 14px 28px;
-  border-radius: var(--r-pill);
-  border: 1px solid var(--line-2);
-  background: var(--bg);
-  color: var(--fg);
+  min-height: 52px;
+  padding: 12px 24px;
   font-family: var(--font-body);
+  font-size: var(--t-body);
   font-weight: var(--w-strong);
-  font-size: 15px;
+  letter-spacing: 0;
+  line-height: 1.3;
+  text-align: center;
+  background: var(--hs-wash);
   transition:
     background var(--dur-fast) var(--ease-soft),
     color var(--dur-fast) var(--ease-soft),
-    border-color var(--dur-fast) var(--ease-soft),
-    opacity var(--dur-fast) var(--ease-soft);
+    border-color var(--dur-fast) var(--ease-soft);
 }
-.hs-btn--primary {
+.hs-pill--primary {
   background: var(--ink);
   color: var(--ink-fg);
   border-color: var(--ink);
 }
-.hs-btn--primary:hover:not(:disabled) {
-  background: transparent;
-  color: var(--fg);
-}
-.hs-btn--ghost:hover:not(:disabled) {
-  background: var(--ink);
-  color: var(--ink-fg);
-  border-color: var(--ink);
-}
-.hs-btn--block {
+.hs-pill--block {
   width: 100%;
 }
-.hs-btn--sm {
-  padding: 9px 18px;
-  font-size: 13px;
+.hs-pill--half {
+  flex: 1 1 0;
 }
-.hs-btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
+.hs-pill--sm {
+  min-height: 36px;
+  padding: 6px 16px;
+  font-size: calc(var(--t-body) * 0.875);
+}
+@media (pointer: coarse) {
+  .hs-pill--sm {
+    min-height: 44px;
+  }
+}
+/* disabled: line-2 edge, faint text, no fill — and no inversion on hover. Same specificity as the
+   kit's .pill:hover; this file comes later, so it wins. */
+.hs-pill:disabled,
+.hs-pill:disabled:hover,
+.hs-pill:disabled:active {
   background: transparent;
   color: var(--faint);
   border-color: var(--line-2);
+  cursor: not-allowed;
+}
+.hs-pill-row {
+  display: flex;
+  gap: 10px;
+}
+.hs-pill-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+/* the copy glyph flips ⧉ → ✓ (dur-slow); reduced motion is a plain swap via the kit's reset */
+.hs-flip {
+  display: inline-flex;
+  transition: transform var(--dur-slow) var(--ease-out);
+}
+.hs-flip--on {
+  transform: rotateY(360deg);
 }
 
-/* a quiet, uppercase mono "back" / text link */
-.hs-textlink {
+/* ---------- Tertiary action ---------- */
+.hs-tlink {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 44px;
   font-family: var(--label-font);
   font-size: var(--t-meta);
+  font-weight: var(--label-weight);
   letter-spacing: var(--label-track);
   text-transform: var(--label-case);
-  color: var(--faint);
+  color: var(--muted);
   transition: color var(--dur-fast) var(--ease-soft);
 }
-.hs-textlink:hover {
+.hs-tlink--start {
+  justify-content: flex-start;
+}
+@media (hover: hover) {
+  .hs-tlink:hover {
+    color: var(--fg);
+  }
+}
+.hs-tlink:active {
   color: var(--fg);
 }
 
-/* ---------- Cards / surfaces ---------- */
-.hs-card {
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-md);
-  padding: 16px 18px;
-}
-.hs-card--strong {
-  border-color: var(--ink);
-}
-
-/* an interactive option / list row */
-.hs-row {
-  display: flex;
+/* ---------- Icon button ---------- */
+.hs-iconbtn {
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
   align-items: center;
-  gap: 14px;
-  width: 100%;
-  text-align: left;
-  padding: 15px 18px;
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-md);
-  transition: border-color var(--dur-fast) var(--ease-soft);
-}
-button.hs-row:hover:not(:disabled) {
-  border-color: var(--ink);
-}
-.hs-row:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.hs-row__num {
-  font-family: var(--font-mono);
-  font-size: var(--t-meta);
-  color: var(--faint);
-  width: 22px;
-  flex: none;
-}
-.hs-row__body {
-  flex: 1;
-  min-width: 0;
-}
-.hs-row__title {
-  font-weight: var(--w-strong);
-  font-size: 15px;
-}
-.hs-row__desc {
-  font-size: 13px;
+  justify-content: center;
+  border-radius: var(--r-pill);
   color: var(--muted);
-}
-.hs-row__aside {
   flex: none;
-  color: var(--faint);
+  transition: color var(--dur-fast) var(--ease-soft);
 }
-
-/* ---------- Divider with a centred label ---------- */
-.hs-divider {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  width: 100%;
+@media (hover: hover) {
+  .hs-iconbtn:hover {
+    color: var(--fg);
+  }
 }
-.hs-divider::before,
-.hs-divider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--line);
+.hs-iconbtn:active {
+  color: var(--fg);
 }
-.hs-divider span {
-  font-family: var(--label-font);
-  font-size: var(--t-meta);
-  letter-spacing: var(--label-track);
-  text-transform: var(--label-case);
-  color: var(--faint);
+.hs-iconbtn--edge {
+  margin-right: -12px;
+}
+.hs-iconbtn:focus-visible {
+  outline-offset: 2px;
 }
 
 /* ---------- Inputs ---------- */
+/* The edge alone identifies a field, so it is --fg at rest (3:1). Focus: the 2px ring sits ON the
+   edge (offset −1), so the field reads as one thicker line, never two. */
 .hs-input {
   width: 100%;
-  padding: 13px 16px;
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-md);
-  background: var(--bg);
-  color: var(--fg);
-  font-family: var(--font-body);
-  font-size: 15px;
-  transition: border-color var(--dur-fast) var(--ease-soft);
-}
-.hs-input:focus-visible {
-  border-color: var(--ink);
-}
-.hs-input--code {
-  font-family: var(--font-mono);
-  text-align: center;
-  font-size: 22px;
-  letter-spacing: 0.4em;
-  font-weight: var(--w-strong);
-  padding-inline: 8px;
-}
-.hs-join-row {
-  display: flex;
-  gap: 10px;
-  width: 100%;
-}
-.hs-join-row .hs-input {
-  flex: 1;
-}
-
-/* ---------- 4-digit code display (host) ---------- */
-.hs-code {
-  display: flex;
-  gap: 12px;
-  justify-content: center;
-}
-.hs-code__box {
-  width: clamp(48px, 14vw, 62px);
-  height: clamp(60px, 18vw, 78px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1.5px solid var(--ink);
-  border-radius: var(--r-md);
-  font-family: var(--font-mono);
-  font-weight: var(--w-display);
-  font-size: clamp(28px, 9vw, 40px);
-}
-
-/* ---------- Word picker (PAKE / words receive) ---------- */
-.hs-slots {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  justify-content: center;
-  width: 100%;
-}
-.hs-slot {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  width: clamp(140px, 44%, 200px);
-}
-.hs-slot__box {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 11px 13px;
-  border: 1.5px solid var(--line-2);
-  border-radius: var(--r-md);
-  background: var(--bg);
-  min-height: 46px;
-  transition: border-color var(--dur-fast) var(--ease-soft);
-}
-.hs-slot--active .hs-slot__box {
-  border-color: var(--fg);
-}
-.hs-slot--filled .hs-slot__box {
-  background: var(--ink);
-  color: var(--ink-fg);
-  border-color: var(--ink);
-}
-.hs-slot__num {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--faint);
-  flex: none;
-}
-.hs-slot--filled .hs-slot__num {
-  color: var(--ink-fg);
-  opacity: 0.6;
-}
-.hs-slot__input {
-  flex: 1;
-  min-width: 0;
-  border: none;
+  height: 52px;
+  padding: 0 16px;
+  border: 1px solid var(--fg);
+  border-radius: var(--r-sm);
   background: transparent;
   color: var(--fg);
   font-family: var(--font-mono);
-  font-size: 15px;
+  font-size: var(--t-body);
 }
-.hs-slot__input:focus {
-  outline: none;
-}
-.hs-slot__word {
-  flex: 1;
-  font-family: var(--font-mono);
-  font-size: 15px;
-}
-.hs-slot__remove {
-  flex: none;
-  color: var(--ink-fg);
-  opacity: 0.75;
-  font-size: 16px;
-  line-height: 1;
-}
-.hs-slot__dash {
+.hs-input::placeholder {
   color: var(--faint);
-  font-family: var(--font-mono);
+  opacity: 1;
 }
-.hs-suggest {
+.hs-input:focus-visible {
+  outline-offset: -1px;
+  border-radius: var(--r-sm);
+}
+.hs-input--code {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 20px;
+  font-size: var(--t-h3);
+  font-weight: var(--w-strong);
+  letter-spacing: 0.5em;
+  text-indent: 0.5em;
+  text-align: center;
+}
+.hs-form-row {
+  display: flex;
+  gap: 10px;
+}
+.hs-form-col {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-}
-.hs-suggest__btn {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 9px 13px;
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-sm);
-  font-family: var(--font-mono);
-  font-size: 14px;
-  color: var(--fg);
-  transition:
-    background var(--dur-fast) var(--ease-soft),
-    color var(--dur-fast) var(--ease-soft);
-}
-.hs-suggest__btn::before {
-  content: '↳';
-  color: var(--faint);
-  margin-right: 8px;
-}
-.hs-suggest__btn:hover {
-  background: var(--ink);
-  color: var(--ink-fg);
-}
-.hs-suggest__btn:hover::before {
-  color: var(--ink-fg);
-}
-
-/* ---------- 5-word credential chips (words create) ---------- */
-.hs-chips {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
   gap: 10px;
-  width: 100%;
 }
-.hs-chip {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 12px 14px;
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-sm);
-}
-.hs-chip__num {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--faint);
-}
-.hs-chip__word {
-  font-family: var(--font-mono);
-  font-size: 15px;
-  font-weight: var(--w-strong);
+@media (min-width: 680px) {
+  .hs-form-row--center {
+    justify-content: center;
+  }
+  .hs-form-row--center .hs-input--code {
+    flex: 0 1 220px;
+  }
 }
 
-/* ---------- Link box (link create) ---------- */
-.hs-linkbox {
+/* ---------- Alert line ---------- */
+.hs-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: var(--t-body);
+  line-height: 1.5;
+  color: var(--fg);
+}
+.hs-alert__glyph {
+  flex: none;
+  margin-top: 0.15em;
+}
+
+/* ---------- Mode control (Max privacy / Reliable) ---------- */
+.hs-mode {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+}
+.hs-mode__group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  flex: none;
+}
+.hs-mode__radio {
+  min-height: 44px;
+  font-family: var(--font-display);
+  /* 700, the one weight outside the kit's 600 (the Components board: "mode titles 700"). It is
+     load-bearing, not taste: the inactive title is --fg at 45 % (3.1:1), which SC 1.4.3 accepts only
+     for LARGE text, and at the phone's --t-h3 (19px) text counts as large only when bold. */
+  font-weight: 700;
+  font-size: var(--t-h3);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--hs-dim);
+  text-align: left;
+  white-space: nowrap;
+  transition:
+    color var(--dur-fast) var(--ease-soft),
+    font-size var(--dur-base) var(--ease-out);
+}
+.hs-mode__radio[aria-checked='true'] {
+  font-size: var(--t-h2);
+  color: var(--fg);
+}
+.hs-mode__desc {
+  flex: 1 1 160px;
+  min-width: 0;
+  font-size: var(--t-meta);
+  line-height: 1.5;
+  color: var(--muted);
+}
+@media (min-width: 680px) {
+  .hs-mode {
+    align-items: flex-start;
+  }
+}
+
+/* ---------- Rows — method · peer ---------- */
+/* The text label identifies the row, so the edge stays --line-2; hover lifts it to --fg. */
+.hs-row {
   display: flex;
   align-items: center;
+  gap: 12px;
   width: 100%;
-  max-width: 100%;
-  padding: 13px 16px;
+  min-height: 64px;
+  padding: 12px 16px 12px 20px;
   border: 1px solid var(--line-2);
-  border-radius: var(--r-md);
-  overflow-x: auto;
-}
-.hs-linkbox__url {
-  font-family: var(--font-mono);
-  font-size: 14px;
+  border-radius: var(--r-sm);
+  background: var(--hs-wash);
   color: var(--fg);
-  white-space: nowrap;
+  text-align: left;
+  transition: border-color var(--dur-fast) var(--ease-soft);
+}
+@media (hover: hover) {
+  .hs-row:hover {
+    border-color: var(--fg);
+  }
+}
+.hs-row:active,
+.hs-row--alert {
+  border-color: var(--fg);
+}
+.hs-row__body {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.hs-row__title {
+  display: block;
+  font-size: var(--t-body);
+  font-weight: var(--w-strong);
+  line-height: 1.3;
+}
+.hs-row__title--mono {
+  font-family: var(--font-mono);
+}
+.hs-row__desc {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 2px;
+  font-size: var(--t-meta);
+  line-height: 1.4;
+  color: var(--muted);
+}
+.hs-row__arrow {
+  flex: none;
+}
+.hs-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-/* ---------- QR code (qr create) ---------- */
-/* QR codes need a light background + dark modules to scan reliably, so the card stays light in
-   both themes (the SVG itself is generated dark-on-white). */
-.hs-qr {
+/* ---------- Device row (home · Reconnect) ---------- */
+.hs-device {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 60px;
+  padding: 4px 0;
+}
+.hs-device__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.hs-device__label {
+  font-size: var(--t-body);
+  font-weight: var(--w-strong);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hs-device__fp {
   display: block;
-  width: clamp(180px, 60vw, 248px);
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: var(--t-meta);
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+  color: var(--faint);
+}
+
+/* ---------- Collapsible (About items) ---------- */
+.hs-fold__summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 12px 0;
+  list-style: none;
+  cursor: pointer;
+}
+.hs-fold__summary::-webkit-details-marker {
+  display: none;
+}
+.hs-fold__title {
+  flex: 1 1 auto;
+  font-size: var(--t-body);
+  font-weight: var(--w-strong);
+  line-height: 1.3;
+}
+.hs-fold__chevron {
+  flex: none;
+  color: var(--faint);
+  transition: transform var(--dur-slow) var(--ease-out);
+}
+.hs-fold[open] .hs-fold__chevron {
+  transform: rotate(180deg);
+}
+.hs-fold__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px 30px 14px 0;
+  font-size: var(--t-body);
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+/* ---------- Disclosure rows (transfer path status) ---------- */
+.hs-disc__btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 0;
+  text-align: left;
+  color: var(--fg);
+}
+.hs-disc--muted .hs-disc__btn {
+  color: var(--muted);
+}
+.hs-disc__title {
+  flex: 1 1 auto;
+  font-size: var(--t-body);
+  font-weight: var(--w-strong);
+  line-height: 1.3;
+}
+.hs-disc__chevron {
+  flex: none;
+  color: var(--faint);
+  transition: transform var(--dur-slow) var(--ease-out);
+}
+.hs-disc__btn[aria-expanded='true'] .hs-disc__chevron {
+  transform: rotate(180deg);
+}
+.hs-disc__hint {
+  padding: 0 30px 12px 0;
+  font-size: var(--t-meta);
+  line-height: 1.5;
+}
+
+/* ---------- Share: QR box + link ---------- */
+/* A QR must be dark modules on a light field to scan, so the box stays white with the light
+   theme's ink in BOTH themes (the SVG is generated dark-on-white by qr.ts). */
+.hs-qr {
   padding: 16px;
   background: #ffffff;
   border: 1px solid var(--line-2);
@@ -526,373 +610,415 @@ button.hs-row:hover:not(:disabled) {
 .hs-qr--loading {
   aspect-ratio: 1;
 }
-
-/* ---------- QR scan (qr receive) ---------- */
-.hs-scan {
-  position: relative;
-  width: clamp(220px, 70vw, 300px);
-  aspect-ratio: 1;
-  border-radius: var(--r-md);
-  overflow: hidden;
-  background: var(--ink);
-}
-.hs-scan__video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.hs-scan__frame {
-  position: absolute;
-  inset: 14px;
-  border: 2px solid var(--ink-fg);
-  border-radius: var(--r-sm);
-  opacity: 0.85;
-  pointer-events: none;
-}
-
-/* ---------- SAS option cards ---------- */
-.hs-sas {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  width: 100%;
-}
-.hs-sas__card {
-  width: 100%;
-  text-align: center;
-  padding: 18px 16px;
-  border: 1.5px solid var(--line-2);
-  border-radius: var(--r-md);
+.hs-link {
   font-family: var(--font-mono);
-  font-size: clamp(16px, 4vw, 20px);
-  font-weight: var(--w-strong);
-  color: var(--fg);
-  transition:
-    border-color var(--dur-fast) var(--ease-soft),
-    background var(--dur-fast) var(--ease-soft),
-    color var(--dur-fast) var(--ease-soft);
-}
-.hs-sas__card:hover:not([aria-pressed='true']) {
-  border-color: var(--ink);
-}
-.hs-sas__card[aria-pressed='true'] {
-  background: var(--ink);
-  color: var(--ink-fg);
-  border-color: var(--ink);
-}
-.hs-ownphrase {
-  font-family: var(--font-mono);
-  font-size: clamp(18px, 5vw, 26px);
-  font-weight: var(--w-display);
-  letter-spacing: 0.02em;
-  word-spacing: 0.2em;
-}
-
-/* ---------- Toggle / switch ---------- */
-.hs-toggle {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  width: 100%;
-  text-align: left;
-}
-.hs-toggle__body {
-  flex: 1;
-  min-width: 0;
-}
-.hs-toggle__title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: var(--w-strong);
-  font-size: 14px;
-}
-.hs-toggle__desc {
-  font-size: 13px;
+  font-size: var(--t-meta);
+  line-height: 1.5;
   color: var(--muted);
-  margin-top: 2px;
-}
-.hs-switch {
-  flex: none;
-  width: 42px;
-  height: 24px;
-  border-radius: 5px;
-  border: 1px solid var(--line-2);
-  background: var(--bg);
-  position: relative;
-  transition: background var(--dur-base) var(--ease-soft);
-}
-.hs-switch[aria-checked='true'] {
-  background: var(--ink);
-  border-color: var(--ink);
-}
-.hs-switch__knob {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 18px;
-  height: 18px;
-  border-radius: 3px;
-  background: var(--line-2);
-  transition: transform var(--dur-slow) var(--ease-out);
-}
-.hs-switch[aria-checked='true'] .hs-switch__knob {
-  transform: translateX(18px);
-  background: var(--ink-fg);
-}
-.hs-toggle:disabled,
-.hs-switch:disabled {
-  cursor: not-allowed;
-}
-.hs-toggle:disabled {
-  opacity: 0.62;
-}
-.hs-soon {
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--faint);
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-xs);
-  padding: 1px 6px;
+  overflow-wrap: anywhere;
 }
 
-/* ---------- Status chip / dots / spinner / pulse ---------- */
-.hs-chip-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 13px;
+/* ---------- Scan viewfinder ---------- */
+.hs-viewfinder {
+  position: relative;
+  aspect-ratio: 1;
   border: 1px solid var(--line-2);
-  border-radius: var(--r-pill);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--fg);
-}
-.hs-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: var(--r-circle);
-  border: 1.5px solid var(--faint);
-  flex: none;
-}
-.hs-dot--on {
-  background: var(--fg);
-  border-color: var(--fg);
-}
-.hs-spinner {
-  width: 16px;
-  height: 16px;
-  border-radius: var(--r-circle);
-  border: 1.6px solid var(--fg);
-  border-top-color: transparent;
-  animation: hs-spin 0.9s linear infinite;
-  flex: none;
-}
-@keyframes hs-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-.hs-waiting {
+  border-radius: var(--r-md);
+  background: var(--hs-wash);
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  color: var(--muted);
-  font-size: 14px;
+  overflow: hidden;
 }
-
-.hs-pulse {
-  position: relative;
-  width: 96px;
-  height: 96px;
-  display: grid;
-  place-items: center;
+.hs-viewfinder--off {
+  background: transparent;
 }
-.hs-pulse__ring {
+.hs-viewfinder__video {
   position: absolute;
   inset: 0;
-  border-radius: var(--r-circle);
-  border: 1px solid var(--ink);
-  animation: hs-pulse 1.8s var(--ease-out) infinite;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
-.hs-pulse__ring:nth-child(2) {
-  animation-delay: 0.6s;
-}
-.hs-pulse__core {
-  width: 54px;
-  height: 54px;
-  border-radius: var(--r-circle);
-  border: 1px solid var(--line-2);
-  display: grid;
-  place-items: center;
-  font-family: var(--font-mono);
-  font-size: 13px;
-}
-@keyframes hs-pulse {
-  0% {
-    transform: scale(0.7);
-    opacity: 0.8;
-  }
-  100% {
-    transform: scale(1.6);
-    opacity: 0;
-  }
-}
-
-/* ---------- Badges (verified / danger) ---------- */
-.hs-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 14px;
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-pill);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-.hs-badge--verified {
-  border-color: var(--ink);
-}
-/* The path check ran and DISAGREED. This palette has no colour to spend, so it borrows the strongest
-   signal the design language has — the inverted fill already used by .hs-glyph--danger — to make the
-   one positive detection in the system impossible to mistake for the everyday "could not check"
-   badge sitting in the same slot. Deliberately NOT an accusation: the copy beside it names the
-   honest NAT/Safari cause first. */
-.hs-badge--alert {
-  background: var(--ink);
-  color: var(--ink-fg);
-  border-color: var(--ink);
-}
-
-/* ---------- Glyphs (security states) ---------- */
-.hs-glyph {
-  width: 76px;
-  height: 76px;
-  border-radius: var(--r-circle);
-  display: grid;
-  place-items: center;
-  border: 1.5px solid var(--line-2);
+.hs-viewfinder__hint {
+  padding: 0 40px;
+  text-align: center;
+  font-size: var(--t-body);
+  line-height: 1.5;
   color: var(--muted);
-  font-size: 30px;
 }
-.hs-glyph--warn {
-  border-color: var(--ink);
+
+/* ---------- Code words · read ---------- */
+.hs-words {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.hs-words__row {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+}
+.hs-words__num {
+  flex: none;
+  width: 14px;
+  font-family: var(--font-mono);
+  font-size: var(--t-meta);
+  color: var(--faint);
+}
+.hs-words__word {
+  font-family: var(--font-mono);
+  font-size: min(44px, 11.7vw);
+  line-height: 1.15;
+  font-weight: var(--w-strong);
+  letter-spacing: -0.02em;
+}
+
+/* ---------- Code words · enter ---------- */
+.hs-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.hs-field {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.hs-field__input {
+  height: 44px;
+  padding: 0 14px;
+  font-size: var(--t-lead);
+  font-weight: var(--w-strong);
+}
+/* inline completion (pointer): the typed prefix hidden, the rest of the word in --faint */
+.hs-field__ghost {
+  position: absolute;
+  left: 15px;
+  top: 0;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+  font-family: var(--font-mono);
+  font-size: var(--t-lead);
+  font-weight: var(--w-strong);
+  white-space: pre;
+}
+.hs-field__ghost-typed {
+  visibility: hidden;
+}
+.hs-field__ghost-rest {
+  color: var(--faint);
+}
+/* suggestion list (touch): overlays the fields below the active one, so rows 4 and 5 never move */
+.hs-listbox {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: var(--z-nav);
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  border: 1px solid var(--fg);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+}
+.hs-option {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: var(--r-xs);
+  font-family: var(--font-mono);
+  font-size: var(--t-body);
+  font-weight: var(--w-strong);
   color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
 }
-.hs-glyph--danger {
+.hs-option[aria-selected='true'] {
+  background: var(--hs-wash);
+}
+
+/* ---------- Room lobby ---------- */
+.hs-code {
+  display: flex;
+  flex-wrap: wrap;
+  margin-left: -6px;
+  font-family: var(--font-mono);
+  font-size: min(132px, 35vw);
+  line-height: 1;
+  font-weight: var(--w-strong);
+  letter-spacing: -0.05em;
+}
+.hs-code--center {
+  justify-content: center;
+  margin-left: 0;
+}
+.hs-half {
+  align-self: flex-start;
+  min-width: calc(50% - 5px);
+  max-width: 100%;
+}
+
+/* ---------- SAS ---------- */
+.hs-phrase {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-left: -3px;
+  font-family: var(--font-mono);
+  font-size: min(56px, 15vw);
+  line-height: 1.1;
+  font-weight: var(--w-strong);
+  letter-spacing: -0.03em;
+}
+.hs-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+/* The edge alone identifies the card, so it is --fg at rest; pressed = the ink inversion. */
+.hs-card {
+  display: block;
+  width: 100%;
+  min-height: 64px;
+  padding: 18px 20px;
+  border: 1px solid var(--fg);
+  border-radius: var(--r-sm);
+  background: var(--hs-wash);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--t-lead);
+  font-weight: var(--w-strong);
+  line-height: 1.3;
+  word-spacing: 0.5em;
+  text-align: left;
+  transition:
+    background var(--dur-fast) var(--ease-soft),
+    color var(--dur-fast) var(--ease-soft),
+    border-color var(--dur-fast) var(--ease-soft);
+}
+.hs-card[aria-pressed='true'] {
   background: var(--ink);
   color: var(--ink-fg);
   border-color: var(--ink);
+}
+.hs-card:focus-visible {
+  outline-offset: 2px;
 }
 
 /* ---------- Transfer ---------- */
-.hs-drop {
+.hs-zone {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 200px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 30px 20px;
-  border: 1.5px dashed var(--line-2);
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  border: 1px solid var(--fg);
   border-radius: var(--r-md);
+  background: var(--hs-wash);
   text-align: center;
+  cursor: pointer;
 }
-.hs-drop__title {
-  font-weight: var(--w-strong);
+.hs-zone--compact {
+  min-height: 140px;
+}
+.hs-zone--short {
+  min-height: 120px;
+}
+.hs-zone--over,
+.hs-zone:focus-within {
+  outline: 2px solid var(--fg);
+  outline-offset: 3px;
+}
+.hs-zone__text {
+  font-size: var(--t-body);
+  line-height: 1.4;
+  color: var(--muted);
+}
+.hs-zone__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.hs-filelist {
+  display: flex;
+  flex-direction: column;
 }
 .hs-file {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
+  min-height: 44px;
+}
+.hs-file--tall {
+  min-height: 48px;
+  padding: 4px 0;
 }
 .hs-file__name {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
-  font-weight: var(--w-strong);
-  font-size: 14px;
+  font-size: var(--t-body);
+  line-height: 1.4;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.hs-file__size {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--t-meta);
+  color: var(--muted);
+}
+/* the live transfer panel: a column, so its actions can sit at the foot of the screen */
+.hs-panel {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+/* the container: sending · delivered · incoming · ended */
+.hs-box {
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  background: var(--hs-wash);
+  padding: 12px 20px;
+}
+.hs-box__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 40px;
+}
+.hs-box__label {
+  font-size: var(--t-body);
+  font-weight: var(--w-strong);
+  line-height: 1.4;
+}
+.hs-box__aside {
+  flex: none;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: var(--t-meta);
+  color: var(--muted);
+}
+.hs-box--ended .hs-file {
+  color: var(--muted);
+}
+.hs-send {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 0;
+}
+.hs-send__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
 .hs-progress {
-  height: 3px;
-  width: 100%;
-  border-radius: var(--r-pill);
+  height: 2px;
+  border-radius: var(--r-xs);
   background: var(--line);
   overflow: hidden;
 }
 .hs-progress__fill {
+  display: block;
   height: 100%;
   background: var(--ink);
   transition: width var(--dur-base) var(--ease-out);
 }
-.hs-plaque {
+
+/* ---------- Connecting / reconnect wait ---------- */
+.hs-meet {
+  width: 72px;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.hs-meet__dot {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: var(--r-circle);
+  background: var(--fg);
+}
+.hs-meet__dot--r {
+  margin-left: -14px;
+}
+/* the only looping motion in the app; the loop length is a beat, not a token — the kit's durations
+   are for transitions. Reduced motion (kit reset) leaves the dots resting in contact. */
+.hs-meet__dot--l {
+  animation: hs-meet-l 2.4s var(--ease-out) infinite;
+  transform: translateX(-1px);
+}
+.hs-meet__dot--r {
+  animation: hs-meet-r 2.4s var(--ease-out) infinite;
+  transform: translateX(1px);
+}
+@keyframes hs-meet-l {
+  0%,
+  15% {
+    transform: translateX(-22px);
+  }
+  50%,
+  65% {
+    transform: translateX(-1px);
+  }
+  100% {
+    transform: translateX(-22px);
+  }
+}
+@keyframes hs-meet-r {
+  0%,
+  15% {
+    transform: translateX(22px);
+  }
+  50%,
+  65% {
+    transform: translateX(1px);
+  }
+  100% {
+    transform: translateX(22px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hs-meet__dot--l,
+  .hs-meet__dot--r {
+    animation: none;
+  }
+}
+
+/* ---------- Failed / key changed ---------- */
+.hs-failed {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px 18px;
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-md);
-}
-.hs-plaque__head {
-  display: flex;
   align-items: center;
-  gap: 12px;
+  text-align: center;
+  width: 100%;
 }
-.hs-plaque__title {
-  flex: 1;
-  font-weight: var(--w-strong);
-  font-size: 14px;
+.hs-failed__glyph {
+  color: var(--fg);
 }
-.hs-check {
-  width: 20px;
-  height: 20px;
-  border-radius: var(--r-circle);
-  background: var(--ink);
-  color: var(--ink-fg);
-  display: grid;
-  place-items: center;
-  font-size: 12px;
-  flex: none;
-}
-
-/* ---------- Recent devices ---------- */
-.hs-device {
+.hs-failed__actions {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  gap: 4px;
   width: 100%;
-  text-align: left;
-  padding: 12px 14px;
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-md);
-  transition: border-color var(--dur-fast) var(--ease-soft);
-}
-button.hs-device:hover:not(:disabled) {
-  border-color: var(--ink);
-}
-
-/* ---------- Section label ---------- */
-.hs-section-label {
-  display: block;
-  width: 100%;
-  padding-top: 14px;
-  border-top: 1px solid var(--line);
-  font-family: var(--label-font);
-  font-size: var(--t-meta);
-  letter-spacing: var(--label-track);
-  text-transform: var(--label-case);
-  color: var(--faint);
+  max-width: 320px;
 }
 
 /* ---------- DEV diagnostics (tree-shaken from prod builds) ---------- */
@@ -909,107 +1035,11 @@ button.hs-device:hover:not(:disabled) {
 .hs-diag p,
 .hs-diag li {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--t-meta);
   color: var(--faint);
   word-break: break-all;
 }
 .hs-diag__label {
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-.hs-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  width: 100%;
-}
-.hs-row-actions {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.hs-center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-}
-
-/* SAS reader warning — the one instruction that decides whether a human hands a MITM the session,
-   so it is not allowed to read as fine print. */
-.hs-sas__warn {
-  border-left: 2px solid var(--fg);
-  padding-left: var(--s-3, 12px);
-  text-align: left;
-  margin-block: var(--s-4, 16px);
-}
-
-/* Path attestation hint — the "not confirmed" case needs room to say what it does NOT mean, so it
-   sits under the badges as prose rather than being crammed into a tooltip nobody opens on a phone. */
-.hs-path__hint {
-  max-width: 52ch;
-  margin-block: calc(-1 * var(--s-2, 8px)) var(--s-4, 16px);
-}
-/* The mismatch hint carries more than the "could not check" one does — it has to name two causes and
-   an action — so it gets the same left rule the SAS warning uses, to read as something to finish
-   rather than a footnote. */
-.hs-path__hint--alert {
-  border-left: 2px solid var(--fg);
-  padding-left: var(--s-3, 12px);
-  text-align: left;
-  color: var(--fg);
-}
-
-/* ---------- Network exposure (landing) ----------
-   The two things the network sees regardless of what the app does (THREATMODEL § 3b, § 4). Quiet by
-   construction: it is a permanent property, not an event, and an always-open warning here would
-   teach people to dismiss the badges that DO report events. Muted until opened, and never dressed
-   like the danger states. */
-.hs-net {
-  margin-block-start: var(--s-5, 20px);
-  border-top: 1px solid var(--line-2);
-  padding-block-start: var(--s-4, 16px);
-  max-width: 52ch;
-  text-align: left;
-}
-.hs-net__summary {
-  cursor: pointer;
-  list-style: none; /* Firefox */
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-/* No disclosure triangle in this design language — draw the caret instead. */
-.hs-net__summary::-webkit-details-marker {
-  display: none;
-}
-.hs-net__title {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-.hs-net__title::after {
-  content: ' ▸';
-}
-.hs-net[open] .hs-net__title::after {
-  content: ' ▾';
-}
-.hs-net__summary:hover .hs-net__title,
-.hs-net__summary:focus-visible .hs-net__title {
-  color: var(--fg);
-}
-.hs-net__lead {
-  margin: 0;
-}
-.hs-net__item {
-  margin-block: var(--s-3, 12px) 0;
-}
-/* The only line with something to DO gets the rule, so a skim lands on it. */
-.hs-net__advice {
-  border-left: 2px solid var(--line-2);
-  padding-left: var(--s-3, 12px);
-  color: var(--fg);
+  letter-spacing: var(--label-track);
+  text-transform: var(--label-case);
 }

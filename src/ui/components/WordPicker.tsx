@@ -1,150 +1,240 @@
-import { useMemo, useState, type ReactElement } from 'react';
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactElement,
+} from 'react';
 import { WORDLIST, TOTAL_WORDS } from '../../core/words/words';
 import { useT } from '../prefs';
+import { Space, Grow, Pill, BackLink, AlertLine } from '../ui';
 
 /**
- * B-side word picker for the words / PAKE receive flow. Five positions, in order; each is its OWN
- * autocomplete over the FULL EFF short #2 list — never a "correct + decoys" set (B can't know the
- * answer, and transmitting candidates would leak the entropy to the relay). Typing ≥3 letters
- * narrows to the unique word (the list's unique-3-char-prefix property); the human SELECTS it from
- * the suggestions rather than free-typing. Word 1 is the public rendezvous; words 2–5 are the secret
- * CPace password. On all 5 selected, `onJoin(words)` runs the join.
+ * Joiner side of the words / PAKE receive flow: five fields, in order. Each is its OWN autocomplete
+ * over the FULL EFF short #2 list — never a "correct + decoys" set (the joiner can't know the answer,
+ * and transmitting candidates would leak the entropy to the relay). The list has unique 3-character
+ * prefixes, so three letters always narrow to one word.
  *
- * The selection-not-typing contract and the testid surface (word-pos-N / word-input-N /
- * word-picked-N / words-join-btn) are preserved from the original harness so the words e2e is
- * unchanged in substance.
+ * Two completion paths, chosen by the input device (Checks board § 9):
+ *  - pointer: inline completion — the rest of the first prefix match is drawn in --faint after the
+ *    typed letters; Enter or Tab accepts it (Enter also moves to the next field);
+ *  - touch: a listbox of up to three prefix matches under the active field (role=listbox/option,
+ *    aria-activedescendant from the field; arrows move, Enter or a tap accepts).
+ * "No matching word" appears directly under the field whose letters match nothing. Connect enables
+ * once all five fields hold list words; `onJoin(words)` runs the join. Word 1 is the public
+ * rendezvous; words 2–5 are the secret CPace password.
+ *
+ * testid surface: word-pos-N (the field wrapper), word-input-N, word-suggest-N (the listbox),
+ * word-opt-N (each option), words-join-btn.
  */
-export function WordPicker({ onJoin }: { onJoin: (words: string[]) => void }): ReactElement {
+export function WordPicker({
+  onJoin,
+  onBack,
+}: {
+  onJoin: (words: string[]) => void;
+  onBack: () => void;
+}): ReactElement {
   const t = useT();
-  const [query, setQuery] = useState<string[]>(() => Array<string>(TOTAL_WORDS).fill(''));
-  const [picked, setPicked] = useState<boolean[]>(() => Array<boolean>(TOTAL_WORDS).fill(false));
+  const touch = useTouchMode();
+  const [values, setValues] = useState<string[]>(() => Array<string>(TOTAL_WORDS).fill(''));
+  const [active, setActive] = useState<number | null>(null);
+  const [activeOpt, setActiveOpt] = useState(0);
+  const inputs = useRef<(HTMLInputElement | null)[]>([]);
 
-  const onType = (i: number, value: string): void => {
-    setQuery((q) => q.map((v, j) => (j === i ? value : v)));
-    setPicked((p) => p.map((v, j) => (j === i ? false : v))); // editing un-confirms a position
-  };
-  const onPick = (i: number, word: string): void => {
-    setQuery((q) => q.map((v, j) => (j === i ? word : v)));
-    setPicked((p) => p.map((v, j) => (j === i ? true : v)));
-  };
-  const onRemove = (i: number): void => {
-    setQuery((q) => q.map((v, j) => (j === i ? '' : v)));
-    setPicked((p) => p.map((v, j) => (j === i ? false : v)));
-  };
+  const normalized = values.map((v) => v.trim().toLowerCase());
+  const valid = normalized.map((q) => q.length > 0 && WORDLIST.includes(q));
+  const allValid = valid.every(Boolean);
 
-  const count = picked.filter(Boolean).length;
-  const allPicked = count === TOTAL_WORDS;
-  // The "active" slot (strong border) is the first unfilled position.
-  const activeIndex = picked.findIndex((p) => !p);
+  const setValue = (i: number, v: string): void => {
+    setValues((vals) => vals.map((x, j) => (j === i ? v : x)));
+    setActiveOpt(0);
+  };
+  const accept = (i: number, word: string, advance: boolean): void => {
+    setValue(i, word);
+    if (advance) inputs.current[i + 1]?.focus();
+  };
 
   return (
     <>
-      <p className="hs-meta">
-        {count} / {TOTAL_WORDS}
-      </p>
-      <div className="hs-slots" data-testid="word-picker">
+      <div className="hs-fields">
         {Array.from({ length: TOTAL_WORDS }, (_, i) => (
-          <WordSlot
+          <WordField
             key={i}
             index={i}
-            query={query[i]}
-            picked={picked[i]}
-            active={i === activeIndex}
-            placeholder={t('pakePlaceholder')}
-            noMatch={t('pakeNoMatch')}
-            onType={(v) => onType(i, v)}
-            onPick={(w) => onPick(i, w)}
-            onRemove={() => onRemove(i)}
+            value={values[i]}
+            valid={valid[i]}
+            active={active === i}
+            activeOpt={activeOpt}
+            touch={touch}
+            inputRef={(el) => {
+              inputs.current[i] = el;
+            }}
+            onChange={(v) => setValue(i, v)}
+            onFocus={() => {
+              setActive(i);
+              setActiveOpt(0);
+            }}
+            onBlur={() => setActive((a) => (a === i ? null : a))}
+            onMoveOpt={(d, n) => setActiveOpt((o) => Math.min(Math.max(o + d, 0), n - 1))}
+            onAccept={(word, advance) => accept(i, word, advance)}
           />
         ))}
       </div>
-      <button
-        type="button"
-        className="hs-btn hs-btn--primary hs-btn--block"
-        data-testid="words-join-btn"
-        disabled={!allPicked}
-        onClick={() => onJoin(query)}
+      <Grow />
+      <Space h={24} />
+      <Pill
+        variant="primary"
+        block
+        testId="words-join-btn"
+        disabled={!allValid}
+        onClick={() => onJoin(normalized)}
       >
         {t('pakeCta')}
-      </button>
+      </Pill>
+      <Space h={4} />
+      <BackLink onClick={onBack} />
     </>
   );
 }
 
-function WordSlot({
+/** Touch (coarse pointer / no hover) vs pointer, decided once per mount from the media queries. */
+function useTouchMode(): boolean {
+  const [touch, setTouch] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(hover: none), (pointer: coarse)');
+    setTouch(mq.matches);
+    const onChange = (e: MediaQueryListEvent): void => setTouch(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+  return touch;
+}
+
+function WordField({
   index,
-  query,
-  picked,
+  value,
+  valid,
   active,
-  placeholder,
-  noMatch,
-  onType,
-  onPick,
-  onRemove,
+  activeOpt,
+  touch,
+  inputRef,
+  onChange,
+  onFocus,
+  onBlur,
+  onMoveOpt,
+  onAccept,
 }: {
   index: number;
-  query: string;
-  picked: boolean;
+  value: string;
+  valid: boolean;
   active: boolean;
-  placeholder: string;
-  noMatch: string;
-  onType: (value: string) => void;
-  onPick: (word: string) => void;
-  onRemove: () => void;
+  activeOpt: number;
+  touch: boolean;
+  inputRef: (el: HTMLInputElement | null) => void;
+  onChange: (v: string) => void;
+  onFocus: () => void;
+  onBlur: () => void;
+  onMoveOpt: (delta: number, count: number) => void;
+  onAccept: (word: string, advance: boolean) => void;
 }): ReactElement {
-  const q = query.trim().toLowerCase();
-  const suggestions = useMemo(() => {
-    if (picked || q.length < 3) return []; // need ≥3 chars; a confirmed slot hides its list
-    return WORDLIST.filter((w) => w.startsWith(q)).slice(0, 6);
-  }, [q, picked]);
-  const showNoMatch = !picked && q.length >= 3 && suggestions.length === 0;
+  const t = useT();
+  const listId = useId();
+  const q = value.trim().toLowerCase();
+  // Suggestions start at two letters (one letter would list an arbitrary three of many).
+  const matches = useMemo(
+    () => (q.length >= 2 ? WORDLIST.filter((w) => w.startsWith(q)).slice(0, 3) : []),
+    [q],
+  );
+  const completion = !valid && matches.length > 0 ? matches[0] : null;
+  const noMatch = q.length >= 2 && matches.length === 0;
+  const listOpen = touch && active && !valid && matches.length > 0;
+  const selected = Math.min(activeOpt, Math.max(matches.length - 1, 0));
 
-  const num = String(index + 1).padStart(2, '0');
-  const slotClass = `hs-slot${active ? ' hs-slot--active' : ''}${picked ? ' hs-slot--filled' : ''}`;
+  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
+    if (e.key === 'Enter' || e.key === 'Tab') {
+      if (completion) {
+        const word = touch ? matches[selected] : matches[0];
+        onAccept(word, e.key === 'Enter');
+        if (e.key === 'Enter') e.preventDefault();
+        // Tab: accept and let focus move on its own.
+      } else if (e.key === 'Enter' && valid) {
+        e.preventDefault();
+        onAccept(q, true);
+      }
+      return;
+    }
+    if (touch && listOpen && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      e.preventDefault();
+      onMoveOpt(e.key === 'ArrowDown' ? 1 : -1, matches.length);
+    }
+  };
 
   return (
-    <div className={slotClass} data-testid={`word-pos-${index}`}>
-      <div className="hs-slot__box">
-        <span className="hs-slot__num">{num}</span>
-        {picked ? (
-          <>
-            <span className="hs-slot__word" data-testid={`word-picked-${index}`}>
-              {query}
-            </span>
-            <button type="button" className="hs-slot__remove" aria-label="remove word" onClick={onRemove}>
-              ×
-            </button>
-          </>
-        ) : (
-          <input
-            className="hs-slot__input"
-            value={query}
-            onChange={(e) => onType(e.target.value)}
-            placeholder={active ? placeholder : '—'}
-            aria-label={`word ${index + 1}`}
-            data-testid={`word-input-${index}`}
-            autoComplete="off"
-            spellCheck={false}
-          />
-        )}
-      </div>
-      {suggestions.length > 0 && (
-        <div className="hs-suggest" data-testid={`word-suggest-${index}`}>
-          {suggestions.map((w) => (
-            <button
+    <div className="hs-field" data-testid={`word-pos-${index}`}>
+      <input
+        ref={inputRef}
+        className="hs-input hs-field__input"
+        type="text"
+        value={value}
+        placeholder={`${t('wordPlaceholder')} ${index + 1}`}
+        aria-label={`${t('wordPlaceholder')} ${index + 1}`}
+        aria-invalid={noMatch || undefined}
+        role={touch ? 'combobox' : undefined}
+        aria-autocomplete={touch ? 'list' : 'inline'}
+        aria-expanded={touch ? listOpen : undefined}
+        aria-controls={listOpen ? listId : undefined}
+        aria-activedescendant={listOpen ? `${listId}-${selected}` : undefined}
+        data-testid={`word-input-${index}`}
+        autoComplete="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={onFocus}
+        onBlur={onBlur}
+        onKeyDown={onKeyDown}
+      />
+      {!touch && active && completion && (
+        <span className="hs-field__ghost" aria-hidden="true">
+          <span className="hs-field__ghost-typed">{value}</span>
+          <span className="hs-field__ghost-rest">{completion.slice(q.length)}</span>
+        </span>
+      )}
+      {listOpen && (
+        <div
+          id={listId}
+          role="listbox"
+          aria-label={t('suggestionsAria')}
+          className="hs-listbox"
+          data-testid={`word-suggest-${index}`}
+        >
+          {matches.map((w, i) => (
+            <div
               key={w}
-              type="button"
-              className="hs-suggest__btn"
-              aria-label={w}
+              id={`${listId}-${i}`}
+              role="option"
+              aria-selected={i === selected}
+              className="hs-option"
               data-testid={`word-opt-${index}`}
-              onClick={() => onPick(w)}
+              // mousedown, so the field does not blur (and close the list) before the tap lands
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onAccept(w, true);
+              }}
             >
               {w}
-            </button>
+            </div>
           ))}
         </div>
       )}
-      {showNoMatch && <p className="hs-meta">{noMatch}</p>}
+      {noMatch && active && (
+        <>
+          <Space h={8} />
+          <AlertLine>{t('pakeNoMatch')}</AlertLine>
+        </>
+      )}
     </div>
   );
 }

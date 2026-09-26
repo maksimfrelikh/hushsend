@@ -21,19 +21,30 @@ export function App(): ReactElement {
   return (
     <PrefsProvider>
       <SessionProvider controller={controller}>
-        <div className="hs-app">
-          <TopBar />
-          <main className="hs-main">
-            <ScreenRouter />
-          </main>
-          <Diagnostics />
-          <StatusBeacon />
-          <HistorySync />
-          <PrivacyModeSync />
-          <LinkFragmentJoin />
-        </div>
+        <Shell />
       </SessionProvider>
     </PrefsProvider>
+  );
+}
+
+/** Header + the single column. The reconnect key-changed hard stop inverts the WHOLE viewport
+ *  (danger = inversion, never red): the shell carries that class so header and main both swap. */
+function Shell(): ReactElement {
+  const status = useAppSelector((s) => s.connection.status);
+  const reconnectOutcome = useAppSelector((s) => s.dev.reconnect.outcome);
+  const inverted = status === 'failed' && reconnectOutcome === 'key-changed';
+  return (
+    <div className={`hs-app${inverted ? ' hs-app--inverted' : ''}`}>
+      <TopBar />
+      <main className="hs-main wrap">
+        <ScreenRouter />
+      </main>
+      <Diagnostics />
+      <StatusBeacon />
+      <HistorySync />
+      <PrivacyModeSync />
+      <LinkFragmentJoin />
+    </div>
   );
 }
 

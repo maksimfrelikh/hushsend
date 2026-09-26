@@ -1,0 +1,46 @@
+{
+  ".hs-topbar": {
+    "borderRadius": "0px",
+    "padding": "0px 72px",
+    "borderTopWidth": "0px",
+    "borderLeftWidth": "0px",
+    "fontSize": "16px",
+    "lineHeight": "24.8px",
+    "letterSpacing": "normal",
+    "minHeight": "auto",
+    "fontFamily": "\"Archivo Variable\", Archivo, \"Onest Variable\", \"Archivo Fallback\", \"Helvetica Neue\", Helvetica, Arial, sans-serif"
+  },
+  ".hs-main": {
+    "borderRadius": "0px",
+    "padding": "40px 72px 72px",
+    "borderTopWidth": "0px",
+    "borderLeftWidth": "0px",
+    "fontSize": "16px",
+    "lineHeight": "24.8px",
+    "letterSpacing": "normal",
+    "minHeight": "auto",
+    "fontFamily": "\"Archivo Variable\", Archivo, \"Onest Variable\", \"Archivo Fallback\", \"Helvetica Neue\", Helvetica, Arial, sans-serif"
+  },
+  ".hs-h1": {
+    "borderRadius": "0px",
+    "padding": "0px",
+    "borderTopWidth": "0px",
+    "borderLeftWidth": "0px",
+    "fontSize": "73.6px",
+    "lineHeight": "77.28px",
+    "letterSpacing": "-1.84px",
+    "minHeight": "auto",
+    "fontFamily": "\"Archivo Variable\", Archivo, \"Onest Variable\", \"Archivo Fallback\", \"Helvetica Neue\", Helvetica, Arial, sans-serif"
+  },
+  ".hs-pill--primary": {
+    "borderRadius": "999px",
+    "padding": "12px 24px",
+    "borderTopWidth": "1px",
+    "borderLeftWidth": "1px",
+    "fontSize": "16px",
+    "lineHeight": "20.8px",
+    "letterSpacing": "normal",
+    "minHeight": "52px",
+    "fontFamily": "\"Archivo Variable\", Archivo, \"Onest Variable\", \"Archivo Fallback\", \"Helvetica Neue\", Helvetica, Arial, sans-serif"
+  }
+}

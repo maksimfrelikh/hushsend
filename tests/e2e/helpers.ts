@@ -57,31 +57,39 @@ export async function createWords(page: Page): Promise<string[]> {
   await page.getByTestId('invite-btn').click();
   await page.getByTestId('create-words-btn').click();
   await expect(page.getByTestId('status')).toHaveText('awaitingPeer', { timeout: 30_000 });
-  const words = norm(await page.getByTestId('words').textContent()).split(' ').filter(Boolean);
+  const words = norm(await page.getByTestId('words').textContent())
+    .split(' ')
+    .filter(Boolean);
   expect(words).toHaveLength(5);
   return words;
 }
 
-/** B reproduces a 5-word credential in the picker (type the word → click the narrowed match). */
+/**
+ * B reproduces a 5-word credential in the five word fields. Each field is an autocomplete over the
+ * full list; on a pointer device the completion is inline and Enter accepts it (the redesign — the
+ * old picked-chip + suggestion buttons are gone). Typing the whole word and pressing Enter leaves the
+ * exact word in the field and moves focus on.
+ */
 export async function pickWords(page: Page, words: string[]): Promise<void> {
   await page.getByTestId('enter-words-btn').click();
   for (let i = 0; i < words.length; i++) {
-    await page.getByTestId(`word-input-${i}`).fill(words[i]);
-    // ≥3 chars narrows to the unique word (unique-3-char-prefix list); select it by exact name.
-    await page.getByTestId(`word-pos-${i}`).getByRole('button', { name: words[i], exact: true }).click();
-    await expect(page.getByTestId(`word-picked-${i}`)).toContainText(words[i]);
+    const field = page.getByTestId(`word-input-${i}`);
+    await field.fill(words[i]);
+    await field.press('Enter');
+    await expect(field).toHaveValue(words[i]);
   }
   await page.getByTestId('words-join-btn').click();
 }
 
 /**
- * A creates a link (or qr) session; returns the full one-time link read from A's UI
+ * A creates a link session; returns the full one-time link read from A's UI
  * (`<origin>/#<token>.<S>` — the rendezvous is now a high-entropy 128-bit token, NOT a 4-digit code).
- * Both create screens expose the link via the `link-url` mirror.
+ * Link and QR are ONE screen since the redesign (the same link, shown as a QR too), so there is a
+ * single "Link or QR code" row; `_kind` only names which receive path the caller will drive.
  */
-export async function createLink(page: Page, kind: 'link' | 'qr' = 'link'): Promise<string> {
+export async function createLink(page: Page, _kind: 'link' | 'qr' = 'link'): Promise<string> {
   await page.getByTestId('invite-btn').click();
-  await page.getByTestId(kind === 'qr' ? 'create-qr-btn' : 'create-link-btn').click();
+  await page.getByTestId('create-link-btn').click();
   await expect(page.getByTestId('status')).toHaveText('awaitingPeer', { timeout: 30_000 });
   const link = norm(await page.getByTestId('link-url').textContent());
   // #<token>.<S>: both halves are 16-byte base64url (22 chars). The token is unguessable, so a
@@ -168,7 +176,9 @@ export async function expectSas(reader: Page, picker: Page): Promise<string> {
   expect(phrase.split(' ').filter(Boolean)).toHaveLength(3); // 3 EFF short #2 words
   // the picker must NOT expose the real phrase anywhere — it is blind, only 3 look-alike options
   await expect(picker.getByTestId('sas-words')).toHaveCount(0);
-  const opts = await Promise.all([0, 1, 2].map((i) => picker.getByTestId(`sas-option-${i}`).textContent()));
+  const opts = await Promise.all(
+    [0, 1, 2].map((i) => picker.getByTestId(`sas-option-${i}`).textContent()),
+  );
   expect(opts.map(norm)).toContain(phrase); // channel binding: picker derived the same phrase
   return phrase;
 }
@@ -210,8 +220,12 @@ export async function enrollViaSas(a: Page, b: Page): Promise<void> {
   await expect(b.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
 
   // Enrollment pinned the peer on both sides (each holds the other's 32-byte key under a pairingId).
-  await expect(a.getByTestId('pinned-peer-pubkey')).toHaveText(/^[0-9a-f]{64}$/, { timeout: 30_000 });
-  await expect(b.getByTestId('pinned-peer-pubkey')).toHaveText(/^[0-9a-f]{64}$/, { timeout: 30_000 });
+  await expect(a.getByTestId('pinned-peer-pubkey')).toHaveText(/^[0-9a-f]{64}$/, {
+    timeout: 30_000,
+  });
+  await expect(b.getByTestId('pinned-peer-pubkey')).toHaveText(/^[0-9a-f]{64}$/, {
+    timeout: 30_000,
+  });
 }
 
 export async function resetBoth(a: Page, b: Page): Promise<void> {

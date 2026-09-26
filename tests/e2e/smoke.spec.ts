@@ -2,7 +2,15 @@ import { test, expect, type Browser, type Page, type BrowserContext } from '@pla
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { BASE, createWords, pickWords, createSasRoom, joinSasRoom, confirmSas, resolveSasParties } from './helpers';
+import {
+  BASE,
+  createWords,
+  pickWords,
+  createSasRoom,
+  joinSasRoom,
+  confirmSas,
+  resolveSasParties,
+} from './helpers';
 
 // Every tab here holds a LIVE WebRTC connection: even after its signaling socket closes on connect
 // (which it does — see ws-close.spec.ts), the PeerConnection keeps running ICE keepalives and DTLS.
@@ -97,7 +105,9 @@ test('smoke · room: home → invite → SAS room → join → pick the real phr
   await expect(a.getByTestId('auth-state')).toContainText('SAS');
 });
 
-test('smoke · reconnect: enrolled peers re-auth via the pinned key with NO SAS → connected', async ({ browser }) => {
+test('smoke · reconnect: enrolled peers re-auth via the pinned key with NO SAS → connected', async ({
+  browser,
+}) => {
   // Separate contexts → distinct identities / keystores (a real two-device pairing).
   const a = await openIsolatedTab(browser);
   const b = await openIsolatedTab(browser);
@@ -107,8 +117,12 @@ test('smoke · reconnect: enrolled peers re-auth via the pinned key with NO SAS 
   await joinSasRoom(b, code);
   const { reader, picker } = await resolveSasParties(a, b);
   await confirmSas(reader, picker);
-  await expect(a.getByTestId('pinned-peer-pubkey')).toHaveText(/^[0-9a-f]{64}$/, { timeout: 30_000 });
-  await expect(b.getByTestId('pinned-peer-pubkey')).toHaveText(/^[0-9a-f]{64}$/, { timeout: 30_000 });
+  await expect(a.getByTestId('pinned-peer-pubkey')).toHaveText(/^[0-9a-f]{64}$/, {
+    timeout: 30_000,
+  });
+  await expect(b.getByTestId('pinned-peer-pubkey')).toHaveText(/^[0-9a-f]{64}$/, {
+    timeout: 30_000,
+  });
 
   // Back to idle, then reconnect using the stored pins — the home shows the recent device.
   await a.getByTestId('reset-btn').click();
@@ -137,14 +151,16 @@ test('smoke · reconnect: enrolled peers re-auth via the pinned key with NO SAS 
  * Also asserted: it starts COLLAPSED. An always-open warning about a permanent property gets
  * dismissed within a day and trains people to ignore the badges that do report real events.
  */
-test('smoke · landing states what the network can still see, collapsed by default', async ({ page }) => {
+test('smoke · landing states what the network can still see, collapsed by default', async ({
+  page,
+}) => {
   await page.goto('/');
   const box = page.getByTestId('network-exposure');
   await expect(box).toBeVisible();
   await expect(box).not.toHaveAttribute('open', /.*/); // collapsed until asked
 
   // The summary is honest on its own, before anything is expanded.
-  await expect(box).toContainText('that you opened hushsend');
+  await expect(box).toContainText('That you opened hushsend');
   await expect(box).toContainText('never what you sent');
 
   await box.getByText('What your network can still see').click();

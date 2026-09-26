@@ -15,7 +15,9 @@ import { defaultKeystore, type Keystore, type PinEntry } from '../core/keystore'
  * still-deferred change — see § Known residuals / dual-pin), and the reconnect protocol stays keyed
  * by `pairingId` on the wire. The keystore can be injected for unit tests (default: the app keystore).
  */
-export async function loadRecentDevices(keystore: Keystore = defaultKeystore()): Promise<PinEntry[]> {
+export async function loadRecentDevices(
+  keystore: Keystore = defaultKeystore(),
+): Promise<PinEntry[]> {
   try {
     return dedupeByPeerKey(await keystore.listPins());
   } catch {
@@ -36,6 +38,25 @@ export function dedupeByPeerKey(pins: PinEntry[]): PinEntry[] {
     if (!seen || pin.firstSeen > seen.firstSeen) freshestByKey.set(pin.peerPublicKey, pin);
   }
   return [...freshestByKey.values()].sort((a, b) => b.firstSeen - a.firstSeen);
+}
+
+/**
+ * Forget ONE device: remove every pin that carries its `peerPublicKey`, not just the freshest one
+ * the row shows — a row stands for a peer, and the dedup above hides the older pins of the same
+ * peer, so removing a single pairingId would surface a stale sibling as a "new" row. Touches only the
+ * pins; the own identity and the other devices stay. The peer keeps its pin of us until it forgets us
+ * too (a later Reconnect from it ends in "did not show up" and the copy there says to pair afresh).
+ */
+export async function forgetDevice(
+  peerPublicKey: string,
+  keystore: Keystore = defaultKeystore(),
+): Promise<void> {
+  const pins = await keystore.listPins();
+  await Promise.all(
+    pins
+      .filter((p) => p.peerPublicKey === peerPublicKey)
+      .map((p) => keystore.removePin(p.pairingId)),
+  );
 }
 
 /**

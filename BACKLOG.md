@@ -356,11 +356,38 @@ the same pass as CLAUDE.md when items land.
   `turns:turn.hushsend.frelikh.dev:5349` URI to the server's `TURN_URLS`. No client/build change — the
   client uses whatever URIs the signaling server hands out. (Until then Reliable mode falls back to
   `turn:`/3478, which covers most networks.)
-- **stark-ui-kit componentization** — once a 2nd consumer exists (or the screen set is final),
-  promote the generic primitives (button, input, toggle, pill, hairline-card, sheet) from the app's
-  `.hs-*` layer into the kit as real React components (props + a11y + tests). Domain pieces (SAS
-  cards, word slots, code display, transfer, key-changed banner) stay app-local. Don't extract
-  prematurely.
+- ✅ **Claude Design redesign of the screen set — DONE (2026-09-26).** Every screen rebuilt from the canvas
+  https://claude.ai/artifact/XRjdVX5U8SC8m2cDSgzDSP on kit 0.3.0 (CLAUDE.md § UI / styling has the
+  reference, the decisions and the rules). Adopted from the kit: `controls.css` (`.pill`),
+  `theme-toggle.css`, `layout.css` (`.wrap` — its `--gut` IS the design's 20 / 34 / 72 gutter); the two
+  webfonts the palette names are bundled through fontsource. Link and QR became ONE screen; the lobby
+  rows are the tap targets; the word entry is five fields (listbox on touch, inline completion on
+  pointer); the transfer path check is disclosure rows in the non-ok states only; Failed is one screen
+  with variants; key changed inverts the whole viewport. **Per-device forget is REAL**, not a disabled ×:
+  `recentDevices.forgetDevice(peerPublicKey)` removes every pin of that peer key (the row stands for a
+  peer, and the display dedup hides its older pins). New gates: `npm run test:a11y` (axe + keyboard
+  contracts, `tests/a11y/`) and `npm run visual` (screenshots × 375/680/1440 × both themes + the token
+  and geometry snapshots, `visual/`, baselines committed). e2e contracts changed on purpose: `pickWords`
+  fills a field and presses Enter, `createLink` clicks the single "Link or QR code" row, the mode is two
+  radios (`privacy-toggle` = Max, `privacy-reliable`), `path-state` is a disclosure row carrying
+  `data-path-verdict` (the `ok` verdict is an sr-only span, no visible row), the network-exposure
+  summary is inside "About privacy and security". Two conscious deviations from the boards, both
+  documented in CLAUDE.md: the type sizes are the kit's fluid roles (so the desktop h1 is 73.6px, not
+  the board's 48), and the attempts line reads "N / MAX failed attempts" (the counter the e2e asserts).
+  The SAS refusals are the tertiary label under the confirm pill as the boards compose them — this
+  supersedes the 2026-09-12 audit's "same weight as the confirm" buttons; TESTPLAN A4a was adjusted.
+- **RU copy** — `i18n.ts` keeps the `ru` column (optional, falls back to `en`); the boards are English
+  only and the header shows no EN|RU switch. Finish the Russian strings for the new keys (`modeMax`…,
+  `aboutMaxBoth`, `shareTitle`, the transfer container, …), add `@fontsource-variable/onest` for the
+  Cyrillic companion the palette names, then bring the switch back (the kit's `lang-switch.css`).
+- **stark-ui-kit componentization** — nothing was promoted in the redesign (kit rule 5: two consumers).
+  Candidates that now exist in hushsend's `.hs-*` layer and would move once a 2nd consumer wants them:
+  the pill GEOMETRY on top of `.pill` (52px, body type, the wash fill, the small variant), the tertiary
+  label (`.hs-tlink`), the 44px icon button, the text/code input with the on-edge focus ring, the
+  collapsible `<details>` item and the disclosure row, the `--fg`-at-4 %/9 % wash itself (the kit
+  already derives its focus tint and active row the same way — a `--wash` token would let hosts stop
+  re-deriving it). Domain pieces (word fields + listbox, the hero code, the phrase, the phrase cards,
+  the transfer container, the viewport inversion) stay app-local. Don't extract prematurely.
 - ✅ **stark-ui-kit 0.3.0 migration — DONE (2026-09-25).** Pin `b23a2e5` (0.1.0) → `2a3f7ec` (0.3.0).
   `src/ui/theme.css` is DELETED, not trimmed: `stark-ui-kit/theme-mono.css` is imported in `main.tsx`
   between the base layer and `app.css`, and the font-role overrides the plan meant to keep turned out to

@@ -30,7 +30,6 @@ test.afterEach(async () => {
  * doesn't bleed across tests.
  */
 
-
 /** `extraQuery` appends DEV-only knobs (e.g. `&forcePathMismatch=1`) to this tab's URL alone, so one
  *  side of a pair can be driven into a branch while the other stays honest. */
 /** Contexts opened by the current test, closed after it — see the afterEach below. */
@@ -44,25 +43,30 @@ async function openIsolatedTab(browser: Browser, extraQuery = ''): Promise<Page>
   return page;
 }
 
-/** Read the toggle's current state (aria-checked: true = Max-privacy ON, false = Reliable). */
+/** Read the mode's current state: the "Max privacy" radio (`privacy-toggle`) is aria-checked when
+ *  Max-privacy is ON; its sibling `privacy-reliable` when Reliable is. */
 async function isMaxPrivacy(page: Page): Promise<boolean> {
   return (await page.getByTestId('privacy-toggle').getAttribute('aria-checked')) === 'true';
 }
 
-/** Set the privacy toggle to the desired mode on the landing screen (idempotent). */
+/** Set the mode on the landing screen (idempotent): click the radio that names the wanted mode. */
 async function setPrivacy(page: Page, mode: 'max' | 'reliable'): Promise<void> {
   const wantMax = mode === 'max';
-  if ((await isMaxPrivacy(page)) !== wantMax) await page.getByTestId('privacy-toggle').click();
+  if ((await isMaxPrivacy(page)) !== wantMax)
+    await page.getByTestId(wantMax ? 'privacy-toggle' : 'privacy-reliable').click();
   await expect(page.getByTestId('privacy-toggle')).toHaveAttribute('aria-checked', String(wantMax));
 }
 
-test('privacy · toggle renders, defaults to Max-privacy, and flips both ways', async ({ browser }) => {
+test('privacy · toggle renders, defaults to Max-privacy, and flips both ways', async ({
+  browser,
+}) => {
   const page = await openIsolatedTab(browser);
-  // Default is Max-privacy (switch ON / aria-checked true).
+  // Default is Max-privacy (the Max radio is checked).
   await expect(page.getByTestId('privacy-toggle')).toHaveAttribute('aria-checked', 'true');
-  // Flip to Reliable, then back to Max — the switch tracks both ways, and the description follows.
-  await page.getByTestId('privacy-toggle').click();
+  // Flip to Reliable, then back to Max — the radios track both ways, and the description follows.
+  await page.getByTestId('privacy-reliable').click();
   await expect(page.getByTestId('privacy-toggle')).toHaveAttribute('aria-checked', 'false');
+  await expect(page.getByTestId('privacy-reliable')).toHaveAttribute('aria-checked', 'true');
   await expect(page.getByTestId('privacy-desc')).toContainText('relay');
   await page.getByTestId('privacy-toggle').click();
   await expect(page.getByTestId('privacy-toggle')).toHaveAttribute('aria-checked', 'true');
@@ -89,7 +93,9 @@ test('privacy · Max-privacy connects DIRECTLY — no TURN, no relay (existing f
   await expect(sender.getByTestId('ice-turn-username')).toHaveText('');
 });
 
-test('reliable · fetches coturn creds via turn-request and builds a TURN iceServer', async ({ browser }) => {
+test('reliable · fetches coturn creds via turn-request and builds a TURN iceServer', async ({
+  browser,
+}) => {
   const sender = await openIsolatedTab(browser);
   const receiver = await openIsolatedTab(browser);
   // Reliable on the sender (the side we assert); the receiver may be either — both connect over
@@ -125,7 +131,9 @@ test('reliable · fetches coturn creds via turn-request and builds a TURN iceSer
  * reached it on — which is exactly why the verdict is ADVISORY and gates nothing. See
  * SessionController.startPathAttestation and BACKLOG § Security audit.
  */
-test('path attestation resolves to ok on a real connection (not silently unknown)', async ({ browser }) => {
+test('path attestation resolves to ok on a real connection (not silently unknown)', async ({
+  browser,
+}) => {
   const sender = await openIsolatedTab(browser);
   const receiver = await openIsolatedTab(browser);
 
@@ -143,12 +151,12 @@ test('path attestation resolves to ok on a real connection (not silently unknown
   await expect(sender.getByTestId('path-selected')).not.toHaveText('—');
   await expect(sender.getByTestId('path-selected')).not.toHaveText('');
 
-  // The USER-FACING badge follows the verdict. `ok` is the only one that reassures — and it carries
-  // the verdict as a data attribute so the three states can be told apart from the outside.
+  // The USER-FACING state follows the verdict. `ok` says nothing on the screen (nothing to act on) but
+  // keeps its verdict in the DOM, as a data attribute, so the three states can be told apart from the
+  // outside; only the non-ok verdicts render a visible row.
   await expect(sender.getByTestId('path-state')).toContainText('confirmed');
   await expect(sender.getByTestId('path-state')).toHaveAttribute('data-path-verdict', 'ok');
-  await expect(sender.getByTestId('path-state')).toHaveClass(/hs-badge--verified/);
-  await expect(receiver.getByTestId('path-state')).toHaveClass(/hs-badge--verified/);
+  await expect(receiver.getByTestId('path-state')).toHaveAttribute('data-path-verdict', 'ok');
   // `ok` shows no hint at all — there is nothing to caveat.
   await expect(sender.getByTestId('path-hint')).toHaveCount(0);
 });
@@ -185,23 +193,26 @@ test('path MISMATCH is shown differently from "could not check", and does not bl
   await expect(sender.getByTestId('path-verdict')).toHaveText('mismatch', { timeout: 30_000 });
   await expect(receiver.getByTestId('path-verdict')).toHaveText('ok', { timeout: 30_000 });
 
-  // DISTINCT from both other states: its own verdict attribute, its own label, its own weight.
-  const badge = sender.getByTestId('path-state');
-  await expect(badge).toHaveAttribute('data-path-verdict', 'mismatch');
-  await expect(badge).toHaveClass(/hs-badge--alert/);
-  await expect(badge).not.toHaveClass(/hs-badge--verified/);
-  await expect(badge).not.toContainText('not confirmed'); // the `unknown` label
+  // DISTINCT from both other states: its own verdict attribute, its own label, its own weight (the
+  // alert row — foreground words with the glyph, where `unknown` is muted words alone).
+  const row = sender.getByTestId('path-state');
+  await expect(row).toHaveAttribute('data-path-verdict', 'mismatch');
+  await expect(row).toContainText('route did not match');
+  await expect(row).not.toContainText('not confirmed'); // the `unknown` label
+  await expect(row).toHaveAttribute('aria-expanded', 'false');
 
-  // And the hint must NOT be the `unknown` copy, whose explanation is untrue here.
+  // And the hint, opened from the row, must NOT be the `unknown` copy, whose explanation is untrue here.
+  await row.click();
+  await expect(row).toHaveAttribute('aria-expanded', 'true');
   const hint = sender.getByTestId('path-hint');
-  await expect(hint).toHaveClass(/hs-path__hint--alert/);
+  await expect(hint).toBeVisible();
   await expect(hint).not.toContainText('Safari never does');
   await expect(hint).toContainText('not one your correspondent listed');
   await expect(hint).toContainText('still encrypted end-to-end'); // never a content scare
   await expect(hint).toContainText('different network'); // something to actually do
 
   // The honest side is untouched: benign states must not inherit the alarm.
-  await expect(receiver.getByTestId('path-state')).toHaveClass(/hs-badge--verified/);
+  await expect(receiver.getByTestId('path-state')).toHaveAttribute('data-path-verdict', 'ok');
   await expect(receiver.getByTestId('path-hint')).toHaveCount(0);
 });
 
@@ -219,7 +230,10 @@ test('path MISMATCH is shown differently from "could not check", and does not bl
  *   E2E_STUN_URLS=stun:127.0.0.1:3478,stun:127.0.0.1:3479
  * CI's engine matrix starts one coturn; a second is a second `--listening-port`.
  */
-test('stun cross-check reaches a verdict when two servers are configured', async ({ browser, browserName }) => {
+test('stun cross-check reaches a verdict when two servers are configured', async ({
+  browser,
+  browserName,
+}) => {
   const urls = (process.env.E2E_STUN_URLS ?? '').split(',').filter(Boolean);
   test.skip(urls.length < 2, `needs two STUN URLs, got ${urls.length} — see this test's header`);
   // FIREFOX CANNOT ANSWER THIS, and that is a finding rather than a flake. Measured 2026-09-17: it
@@ -230,7 +244,10 @@ test('stun cross-check reaches a verdict when two servers are configured', async
   // (BACKLOG § Security audit). Skipped rather than weakened to "any verdict will do": that weaker
   // assertion would pass against a completely broken implementation, which is the whole thing this
   // test exists to prevent.
-  test.skip(browserName === 'firefox', 'firefox reports no srflx candidate here — measured, see comment');
+  test.skip(
+    browserName === 'firefox',
+    'firefox reports no srflx candidate here — measured, see comment',
+  );
 
   const page = await openIsolatedTab(browser);
   // Two honest servers on the same host see the same address, so `agree` is the expected answer.

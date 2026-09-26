@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Keystore, MemoryKeystoreBackend } from '../core/keystore';
-import { loadRecentDevices, dedupeByPeerKey } from './recentDevices';
+import { loadRecentDevices, dedupeByPeerKey, forgetDevice } from './recentDevices';
 
 /**
  * Recent-devices list is deduped by `peerPublicKey` (the stable identity), NOT by `pairingId`:
@@ -52,5 +52,28 @@ describe('loadRecentDevices — dedup by peerPublicKey', () => {
     ]);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ pairingId: pid('2'), label: 'new', firstSeen: 200 });
+  });
+});
+
+describe('forgetDevice — one row, every pin of that peer', () => {
+  it('removes ALL pins carrying the peer key, and nothing else', async () => {
+    const ks = new Keystore(new MemoryKeystoreBackend());
+    await ks.putPin(pid('1'), KEY_A, { firstSeen: 100 }); // stale sibling of the same peer
+    await ks.putPin(pid('2'), KEY_A, { firstSeen: 300 }); // the pin the row shows
+    await ks.putPin(pid('3'), KEY_B, { firstSeen: 200 }); // another device — must survive
+
+    await forgetDevice(KEY_A, ks);
+
+    const left = await ks.listPins();
+    expect(left.map((p) => p.pairingId)).toEqual([pid('3')]);
+    // and the home list no longer surfaces the stale sibling as a "new" row
+    expect((await loadRecentDevices(ks)).map((r) => r.peerPublicKey)).toEqual([KEY_B]);
+  });
+
+  it('is a no-op for an unknown key', async () => {
+    const ks = new Keystore(new MemoryKeystoreBackend());
+    await ks.putPin(pid('1'), KEY_A, { firstSeen: 100 });
+    await forgetDevice(KEY_B, ks);
+    expect(await ks.listPins()).toHaveLength(1);
   });
 });

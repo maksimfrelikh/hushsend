@@ -153,12 +153,12 @@ Certificate Transparency logs. Note that the app, the signaling WebSocket and ST
 the **same address** (verified 2026-09-13: `hushsend.frelikh.dev` and `turn.hushsend.frelikh.dev` both
 → 94.46.199.61), so that single name covers every service.
 
-**Status: SAID OUT LOUD 2026-09-13; the exposure itself is open.** The landing screen now carries a
-collapsed "What your network can still see" disclosure (`NetworkExposure`, testid
-`network-exposure`) stating this and § 4 in both languages, with the one action that helps — Tor or a
-VPN, on **both** sides. Collapsed on purpose: these are permanent properties of a direct transfer, not
-events, and a standing banner would be dismissed within a day and would train people to ignore the
-badges that DO report events.
+**Status: SAID OUT LOUD 2026-09-13; the exposure itself is open.** The landing screen carries a
+collapsed "What your network can still see" item (under "About privacy and security", testid
+`network-exposure`) stating this and § 4, with the one action that helps — Tor or a VPN, on **both**
+sides (English; the Russian copy is kept in the table for later). Collapsed on purpose: these are
+permanent properties of a direct transfer, not events, and a standing banner would be dismissed within
+a day and would train people to ignore the transfer path rows that DO report events.
 
 That changes what users are told, not what the network sees. Removing the exposure needs an onion
 service, a mirror on a domain that is not obviously this tool, or ECH — none of which exist here.

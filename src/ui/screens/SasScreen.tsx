@@ -2,32 +2,30 @@ import { useMemo, useState, type ReactElement } from 'react';
 import { useSession } from '../SessionProvider';
 import { useAppSelector } from '../../store/hooks';
 import { useT } from '../prefs';
-import { Screen, Eyebrow, BackLink } from '../ui';
+import { Screen, Space, Grow, Pill, TextLink } from '../ui';
 import { buildSasOptions, sasSelectionOk } from '../sasOptions';
+import { FailureLayout } from './FailedScreen';
 
 /**
  * Room-method SAS comparison, ASYMMETRIC so the "pick from 3" actually protects against a MITM:
  *
- *  - the **reader** is shown its phrase and reads the three words aloud to its peer;
+ *  - the **reader** is shown its phrase — the largest text in the app — and reads the three words
+ *    aloud to its peer;
  *  - the **picker** is BLIND to the phrase and must identify it among three indistinguishable
  *    options by listening to the reader.
  *
- * The room method is a mesh LOBBY, so a pair can be creator↔joiner OR joiner↔joiner — the role can
- * no longer be "creator reads". It is fixed PER PAIR in the core from the two readable ids (smaller
- * id reads; `sasRoleFor`) and projected as `connection.sasRole`. Both sides compute opposite roles,
- * so every pair has exactly one reader + one picker.
+ * The room method is a mesh LOBBY, so a pair can be creator↔joiner OR joiner↔joiner — the role is
+ * fixed PER PAIR in the core (`sasRoleFor`) and projected as `connection.sasRole`. Both sides compute
+ * opposite roles, so every pair has exactly one reader + one picker.
  *
  * If the picker could see its own phrase it would just click it without listening, and a MITM
  * (which makes the two sides derive DIFFERENT phrases) would go undetected. By splitting the roles,
  * a MITM is caught: the picker hears the reader's phrase, finds it is NOT among its options (its own
  * derived phrase differs), and picks "none of these" → `confirmSas(false)` → both abort.
  *
- * FAIL CLOSED: if the role is unresolved (`null` — an id was missing) we render the restart screen,
- * NEVER a functional blind picker (a reader-less pair could false-accept a MITM ~1/9).
- *
- * The crypto/protocol are unchanged: the real phrase still comes from the store (`connection.sas`),
- * `sas.ts` is untouched, and both sides still gate on the mutual `sas-confirm{ok}`. `ok=true` is
- * sent only when the picker selects the real phrase (or the reader confirms its peer found it).
+ * FAIL CLOSED: if the role is unresolved (`null` — an id was missing) we render the "verification
+ * interrupted" failure with Restart verification, NEVER a functional blind picker (a reader-less
+ * pair could false-accept a MITM ~1/9).
  */
 export function SasScreen(): ReactElement {
   const sasRole = useAppSelector((s) => s.connection.sasRole);
@@ -36,80 +34,69 @@ export function SasScreen(): ReactElement {
   return <RestartView />; // null → fail closed (never a functional picker without a reader)
 }
 
-/** Fail-closed screen: the per-pair SAS role could not be resolved (a readable id was missing), so
- *  we cannot safely run the asymmetric comparison. Restart rather than silently degrading to a
- *  reader-less picker. Closes the BACKLOG "SAS fail-closed on unset role" item. */
+/** Fail-closed: the per-pair SAS role could not be resolved (a readable id was missing), so the
+ *  asymmetric comparison cannot run safely. One of the Failed screen's variants. */
 function RestartView(): ReactElement {
   const session = useSession();
   const t = useT();
   return (
-    <Screen center>
-      <span className="hs-glyph hs-glyph--warn" aria-hidden="true">
-        △
-      </span>
-      <Eyebrow parts={[t('sasRestartEyebrow')]} />
-      <h2 className="hs-h2">{t('sasRestartTitle')}</h2>
-      <p className="hs-sub" data-testid="sas-restart">
-        {t('sasRestartDesc')}
-      </p>
-      <button
-        type="button"
-        className="hs-btn hs-btn--primary hs-btn--block"
-        data-testid="sas-restart-btn"
-        onClick={() => session.dispose()}
-      >
-        {t('sasRestartBtn')}
-      </button>
-    </Screen>
+    <FailureLayout
+      kicker={t('sasRestartEyebrow')}
+      title={t('sasRestartTitle')}
+      desc={t('sasRestartDesc')}
+      descTestId="sas-restart"
+      actions={
+        <Pill variant="primary" block testId="sas-restart-btn" onClick={() => session.dispose()}>
+          {t('sasRestartBtn')}
+        </Pill>
+      }
+    />
   );
 }
 
-/** Reader (creator): shown the real phrase to read aloud. NOT a picker — it cannot be tricked into
- *  picking, it only reads + confirms (and can abort if the peer reports no match). */
+/** Reader: shown the real phrase to read aloud. NOT a picker — it cannot be tricked into picking, it
+ *  only reads + confirms (and stops if the peer reports no match). The sentence directly above the
+ *  confirm button is the only gate on this side. */
 function ReaderView(): ReactElement {
   const session = useSession();
   const t = useT();
   const real = useAppSelector((s) => s.connection.sas) ?? '';
+  const words = real.split(' ').filter(Boolean);
 
   return (
-    <Screen center>
-      <Eyebrow parts={[t('sasEyebrow')]} />
+    <Screen>
       <h2 className="hs-h2">{t('sasReaderTitle')}</h2>
-      <p className="hs-sub">{t('sasReaderDesc')}</p>
-
-      <p className="hs-eyebrow">{t('sasYours')}</p>
-      <p className="hs-ownphrase" data-testid="sas-words">
-        {real}
+      <Space h={32} />
+      <p className="hs-phrase" data-testid="sas-words">
+        {words.map((w, i) => (
+          <span key={i}>
+            {w}
+            {i < words.length - 1 ? ' ' : ''}
+          </span>
+        ))}
       </p>
-
-      <p className="hs-sub hs-sas__warn">{t('sasReaderWarn')}</p>
-
-      <button
-        type="button"
-        className="hs-btn hs-btn--primary hs-btn--block"
-        data-testid="sas-reader-confirm"
+      <Space h={28} />
+      <p className="hs-p">{t('sasReaderWarn')}</p>
+      <Grow />
+      <Space h={28} />
+      <Pill
+        variant="primary"
+        block
+        testId="sas-reader-confirm"
         onClick={() => session.confirmSas(true)}
       >
         {t('sasReaderConfirm')}
-      </button>
-      {/* The refusal carries the SAME weight as the confirm. It used to be a faint text link, which
-          made the safe action the quietest element on the screen of a ceremony whose entire purpose
-          is for a human to refuse. (2026-09-12 audit.) */}
-      <button
-        type="button"
-        className="hs-btn hs-btn--ghost hs-btn--block"
-        data-testid="sas-reader-abort"
-        onClick={() => session.confirmSas(false)}
-      >
+      </Pill>
+      <Space h={4} />
+      <TextLink testId="sas-reader-abort" onClick={() => session.confirmSas(false)}>
         {t('sasReaderAbort')}
-      </button>
-      <BackLink onClick={() => session.dispose()} />
+      </TextLink>
     </Screen>
   );
 }
 
-/** Picker (joiner): BLIND. The real phrase is NEVER shown on its own — only as one of three
- *  indistinguishable options. The human must pick the phrase they HEAR the reader read aloud. */
+/** Picker: BLIND. The real phrase is NEVER shown on its own — only as one of three indistinguishable
+ *  cards (buttons with aria-pressed; selected = ink inversion). */
 function PickerView(): ReactElement {
   const session = useSession();
   const t = useT();
@@ -127,17 +114,15 @@ function PickerView(): ReactElement {
   };
 
   return (
-    <Screen center>
-      <Eyebrow parts={[t('sasEyebrow')]} />
+    <Screen>
       <h2 className="hs-h2">{t('sasTitle')}</h2>
-      <p className="hs-sub">{t('sasDesc')}</p>
-
-      <div className="hs-sas">
+      <Space h={28} />
+      <div role="group" aria-label={t('sasGroupAria')} className="hs-cards">
         {options.map((phrase, i) => (
           <button
             key={i}
             type="button"
-            className="hs-sas__card"
+            className="hs-card"
             aria-pressed={selected === i}
             data-testid={`sas-option-${i}`}
             onClick={() => setSelected(i)}
@@ -146,24 +131,21 @@ function PickerView(): ReactElement {
           </button>
         ))}
       </div>
-
-      <button
-        type="button"
-        className="hs-btn hs-btn--primary hs-btn--block"
-        data-testid="sas-confirm-btn"
+      <Grow />
+      <Space h={28} />
+      <Pill
+        variant="primary"
+        block
+        testId="sas-confirm-btn"
         disabled={selected === null}
         onClick={onConfirm}
       >
-        {selected === null ? t('sasPick') : t('sasConfirm')}
-      </button>
-      <button
-        type="button"
-        className="hs-btn hs-btn--ghost hs-btn--block"
-        data-testid="sas-nomatch-btn"
-        onClick={() => session.confirmSas(false)}
-      >
+        {t('sasConfirm')}
+      </Pill>
+      <Space h={4} />
+      <TextLink testId="sas-nomatch-btn" onClick={() => session.confirmSas(false)}>
         {t('sasNone')}
-      </button>
+      </TextLink>
     </Screen>
   );
 }

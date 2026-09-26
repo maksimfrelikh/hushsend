@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { useSession } from '../SessionProvider';
 import { useT } from '../prefs';
-import { Screen, Eyebrow, BackLink } from '../ui';
+import { Screen, Space, Grow, Pill, BackLink, AlertLine } from '../ui';
 import { parseLink } from '../../core/link/link';
 import { createQrDetector } from '../zxingWasm';
 
@@ -22,6 +22,7 @@ export function ScanScreen({ onBack }: { onBack: () => void }): ReactElement {
   const t = useT();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [cameraError, setCameraError] = useState(false);
+  const [streaming, setStreaming] = useState(false);
   const [invalid, setInvalid] = useState(false);
   const [paste, setPaste] = useState('');
 
@@ -66,7 +67,9 @@ export function ScanScreen({ onBack }: { onBack: () => void }): ReactElement {
         return;
       }
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' },
+        });
       } catch {
         if (!cancelled) setCameraError(true); // denied / no camera → paste fallback
         return;
@@ -80,6 +83,7 @@ export function ScanScreen({ onBack }: { onBack: () => void }): ReactElement {
       video.srcObject = stream;
       try {
         await video.play();
+        if (!cancelled) setStreaming(true);
       } catch {
         /* autoplay race — the stream is attached, detection still runs */
       }
@@ -106,55 +110,66 @@ export function ScanScreen({ onBack }: { onBack: () => void }): ReactElement {
   };
 
   return (
-    <Screen center>
-      <Eyebrow parts={[t('scanEyebrow')]} />
+    <Screen>
       <h2 className="hs-h2">{t('scanTitle')}</h2>
-      <p className="hs-sub">{t('scanDesc')}</p>
-
-      {!cameraError ? (
-        <div className="hs-scan">
-          <video ref={videoRef} className="hs-scan__video" muted playsInline data-testid="scan-video" />
-          <span className="hs-scan__frame" aria-hidden="true" />
-        </div>
-      ) : (
-        <p className="hs-meta" data-testid="scan-camera-error">
-          {t('scanCameraError')}
-        </p>
-      )}
-
-      <div className="hs-stack">
-        <p className="hs-section-label">{t('scanPastePrompt')}</p>
-        <div className="hs-join-row">
-          <input
-            className="hs-input"
-            value={paste}
-            onChange={(e) => {
-              setPaste(e.target.value);
-              setInvalid(false);
-            }}
-            placeholder={t('scanPastePlaceholder')}
-            aria-label={t('scanPastePrompt')}
-            data-testid="scan-paste-input"
-            autoComplete="off"
-            spellCheck={false}
+      <Space h={24} />
+      <div className={`hs-viewfinder${cameraError ? ' hs-viewfinder--off' : ''}`}>
+        {!cameraError && (
+          <video
+            ref={videoRef}
+            className="hs-viewfinder__video"
+            muted
+            playsInline
+            aria-label={t('scanViewfinderAria')}
+            data-testid="scan-video"
           />
-          <button
-            type="button"
-            className="hs-btn hs-btn--ghost"
-            data-testid="scan-paste-btn"
-            disabled={paste.trim().length === 0}
-            onClick={onPasteSubmit}
-          >
-            {t('scanJoin')}
-          </button>
-        </div>
-        {invalid && (
-          <p className="hs-meta" data-testid="scan-invalid">
-            {t('scanInvalid')}
+        )}
+        {cameraError ? (
+          <p className="hs-viewfinder__hint" data-testid="scan-camera-error">
+            {t('scanCameraError')}
           </p>
+        ) : (
+          !streaming && <p className="hs-viewfinder__hint">{t('scanViewfinder')}</p>
         )}
       </div>
-
+      <Space h={28} />
+      <h3 className="hs-h3">{t('scanPasteTitle')}</h3>
+      <Space h={12} />
+      <form
+        className="hs-form-col"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (paste.trim()) onPasteSubmit();
+        }}
+      >
+        <input
+          className="hs-input"
+          type="url"
+          value={paste}
+          onChange={(e) => {
+            setPaste(e.target.value);
+            setInvalid(false);
+          }}
+          placeholder={t('scanPastePlaceholder')}
+          aria-label={t('scanPasteAria')}
+          aria-invalid={invalid || undefined}
+          data-testid="scan-paste-input"
+          autoComplete="off"
+          autoCapitalize="off"
+          spellCheck={false}
+        />
+        {invalid && <AlertLine testId="scan-invalid">{t('scanInvalid')}</AlertLine>}
+        <Pill
+          block
+          testId="scan-paste-btn"
+          disabled={paste.trim().length === 0}
+          onClick={onPasteSubmit}
+        >
+          {t('scanJoin')}
+        </Pill>
+      </form>
+      <Grow />
+      <Space h={20} />
       <BackLink onClick={onBack} />
     </Screen>
   );

@@ -2,13 +2,16 @@ import { type ReactElement } from 'react';
 import { useSession } from '../SessionProvider';
 import { useAppSelector } from '../../store/hooks';
 import { useT } from '../prefs';
-import { Screen, Eyebrow, BackLink, Waiting } from '../ui';
+import { Screen, Space, Grow, BackLink, AlertLine } from '../ui';
 
 /**
- * Host view for the words method while `awaitingPeer`. Shows the full 5-word credential to read
- * aloud (word 1 = public rendezvous, words 2–5 = the secret CPace password) and the online-guessing
- * attempt counter. The words are presented as chips for the design; a screen-reader / test mirror
- * carries the plain phrase (testid `words`) so it can be read without the chip numbering.
+ * Host view for the words method while `awaitingPeer`: the five words to read aloud, numbered, as
+ * the biggest text on the screen (word 1 = public rendezvous, words 2–5 = the secret CPace
+ * password). NO copy button — the words are spoken, never pasted. After a wrong guess the attempt
+ * counter appears above them (online-guessing bound). Waiting for the peer is implied.
+ *
+ * A screen-reader / test mirror carries the plain phrase (testid `words`), so it can be read without
+ * the numbering; the visual list is hidden from the tree to avoid reading it twice.
  */
 export function WordsCreateScreen(): ReactElement {
   const session = useSession();
@@ -18,31 +21,30 @@ export function WordsCreateScreen(): ReactElement {
   const maxAttempts = useAppSelector((s) => s.dev.maxPairingAttempts);
 
   return (
-    <Screen center>
-      <Eyebrow parts={[t('wcrEyebrow')]} />
+    <Screen>
       <h2 className="hs-h2">{t('wcrTitle')}</h2>
-      <p className="hs-sub">{t('wcrDesc')}</p>
-
-      {/* plain phrase mirror (read-aloud / test hook), then the visual chips */}
-      <span className="sr-only" data-testid="words">
-        {credential.join(' ')}
-      </span>
-      <div className="hs-chips" aria-hidden="true">
-        {credential.map((word, i) => (
-          <span key={i} className="hs-chip">
-            <span className="hs-chip__num">{String(i + 1).padStart(2, '0')}</span>
-            <span className="hs-chip__word">{word}</span>
-          </span>
-        ))}
-      </div>
-
-      {maxAttempts > 0 && (
-        <p className="hs-meta" data-testid="attempts">
-          {t('attempts')} {attempts} / {maxAttempts}
-        </p>
+      {attempts > 0 && (
+        <>
+          <Space h={12} />
+          <AlertLine testId="attempts">
+            {attempts} / {maxAttempts} {t('attemptsSuffix')}
+          </AlertLine>
+        </>
       )}
-
-      <Waiting label={t('waiting')} />
+      <Space h={28} />
+      <p className="sr-only" data-testid="words">
+        {credential.join(' ')}
+      </p>
+      <ol className="hs-words" aria-hidden="true">
+        {credential.map((word, i) => (
+          <li key={i} className="hs-words__row">
+            <span className="hs-words__num">{i + 1}</span>
+            <span className="hs-words__word">{word}</span>
+          </li>
+        ))}
+      </ol>
+      <Grow />
+      <Space h={20} />
       <BackLink onClick={() => session.dispose()} />
     </Screen>
   );

@@ -1,14 +1,19 @@
-import { type ReactElement } from 'react';
+import { type ReactElement, type ReactNode } from 'react';
 import { useSession } from '../SessionProvider';
 import { useAppSelector } from '../../store/hooks';
 import { useT } from '../prefs';
-import { Screen, Eyebrow } from '../ui';
+import { Screen, Space, Pill, TextLink, Kicker, Glyph } from '../ui';
 
 /**
- * Terminal failure screen. The reconnect KEY-CHANGED case is a distinct, prominent hard stop (an
- * inverted danger block, never a toast — no bytes ever flow). Other failures are classified from
- * the error text into a MITM/mismatch danger variant, a room-not-found variant, or a generic
- * variant; each surfaces the raw error and an exit. Words failures additionally offer fresh words.
+ * ONE terminal failure screen with variants, classified from the error text and the method:
+ * compromised (SAS / key-confirmation mismatch), room not found, nobody came (reconnect), direct
+ * path failed (Max privacy, ± the missing-relay hint in Reliable), generic, and the words method,
+ * which additionally offers fresh words. There is no "Try again". Each surfaces the raw reason as
+ * a mono line and one exit.
+ *
+ * The reconnect KEY-CHANGED case is the hard stop: it inverts the WHOLE viewport (danger = inversion,
+ * never red — App.tsx adds `hs-app--inverted`), and the only action is "Don't connect". No bytes ever
+ * flow: only `connected` renders the transfer surface.
  */
 export function FailedScreen(): ReactElement {
   const session = useSession();
@@ -23,20 +28,23 @@ export function FailedScreen(): ReactElement {
   if (reconnectOutcome === 'key-changed') {
     return (
       <Screen center>
-        <div className="hs-center" data-testid="key-changed">
-          <span className="hs-glyph hs-glyph--danger" aria-hidden="true">
-            ⚿
-          </span>
-          <Eyebrow parts={[t('kcEyebrow')]} />
+        <div className="hs-failed" data-testid="key-changed">
+          <Glyph name="warn" size={48} className="hs-failed__glyph" />
+          <Space h={24} />
           <h2 className="hs-h2">{t('kcTitle')}</h2>
-          <p className="hs-sub">{t('kcDesc')}</p>
-          <p className="hs-meta" data-testid="error">
+          <Space h={14} />
+          <p className="hs-p hs-p--narrow">{t('kcDesc')}</p>
+          <Space h={16} />
+          <span className="hs-reason" data-testid="error">
             {error}
-          </p>
+          </span>
+          <Space h={36} />
+          <div className="hs-failed__actions">
+            <Pill variant="primary" block testId="reset-btn" onClick={() => session.dispose()}>
+              {t('kcAbort')}
+            </Pill>
+          </div>
         </div>
-        <button type="button" className="hs-btn hs-btn--primary" onClick={() => session.dispose()}>
-          {t('kcAbort')}
-        </button>
       </Screen>
     );
   }
@@ -51,75 +59,121 @@ export function FailedScreen(): ReactElement {
   // RECONNECT_NO_SHOW_REASON marker the core sets.
   const isNoShow = /did not show up/.test(lower);
 
-  const eyebrow = isMismatch
-    ? t('erMismatchEyebrow')
+  const variant = isMismatch
+    ? 'mismatch'
     : isNoShow
-      ? t('noShowEyebrow')
+      ? 'noShow'
       : isExpired
-        ? t('exEyebrow')
+        ? 'expired'
         : isDirectFail
-          ? t('directFailEyebrow')
-          : t('erGenericEyebrow');
-  const title = isMismatch
-    ? t('erMismatchTitle')
-    : isNoShow
-      ? t('noShowTitle')
-      : isExpired
-        ? t('exTitle')
-        : isDirectFail
-          ? t('directFailTitle')
-          : t('erGenericTitle');
-  const desc = isMismatch
-    ? t('erMismatchDesc')
-    : isNoShow
-      ? t('noShowDesc')
-      : isExpired
-        ? t('exDesc')
-        : isDirectFail
-          ? t('directFailHint')
-          : '';
-  const glyphClass = isMismatch ? 'hs-glyph hs-glyph--warn' : 'hs-glyph';
-  const glyph = isMismatch ? '△' : isExpired || isNoShow ? '⌕' : '!';
+          ? 'direct'
+          : 'generic';
+  const copy = {
+    mismatch: {
+      kicker: t('erMismatchEyebrow'),
+      title: t('erMismatchTitle'),
+      desc: t('erMismatchDesc'),
+    },
+    noShow: { kicker: t('noShowEyebrow'), title: t('noShowTitle'), desc: t('noShowDesc') },
+    expired: { kicker: t('exEyebrow'), title: t('exTitle'), desc: t('exDesc') },
+    direct: {
+      kicker: t('directFailEyebrow'),
+      title: t('directFailTitle'),
+      desc: t('directFailHint'),
+    },
+    generic: { kicker: t('erGenericEyebrow'), title: t('erGenericTitle'), desc: '' },
+  }[variant];
 
   return (
+    <FailureLayout
+      kicker={copy.kicker}
+      title={copy.title}
+      desc={copy.desc}
+      descTestId={variant === 'direct' ? 'direct-fail-hint' : undefined}
+      extra={
+        relayUnavailable ? (
+          <p className="hs-p hs-p--muted hs-p--narrow" data-testid="relay-unavailable-hint">
+            {t('relayUnavailableHint')}
+          </p>
+        ) : null
+      }
+      reason={error}
+      actions={
+        method === 'words' ? (
+          <>
+            <Pill
+              variant="primary"
+              block
+              testId="new-words-btn"
+              onClick={() => void session.regenerate()}
+            >
+              {t('newWords')}
+            </Pill>
+            <TextLink testId="reset-btn" onClick={() => session.dispose()}>
+              {t('backHome')}
+            </TextLink>
+          </>
+        ) : (
+          <Pill variant="primary" block testId="reset-btn" onClick={() => session.dispose()}>
+            {t('backHome')}
+          </Pill>
+        )
+      }
+    />
+  );
+}
+
+/** The failure composition shared by every variant (and by the SAS fail-closed restart): glyph,
+ *  mono kicker, title, optional description(s), the raw reason, the actions column. */
+export function FailureLayout({
+  kicker,
+  title,
+  desc,
+  descTestId,
+  extra,
+  reason,
+  actions,
+}: {
+  kicker: string;
+  title: string;
+  desc?: string;
+  descTestId?: string;
+  extra?: ReactNode;
+  reason?: string;
+  actions: ReactNode;
+}): ReactElement {
+  return (
     <Screen center>
-      <span className={glyphClass} aria-hidden="true">
-        {glyph}
-      </span>
-      <Eyebrow parts={[eyebrow]} />
-      <h2 className="hs-h2">{title}</h2>
-      {desc && (
-        <p className="hs-sub" data-testid={isDirectFail ? 'direct-fail-hint' : undefined}>
-          {desc}
-        </p>
-      )}
-      {relayUnavailable && (
-        <p className="hs-sub hs-path__hint hs-path__hint--alert" data-testid="relay-unavailable-hint">
-          {t('relayUnavailableHint')}
-        </p>
-      )}
-      <p className="hs-meta" data-testid="error">
-        {error}
-      </p>
-      <div className="hs-row-actions">
-        {method === 'words' && (
-          <button
-            type="button"
-            className="hs-btn hs-btn--primary"
-            data-testid="new-words-btn"
-            onClick={() => void session.regenerate()}
-          >
-            {t('newWords')}
-          </button>
+      <div className="hs-failed">
+        <Glyph name="warn" size={40} className="hs-failed__glyph" />
+        <Space h={24} />
+        <Kicker>{kicker}</Kicker>
+        <Space h={10} />
+        <h2 className="hs-h2">{title}</h2>
+        {desc && (
+          <>
+            <Space h={12} />
+            <p className="hs-p hs-p--muted hs-p--narrow" data-testid={descTestId}>
+              {desc}
+            </p>
+          </>
         )}
-        <button
-          type="button"
-          className={method === 'words' ? 'hs-btn hs-btn--ghost' : 'hs-btn hs-btn--primary'}
-          data-testid="reset-btn"
-          onClick={() => session.dispose()}
-        >
-          {t('backHome')}
-        </button>
+        {extra && (
+          <>
+            <Space h={12} />
+            {extra}
+          </>
+        )}
+        {reason && (
+          <>
+            <Space h={16} />
+            <span className="hs-reason" data-testid="error">
+              {reason}
+            </span>
+          </>
+        )}
+        <Space h={36} />
+        <div className="hs-failed__actions">{actions}</div>
       </div>
     </Screen>
   );

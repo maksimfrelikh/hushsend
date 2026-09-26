@@ -4,8 +4,7 @@ import { HomeScreen } from './HomeScreen';
 import { ReconnectWaitScreen } from './ReconnectWaitScreen';
 import { LobbyScreen } from './LobbyScreen';
 import { WordsCreateScreen } from './WordsCreateScreen';
-import { LinkCreateScreen } from './LinkCreateScreen';
-import { QrCreateScreen } from './QrCreateScreen';
+import { ShareScreen } from './ShareScreen';
 import { ConnectingScreen } from './ConnectingScreen';
 import { SasScreen } from './SasScreen';
 import { TransferScreen } from './TransferScreen';
@@ -14,8 +13,9 @@ import { FailedScreen } from './FailedScreen';
 /**
  * Screens are driven by connection.status (the FSM), NOT by a URL router — exactly as the
  * architecture requires. The host-side `awaitingPeer` view additionally branches on the method
- * (words credential / link / qr / the room lobby / the codeless reconnect wait). The hard invariant holds structurally: only
- * <TransferScreen> (status `connected`) renders the file UI, so no byte UI exists before auth.
+ * (words credential / the shared link+QR / the room lobby / the codeless reconnect wait). The hard
+ * invariant holds structurally: only <TransferScreen> (status `connected`) renders the file UI, so
+ * no byte UI exists before auth.
  */
 export function ScreenRouter(): ReactElement {
   const status = useAppSelector((s) => s.connection.status);
@@ -29,9 +29,9 @@ export function ScreenRouter(): ReactElement {
         case 'words':
           return <WordsCreateScreen />;
         case 'link':
-          return <LinkCreateScreen />;
         case 'qr':
-          return <QrCreateScreen />;
+          // Link and QR are ONE screen: the same one-time link, shown as a QR too.
+          return <ShareScreen />;
         case 'reconnect':
           // Codeless: nothing to show but "waiting for the other device" (the rendezvous is derived).
           return <ReconnectWaitScreen />;
