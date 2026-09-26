@@ -762,8 +762,8 @@ travels live in the kit's own `CLAUDE.md`; its `README.md` is the consumer contr
   `Components` names the kit token for every element, `Checks` is the per-screen WCAG 2.2 AA table.
   **Take composition, hierarchy, states and copy from the boards; take every VALUE (colour, type,
   spacing rhythm, radius, motion) from the kit's tokens, never from the artboards** (kit rule 6).
-  `uploads/design-reference/` is the OLD prototype (and `_ds/` its drifted token copy) — **no longer
-  the reference**, kept only as history.
+  The old HTML prototype that used to live under `uploads/design-reference/` was DELETED on
+  2026-09-26 (with its drifted `_ds/` token copy) — the canvas is the only reference.
 - **Design language = "Stark"**, published as a Claude Design system generated from the reference site
   frelikh.com: https://claude.ai/artifact/Da7if9WhD7hxZjf5sL6m2F (brand book, tokens, kit + site
   components). Values come from the kit, never from there either.
@@ -795,8 +795,12 @@ travels live in the kit's own `CLAUDE.md`; its `README.md` is the consumer contr
   which the CSP (`script-src 'self'`, no inline) forbids — not planned.
 - **Values: kit tokens only.** Semantic colours `--bg` / `--fg` / `--muted` / `--faint` / `--line` /
   `--line-2` / `--ink` / `--ink-fg` (+ `--scrim` / `--tap-highlight` / `--scroll-shadow`); radii `--r-*`;
-  the fluid type roles `--t-h1/h2/h3/lead/body/meta` (so the h1 is 38px at 375 and the kit's 73.6px at
-  1440 — the tokens, not the board's 48), weights `--w-*` + the label system `--label-*`; fonts
+  the fluid type roles `--t-h1/h2/h3/lead/body/meta` — with the two display roles CAPPED for this
+  app's ~520px column (`--hs-t-h1: min(var(--t-h1), 3rem)`, `--hs-t-h2: min(var(--t-h2), 2rem)` in
+  `app.css`: `--t-h1` is sized for a full-width hero and reaches 73.6px at 1440 where the boards show
+  48, so the h1 keeps the role's own 38.4px at 375 and stops at 48px from 1200px up; the h2 stops at
+  32px; the rule is "the kit role is the source, the cap says where its curve stops here"), weights
+  `--w-*` + the label system `--label-*`; fonts
   `--font-grotesk` / `--font-mono`; rhythm `--gut` / `--maxw`; motion `--ease-*` / `--dur-*`.
   Derived, not invented: the wash behind quiet pills / rows / the file zone is `--fg` at 4 % light /
   9 % dark (`--hs-wash`, the same mixes the kit uses for its focus tint and active row), the inactive
@@ -832,9 +836,11 @@ travels live in the kit's own `CLAUDE.md`; its `README.md` is the consumer contr
   container, then "New transfer". Failed is ONE screen with variants (compromised, room not found,
   nobody came, verification interrupted with "Restart verification", direct failed ± relay hint,
   generic, words with "New words"); no "Try again". Header: the existing Wordmark + the kit toggle.
-  **Note (2026-09-26):** the SAS refusals ("Stop — they don't have this phrase", "None of these match —
-  stop") are the tertiary label under the confirm pill, as the boards compose them; this supersedes the
-  2026-09-12 audit's equal-weight buttons (BACKLOG § Security audit / Second pass records both).
+  **SAS refusals — EQUAL WEIGHT (the 2026-09-12 audit decision, restored the same day the redesign
+  briefly composed them as a tertiary label):** "Stop — they don't have this phrase" and "None of these
+  match — stop" are quiet pills with the SAME geometry as the confirm (the kit's `.pill`, 52px, full
+  width) directly under it. A small "stop" biases the human toward confirming, and the confirm is the
+  only gate on the reader side — this is the one place the boards are overruled.
 - **Language: ENGLISH ONLY for now.** `i18n.ts` keeps the table, `ru` is optional with a fallback to
   `en`, new strings get `en` only, and the header shows no EN|RU switch until the Russian half is
   complete (BACKLOG § Nice-to-have). Copy is the owner's placeholder, taken from the boards as-is.
@@ -1201,8 +1207,9 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   Max-privacy ICE failure routes to the Failed screen with a switch-to-Reliable hint, NOT a relay offer;
   step 6d STRICT), `SasScreen` (**asymmetric pick-from-3**: reader shows its phrase as the largest text
   in the app + the HEARD sentence above the confirm; picker is blind among the real + 2 local decoys as
-  aria-pressed cards — role from the SAS material, `connection.sasRole`; fail-closed "verification
-  interrupted / Restart verification" on a missing role, rendered through the Failed layout),
+  aria-pressed cards — role from the SAS material, `connection.sasRole`; the refusal on both sides is a
+  quiet pill of the confirm's geometry, not a label; fail-closed "verification interrupted / Restart
+  verification" on a missing role, rendered through the Failed layout),
   `TransferScreen` (the heading "Secure channel open" + sr-only `auth-state`; the path check as
   disclosure rows only in the non-ok states; the file zone + Choose files, the picked list, Send; ONE
   row per transfer with its progress; incoming Accept / Decline; delivered / declined / cancelled /
@@ -1284,9 +1291,8 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   DEV knobs that shipped live are gated, the RECEIVE side of the no-bytes gate is closed, SDP-embedded
   relay candidates are stripped, renegotiation after channel-open is refused, the step-1
   unauthenticated path is deleted, protocol strings are length-bounded, the 1:1 confirm path got its
-  own liveness deadline, and the SAS refusals were given the same weight as the confirms (superseded
-  2026-09-26 by the redesign, which composes them as the tertiary label under the confirm pill — see
-  § UI / styling). Regressions in
+  own liveness deadline, and the SAS refusals carry the same weight as the confirms (kept through
+  the 2026-09-26 redesign — see § UI / styling). Regressions in
   `SessionController.auditFixes.test.ts` + `sasRole.test.ts` + `relax.test.ts`. Full write-up in
   **BACKLOG.md § Security audit / Second pass**; of its two open items, path attestation is built
   (advisory) and the `pairingId` disclosure is closed structurally by the codeless reconnect

@@ -3,8 +3,7 @@ import tseslint from 'typescript-eslint';
 import globals from 'globals';
 
 export default tseslint.config(
-  // Vendored design-reference bundles (and any other vendored JS) are not our source.
-  { ignores: ['dist', 'node_modules', 'uploads/design-reference/**'] },
+  { ignores: ['dist', 'node_modules'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

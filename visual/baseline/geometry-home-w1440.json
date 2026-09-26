@@ -26,9 +26,9 @@
     "padding": "0px",
     "borderTopWidth": "0px",
     "borderLeftWidth": "0px",
-    "fontSize": "73.6px",
-    "lineHeight": "77.28px",
-    "letterSpacing": "-1.84px",
+    "fontSize": "48px",
+    "lineHeight": "50.4px",
+    "letterSpacing": "-1.2px",
     "minHeight": "auto",
     "fontFamily": "\"Archivo Variable\", Archivo, \"Onest Variable\", \"Archivo Fallback\", \"Helvetica Neue\", Helvetica, Arial, sans-serif"
   },

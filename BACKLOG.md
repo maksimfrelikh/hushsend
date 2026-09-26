@@ -371,23 +371,35 @@ the same pass as CLAUDE.md when items land.
   fills a field and presses Enter, `createLink` clicks the single "Link or QR code" row, the mode is two
   radios (`privacy-toggle` = Max, `privacy-reliable`), `path-state` is a disclosure row carrying
   `data-path-verdict` (the `ok` verdict is an sr-only span, no visible row), the network-exposure
-  summary is inside "About privacy and security". Two conscious deviations from the boards, both
-  documented in CLAUDE.md: the type sizes are the kit's fluid roles (so the desktop h1 is 73.6px, not
-  the board's 48), and the attempts line reads "N / MAX failed attempts" (the counter the e2e asserts).
-  The SAS refusals are the tertiary label under the confirm pill as the boards compose them — this
-  supersedes the 2026-09-12 audit's "same weight as the confirm" buttons; TESTPLAN A4a was adjusted.
-- **RU copy** — `i18n.ts` keeps the `ru` column (optional, falls back to `en`); the boards are English
-  only and the header shows no EN|RU switch. Finish the Russian strings for the new keys (`modeMax`…,
-  `aboutMaxBoth`, `shareTitle`, the transfer container, …), add `@fontsource-variable/onest` for the
-  Cyrillic companion the palette names, then bring the switch back (the kit's `lang-switch.css`).
-- **stark-ui-kit componentization** — nothing was promoted in the redesign (kit rule 5: two consumers).
-  Candidates that now exist in hushsend's `.hs-*` layer and would move once a 2nd consumer wants them:
-  the pill GEOMETRY on top of `.pill` (52px, body type, the wash fill, the small variant), the tertiary
-  label (`.hs-tlink`), the 44px icon button, the text/code input with the on-edge focus ring, the
-  collapsible `<details>` item and the disclosure row, the `--fg`-at-4 %/9 % wash itself (the kit
-  already derives its focus tint and active row the same way — a `--wash` token would let hosts stop
-  re-deriving it). Domain pieces (word fields + listbox, the hero code, the phrase, the phrase cards,
-  the transfer container, the viewport inversion) stay app-local. Don't extract prematurely.
+  summary is inside "About privacy and security". Conscious deviations from the boards, all documented
+  in CLAUDE.md § UI / styling: the type sizes are the kit's fluid roles with the h1 / h2 capped at 48 /
+  32px from 1200px up (follow-up, same day — the uncapped `--t-h1` reached 73.6px at 1440); the
+  attempts line reads "N / MAX failed attempts" (the counter the e2e asserts); and the SAS refusals are
+  quiet pills of the confirm's geometry, NOT the boards' tertiary label — the 2026-09-12 audit decision
+  (a small "stop" biases toward confirming; the confirm is the only gate on the reader side), briefly
+  lost in the first cut of the redesign and restored the same day. The old HTML prototype under
+  `uploads/design-reference/` was deleted in that follow-up; the canvas is the only reference.
+- **Russian copy — DEFERRED (owner, 2026-09-26).** English only for now. `i18n.ts` keeps an optional
+  `ru` column with an `en` fallback (`translate`), new strings are added with `en` only, and the header
+  shows no language switch (`prefs.tsx` still holds `lang` / `setLang`). When the Russian copy is
+  written: fill the `ru` column for every key (the redesign added `modeMax` / `modeReliable` and their
+  descriptions, `aboutMaxBoth`, `aboutReconnect*`, `mLinkQr*`, `shareTitle`, `scan*`, the transfer
+  container labels, the failure kickers…), add `@fontsource-variable/onest` (the Cyrillic companion
+  `theme-mono.css` names) to `main.tsx`, and bring the switch back in `TopBar` on the kit's
+  `lang-switch.css` (`aria-pressed` on the active button).
+- **stark-ui-kit componentization — DEFERRED by the owner (2026-09-26).** hushsend and frelikh now
+  share `controls.css`, `theme-toggle.css` and `layout.css`, so the kit's two-consumer rule is met for
+  the pill / toggle / layout primitives — the remaining app-local candidates and where each lives in
+  `src/ui/app.css`: the pill GEOMETRY layered on `.pill` (`.hs-pill`, `--primary`, `--sm`, `--block`,
+  the disabled state, the wash fill); the text input / code input with the on-edge focus ring
+  (`.hs-input`, `.hs-input--code`); the word field + listbox (`.hs-field*`, `.hs-listbox`,
+  `.hs-option`); the disclosure row (`.hs-disc*`) and the collapsible `<details>` item (`.hs-fold*`);
+  the notice / alert line (`.hs-alert`); also the tertiary label (`.hs-tlink`), the 44px icon button
+  (`.hs-iconbtn`), the method / peer row (`.hs-row*`) and the `--fg`-at-4 %/9 % wash (`--hs-wash` —
+  a kit `--wash` token would let hosts stop re-deriving it). Domain pieces (the hero code, the
+  phrase, the phrase cards, the transfer container, the viewport inversion) stay app-local. **Not to
+  be done until the owner asks**; when it is, follow the kit's `CLAUDE.md` (additive, one stylesheet
+  per component, bump both consumers, frelikh `verify` + `visual`, regenerate the Stark system).
 - ✅ **stark-ui-kit 0.3.0 migration — DONE (2026-09-25).** Pin `b23a2e5` (0.1.0) → `2a3f7ec` (0.3.0).
   `src/ui/theme.css` is DELETED, not trimmed: `stark-ui-kit/theme-mono.css` is imported in `main.tsx`
   between the base layer and `app.css`, and the font-role overrides the plan meant to keep turned out to
@@ -637,6 +649,16 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   requests TURN — but that is not the same as "no relay path can complete on our side", because ICE
   also learns candidates it was never told about. Closed by verifying the path we actually got (see
   the finding below, now DONE). (→ CLAUDE.md § Privacy mode + ICE / Max-privacy strict model.)
+
+- [x] **SAS refusals carry the same weight as the confirms — decided 2026-09-12, RESTORED 2026-09-26.**
+  The refusal used to be a faint text link, which made the safe action the quietest element on the
+  screen of a ceremony whose entire purpose is for a human to refuse; the audit made it a full-width
+  button of the confirm's size. The first cut of the Claude Design redesign (2026-09-26) followed the
+  boards and composed it as the tertiary uppercase label again; the owner reverted that the same day:
+  both refusals ("Stop — they don't have this phrase", "None of these match — stop") are quiet pills
+  with the confirm's geometry (the kit's `.pill`, 52px, full width) directly under it. Rationale: a
+  small "stop" biases the human toward confirming, and the confirm is the only gate on the reader
+  side. This is the one place the boards are overruled (CLAUDE.md § UI / styling; TESTPLAN A4a).
 
 ### Findings from the 2026-09-12 pass (actionable)
 

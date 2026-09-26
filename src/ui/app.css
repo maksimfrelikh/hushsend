@@ -42,6 +42,13 @@
   --hs-inv-ink-fg: var(--fg);
   --hs-inv-muted: color-mix(in srgb, var(--ink-fg) 58%, var(--ink));
   --hs-inv-line-2: color-mix(in srgb, var(--ink-fg) 18%, var(--ink));
+  /* Display type: the kit's fluid roles, CAPPED for this app's ~520px single column. --t-h1 is sized
+     for a full-width page hero and reaches 73.6px at 1440, where the boards show 48 — so the h1 keeps
+     the role below 680 (38.4px at 375, the role's own floor) and stops at 3rem = 48px, the board's
+     desktop size. --t-h2 is capped the same way at 2rem = 32px (the boards keep the h2 at 30 on every
+     width). The kit is still the only source; the caps only say where the fluid curve stops here. */
+  --hs-t-h1: min(var(--t-h1), 3rem);
+  --hs-t-h2: min(var(--t-h2), 2rem);
 
   min-height: 100vh;
   min-height: 100dvh;
@@ -140,7 +147,7 @@
 .hs-h1 {
   font-family: var(--font-display);
   font-weight: var(--w-display);
-  font-size: var(--t-h1);
+  font-size: var(--hs-t-h1);
   line-height: 1.05;
   letter-spacing: -0.025em;
   text-wrap: balance;
@@ -148,7 +155,7 @@
 .hs-h2 {
   font-family: var(--font-display);
   font-weight: var(--w-display);
-  font-size: var(--t-h2);
+  font-size: var(--hs-t-h2);
   line-height: 1.1;
   letter-spacing: -0.02em;
   text-wrap: balance;
@@ -420,7 +427,7 @@
     font-size var(--dur-base) var(--ease-out);
 }
 .hs-mode__radio[aria-checked='true'] {
-  font-size: var(--t-h2);
+  font-size: var(--hs-t-h2);
   color: var(--fg);
 }
 .hs-mode__desc {

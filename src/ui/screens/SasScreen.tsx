@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactElement } from 'react';
 import { useSession } from '../SessionProvider';
 import { useAppSelector } from '../../store/hooks';
 import { useT } from '../prefs';
-import { Screen, Space, Grow, Pill, TextLink } from '../ui';
+import { Screen, Space, Grow, Pill } from '../ui';
 import { buildSasOptions, sasSelectionOk } from '../sasOptions';
 import { FailureLayout } from './FailedScreen';
 
@@ -87,10 +87,12 @@ function ReaderView(): ReactElement {
       >
         {t('sasReaderConfirm')}
       </Pill>
-      <Space h={4} />
-      <TextLink testId="sas-reader-abort" onClick={() => session.confirmSas(false)}>
+      <Space h={10} />
+      {/* The refusal carries the SAME weight as the confirm (2026-09-12 audit, restored 2026-09-26): a
+          small "stop" biases the human toward confirming, and the confirm is the only gate on this side. */}
+      <Pill block testId="sas-reader-abort" onClick={() => session.confirmSas(false)}>
         {t('sasReaderAbort')}
-      </TextLink>
+      </Pill>
     </Screen>
   );
 }
@@ -142,10 +144,11 @@ function PickerView(): ReactElement {
       >
         {t('sasConfirm')}
       </Pill>
-      <Space h={4} />
-      <TextLink testId="sas-nomatch-btn" onClick={() => session.confirmSas(false)}>
+      <Space h={10} />
+      {/* Same weight as the confirm — see ReaderView. */}
+      <Pill block testId="sas-nomatch-btn" onClick={() => session.confirmSas(false)}>
         {t('sasNone')}
-      </TextLink>
+      </Pill>
     </Screen>
   );
 }
