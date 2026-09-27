@@ -6,12 +6,13 @@ e2e across four engine projects, feature-detection review, self-hosted QR WASM);
 
 This used to open "the last open item before the security audit" — the audit has since run twice
 internally (2026-09-12 and 2026-09-13, BACKLOG § Security audit), so that ordering is gone: the
-device pass is now the last open item before a public launch, not before the audit. **Progress: 14 of
-the 45 A–F cases are closed (the T1-only ones: A4a, A6, D1–D5, E1–E3, E5, F5–F7 — see the 2026-09-27
-entry in § Result log); the desktop halves of A1, A3, A4, A5, B2, B5, B6, B8 and C6 ran on all three
-REAL desktop engines and wait for their handset half; 2 FAILED (A4b, F3) and are in BACKLOG; the rest
-need a handset, a radio or a camera.** The two ticks in § 0.1 are PRECONDITIONS, not cases; do not read
-them as progress.
+device pass is now the last open item before a public launch, not before the audit. **Progress: 17 of
+the 46 A–F cases are closed (A4a, A6, A7, B7, B9, D1–D5, E1–E3, E5, F5–F7 — see the two 2026-09-27
+entries in § Result log); the desktop halves of A1, A2, A3, A4, A5, A6a, B2, B3, B5, B6, B8, B10, C6
+and F8 ran on the REAL desktop engines (Chrome, Brave, Safari, Firefox) and wait for their handset half,
+and the iOS-Simulator rehearsal of A1, A5 and B10's 512 MiB rung passed; 2 FAILED (A4b, F3) and are in
+BACKLOG; the rest need a handset, a radio or a camera.** The ticks in § 0.1 are PRECONDITIONS, not
+cases; do not read them as progress.
 
 - **Target:** the live deploy — `https://hushsend.frelikh.dev` (production build).
 - **Scope closes:** BACKLOG § Step 6 / 6e "Remaining (real devices, post-deploy)" and DEPLOY.md § 0
@@ -59,7 +60,7 @@ and production reads the URL in exactly two places: `SignalingClient.connect`, b
 query (`app` / `room` / `codeType` / `device`), and the link-join scrub that rewrites the address to
 `pathname + search` to strip the secret fragment. A third occurrence is a knob that shipped.
 
-Last run 2026-09-26 (after the second deploy of the day, `efe8b29`, `index-BBI2zUuS.js`): no globals, and 1 + 1. **Re-run it after any deploy** — do not trust this line. Every build renames the bundle, so naming a hash here only guarantees the note goes stale; what the host is serving right now is
+Last run 2026-09-27 against the bundle fetched over HTTPS from the live host (`index-BBI2zUuS.js` + the lazy `ponyfill-DEVIBFUV.js`, still `efe8b29`): no globals, and 1 + 1, both in the entry chunk. (The ponyfill chunk does contain the string `fastly.jsdelivr.net` — its default `locateFile`, overridden at runtime; B3 is where it must never be requested.) **Re-run it after any deploy** — do not trust this line. Every build renames the bundle, so naming a hash here only guarantees the note goes stale; what the host is serving right now is
 `grep -o 'index-[^"]*\.js' /var/www/hushsend/dist/index.html`. So:
 
 - **Failure injection is NOT available on prod** — those paths are covered by e2e. This pass observes
@@ -84,13 +85,14 @@ Last run 2026-09-26 (after the second deploy of the day, `efe8b29`, `index-BBI2z
       "separate the STUN server" item: one operator still holds app, signaling and STUN.
 - [ ] Hard-refresh every test device (Ctrl/Cmd+Shift+R; on iOS: close the tab and reopen) so no
       device runs the cached old bundle. Confirm the asset hash in devtools matches the deployed one.
-- [ ] `curl -s https://hushsend.frelikh.dev/health` → `ok`; nginx / hushsend-signaling / coturn all
-      `active`.
-- [ ] **The relay actually relays:** `bash deploy/verify-relay.sh` → OK. `coturn` being `active` does
+- [x] `curl -s https://hushsend.frelikh.dev/health` → `ok`; nginx / hushsend-signaling / coturn all
+      `active` — 2026-09-27 (curl from the Mac; `systemctl is-active` over SSH). Worth the date only.
+- [x] **The relay actually relays:** `bash deploy/verify-relay.sh` → OK — 2026-09-27 on the server:
+      16 messages relayed, 0 lost, average RTT 30 ms. Worth the date only. `coturn` being `active` does
       NOT mean Reliable mode works — if its `static-auth-secret` and the signaling server's
       `TURN_SECRET` have drifted, the mint still succeeds and only the allocation fails, so case C5
       (cross-network relay) would fail for a reason that has nothing to do with the devices in front
-      of you. Verified 2026-09-19: 16 messages relayed, 0 lost.
+      of you. First verified 2026-09-19 (the same 16 / 0).
 - [ ] **Hairpin NAT check** — the box is behind a residential NAT, so LAN devices reach the public
       hostname only if the router hairpins. Open the site on one LAN device and one LTE device before
       starting; if a LAN device cannot load it, that is a router issue, not an app bug.
@@ -168,14 +170,15 @@ Last run 2026-09-26 (after the second deploy of the day, `efe8b29`, `index-BBI2z
 
 | Slot | Device | OS version | Browser + version | Engine | Driven by | Expected receive path | Expected QR decoder |
 |---|---|---|---|---|---|---|---|
-| MBP-A | MacBook | | Chrome | Blink | Claude (MCP) | FSA streaming (unbounded) | native/ponyfill |
-| MBP-A | MacBook | | Brave (shields up) | Blink | Claude (MCP) | FSA streaming | native/ponyfill |
+| MBP-A | MacBook | macOS 26 | Chrome 154 | Blink | Claude via **Playwright** driving the installed Chrome (`channel:'chrome'`, persistent profiles, since 2026-09-27) | FSA streaming (unbounded) | zxing ponyfill (never native — see B3) |
+| MBP-A | MacBook | | Brave 154 (shields up) | Blink | Claude (Claude-in-Chrome extension) | **Blob** — Brave ships no `showSaveFilePicker` | zxing ponyfill |
 | MBP-A | MacBook | macOS 26 | Safari 26.6 | **WebKit (the real one)** | Claude via **WebDriver** (`safaridriver`, since 2026-09-27 — see § 0.5) | Blob (1 GiB cap) | zxing ponyfill |
 | MBP-A | MacBook | macOS 26 | Firefox 156 | Gecko | Claude via **WebDriver** (`geckodriver`, since 2026-09-27) | Blob (1 GiB cap) | zxing ponyfill |
-| MBP-A | MacBook | macOS 26 | Claude's built-in Chromium 152 | Blink | Claude (built-in browser) — a SECOND profile next to Brave, so E-cases are honest | FSA present but its dialog cannot be shown in the pane → Blob when `showSaveFilePicker` is removed in-page | native |
-| MBP-B | MacBook | | Chrome | Blink | Claude (MCP) | FSA streaming | native/ponyfill |
+| MBP-A | MacBook | macOS 26 | Claude's built-in Chromium 152 | Blink | Claude (built-in browser) — a SECOND profile next to Brave, so E-cases are honest | FSA present but its dialog cannot be shown in the pane → Blob when `showSaveFilePicker` is removed in-page | zxing ponyfill |
+| MBP-B | MacBook | | Chrome | Blink | Claude (Playwright) | FSA streaming | zxing ponyfill |
 | IPH | iPhone | | Safari (WebKit) | WebKit + phone limits | Claude via Safari Web Inspector (USB) | Blob (512 MiB cap) | zxing ponyfill |
-| AND-1 | Android | | Chrome | Blink | Claude via `chrome://inspect` (USB) | Blob (512 MiB cap) | native BarcodeDetector |
+| AND-1 | Android | | Chrome | Blink | Claude via `chrome://inspect` (USB) | Blob (512 MiB cap) | zxing ponyfill (never native) |
+| SIM-iOS | iPhone 17 **simulator** (rehearsal only) | iOS 27.0 | Safari | WebKit, but the Mac's RAM and network | Claude via simulator taps + screenshots (safaridriver cannot reach it) | Blob (512 MiB cap) | zxing ponyfill |
 | AND-2 | Android | | Firefox | Gecko | Claude via `about:debugging` (USB) | Blob (512 MiB cap) | zxing ponyfill |
 
 Three engines, not four browsers: Blink (Chrome, Brave, Android Chrome), Gecko (Firefox ×2), WebKit
@@ -214,7 +217,7 @@ evidence to exist**:
 | Track | Cases | Count |
 |---|---|---|
 | **T1** — Claude alone, closes the case outright | A4a, A4b, A6, A7 · B7, B9 · D1–D5 · E1–E5 · F3, F5, F6, F7 | 20 |
-| **T1 + T2** — T1 closes the DESKTOP half on real engines; the handset half is a separate tick | A1, A3, A4, A5, A6a · B2, B8 · E6, E7 · F2, F8 | 11 |
+| **T1 + T2** — T1 closes the DESKTOP half on real engines; the handset half is a separate tick | A1, A3, A4, A5, A6a · B2, B8, B10 · E6, E7 · F2, F8 | 12 |
 | **T2** — needs one physical act from you | A2 · B1, B3, B4 · C1–C6 · F1, F4, F9 | 13 |
 | **T1 + T3** — T1 closes the desktop half; the rest is your eyes | B5 (native share sheet) · B6 (phone ergonomics) | 2 |
 
@@ -290,8 +293,10 @@ Both peers on the home Wi-Fi, default **Max-privacy**. Baseline: if these fail, 
       a Safari↔non-Safari one, confirm the transfer completes regardless of the verdict. A `mismatch`
       here is EXPECTED between engines (see § Phase B) and must stay cosmetic; if a transfer is ever
       refused or torn down because of it, that is a bug, not a detection.
-- [ ] **A7 · multi-file** — send 3 files at once. Expected: all arrive, progress is per-transfer, no
-      stale filename from the previous send after "New transfer".
+- [x] **A7 · multi-file** — send 3 files at once. Expected (wording fixed 2026-09-27 to the behaviour
+      shipped since `1082b7d`): the sender lists the three files and sends them as ONE store-mode
+      `hushsend-files.zip` with one progress bar; the receiver is offered that zip, and every member
+      unzips byte-identical; after "New transfer" the next offer shows ITS own name, never the zip's.
 
 ## Phase B — browser capability matrix · mixed: B7/B9 are T1, the camera and phone-RAM cases are T2
 
@@ -329,12 +334,15 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       Expected: scanning works, and in Network the WASM is fetched from
       `https://hushsend.frelikh.dev/assets/zxing_reader-*.wasm` with `Content-Type: application/wasm`.
       **Nothing may be requested from `jsdelivr` / `fastly` / any third-party host** — that is the whole
-      point of the 6e vendoring. Also scan on AND-1 Chrome (native `BarcodeDetector`; no WASM fetch at all).
+      point of the 6e vendoring. Also scan on AND-1 Chrome — it fetches the SAME WASM: the app imports
+      `barcode-detector/ponyfill`, which is always the zxing implementation and never delegates to a
+      native `BarcodeDetector` (measured 2026-09-27 on desktop Chrome, which has one; corrected from
+      "native; no WASM fetch at all").
 - [ ] **B4 · camera permission denied** — on IPH, deny the camera prompt. Expected: a clean
       **paste-the-link fallback**, no crash, no dead screen. Re-allow and confirm the scanner recovers.
 - [ ] **B5 · share / copy** — on IPH and AND-1 the **Share** button uses the native sheet; on MBP-A
       Firefox (no `navigator.share`) it must be **absent**, with Copy still present and working.
-- [ ] **B7 · STUN cross-check verdict per engine — NEW 2026-09-17, and the device pass is what
+- [x] **B7 · STUN cross-check verdict per engine — NEW 2026-09-17, and the device pass is what
       decides it.** The client asks every configured STUN server what our public address is, using one
       throwaway PeerConnection per server, and compares (`core/stunCheck.ts`). Read `stun-verdict` /
       `stun-addresses` in the DEV strip on EVERY engine in the matrix. **This needs two STUN URLs in
@@ -361,6 +369,9 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       Verified end to end 2026-09-19: the page loads, the DEV strip renders, and `stun-verdict` reads
       **`agree`** with no console errors — so a `unknown` in this case is a real result about the
       engine, not a broken harness.
+      On the Mac (Homebrew coturn **4.18**) `--no-dtls` and `--no-cli` no longer exist and the command
+      exits 255 with its help text; there use `turnserver -n -S -z --listening-ip=127.0.0.1
+      --listening-port=$P --no-tls --pidfile /tmp/turn$P.pid --log-file stdout` (checked 2026-09-27).
 
       **`npm run dev` on this host does NOT work, and fails in a way that wastes an hour.** Vite's
       default 5173 is held by an unrelated app, so it silently moves to 5174; the client's dev default
@@ -383,7 +394,7 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
 - [ ] **B6 · theme / language / layout** — check the app in light+dark and EN+RU on the iPhone and on a
       MacBook: no clipped text, no horizontal scroll, tap targets reachable, the 4-digit code and word
       slots legible.
-- [ ] **B9 · privacy-hardened browser (Brave, shields up) — NEW 2026-09-19.** Brave is Blink, so it
+- [x] **B9 · privacy-hardened browser (Brave, shields up) — NEW 2026-09-19.** Brave is Blink, so it
       adds **no engine coverage** — it is here for its HARDENING. This product's users skew towards
       hardened browsers, and Brave ships WebRTC defaults Chrome does not: shields, fingerprint
       randomisation, and a **WebRTC IP-handling policy** that can withhold local and/or
@@ -394,6 +405,28 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       which candidate types were gathered (`chrome://webrtc-internals`). If Max privacy cannot gather
       an srflx there, that is a real-world limit to state in the README, not a defect to fix: the
       strict model is doing exactly what it promises.
+- [ ] **B10 · size ladder up to 5 GB — every receive path, every engine as sender — NEW 2026-09-27
+      (owner's request).** Limits differ by OS, browser and device, and § 0.3's ceilings come from
+      Playwright builds on one Mac (Chromium and WebKit only: no Gecko, no real Safari, no phone). So
+      walk each receive path up its ladder on the REAL engines and devices:
+
+      | receive path | sizes to offer | expected |
+      |---|---|---|
+      | FSA streaming (Chrome desktop) | 1, 2, 3 GiB, **4 GiB + 1 B** (the 32-bit edge), **5 GiB** | completes, every byte verified, receiver memory flat |
+      | Blob, desktop cap 1 GiB (Safari, Firefox, Brave, Chrome without FSA) | 1 GiB + 1 B, 5 GiB, then **exactly 1 GiB** | the first two refused BEFORE accept, naming the limit; 1 GiB completes AND the download lands on disk intact |
+      | Blob, mobile cap 512 MiB (iOS Safari, Android Chrome / Firefox) | 512 MiB + 1 B, 5 GiB, then **exactly 512 MiB** | the same; on a real handset this is also B2's memory-pressure datum |
+      | every engine as SENDER | 5 GiB into an FSA receiver | completes; sender memory does not grow with the file |
+
+      **Build the files so they cost the page nothing and still prove every byte:** 1 MiB blocks, each
+      a unique 16-byte header plus one shared body, assembled from Blob parts that REFERENCE that body.
+      A 5 GiB `File` then holds ~1 MiB of RAM on the sender, and the receiver checks every block, so
+      reordering, duplication and truncation all fail. For an unattended FSA run the save dialog can be
+      replaced in-page by an OPFS file handle (the same `createWritable()` stream); the dialog itself is
+      B1's T2 step. Let the Blob path's final download really happen, because that hand-off is where
+      the engines died in § 0.3, and hash the saved file. Record per run: pair, size, MB/s, outcome,
+      verify result, and the peak RSS of the sender's and the receiver's process trees (`ps` every 5 s).
+      A phone-sized receiver is the case this ladder exists for; a simulator or emulator run is a
+      rehearsal, not the tick.
 
 ## Phase C — cross-network + privacy modes (the part only real networks can prove) · entirely T2
 
@@ -728,6 +761,90 @@ Blink↔Blink, because mDNS hides the host addresses the check needs; the headle
   in the same tab is the hash-only bug — always go through `/health`; (3) the Brave extension's first
   click after a navigation is often swallowed — JS `.click()` on the testids is reliable; (4)
   `d.type` in safaridriver hung the session twice — set values with the native setter + `input` event.
+
+### 2026-09-27 (afternoon) · T1 + size ladder to 5 GiB + first iOS-Simulator rehearsal · Chrome 154 ↔ Safari 26.6 ↔ Firefox 156 ↔ iPhone 17 simulator (iOS 27.0)
+
+Setup: production bundle `index-BBI2zUuS.js` (`efe8b29`, unchanged; checked over HTTPS and on the host).
+SSH to the host worked this time (invoked as the bare `ssh laptop-server '…'`): nginx / signaling /
+coturn `active`, `verify-relay.sh` OK, 0 established signaling sockets. **Real Google Chrome 154** is new
+in the matrix, driven over Playwright's `channel:'chrome'` with persistent profiles (chromeA / chromeB),
+so the FSA path finally ran on the product it exists for. Safari/Firefox over WebDriver as in the
+morning. The Mac's srflx this session was a PUBLIC address (212.175.35.143; once 176.88.94.88 on a cold
+Firefox probe), not the morning's hairpinned 192.168.1.1, so this Mac was not behind the server's NAT
+and the hairpin precondition was not exercised. The Mac has **8 GiB of RAM**, which bounds every number
+below that involves memory. The harness (files, drivers, scenarios) is described in
+`~/projects/claude/tools/webdriver/README.md` on the Mac.
+
+**B7 · T1 · all four desktop engines · PASS (verdicts recorded).** Local dev build (`vite :5291`,
+signaling `:8191`), because production has one STUN server and no DEV strip:
+
+| engine | two loopback STUNs (3479 + 3480) | live `turn.hushsend.frelikh.dev:3478` + loopback 3479 |
+|---|---|---|
+| Chromium 152 (built-in) | `agree` · 127.0.0.1 | `disagree` · 212.175.35.143 vs 127.0.0.1 |
+| Chrome 154 | `agree` · 127.0.0.1 | `disagree` · same pair |
+| Safari 26.6 | `agree` · 127.0.0.1 | `disagree` · same pair |
+| Firefox 156 | `unknown` (no srflx from a loopback server) | `unknown` · only 212.175.35.143 answered |
+
+The `disagree` column is the check doing its job, not a bug: one server really sees loopback and the
+other the public address. The open Firefox question is settled: **on a real network Firefox does report
+an srflx candidate with its address in `getStats()`** (212.175.35.143), so the feature covers three
+engines once two real STUN operators exist. Two caveats: from a LOOPBACK server Firefox reports nothing,
+and on a cold profile its first srflx took **9.8 s** (a 4 s probe got none; warm probes took 0.26 s),
+above `PROBE_TIMEOUT_MS` (4 s), so a cold Firefox can read `unknown` in production. → BACKLOG.
+
+**B10 · size ladder (new case) · desktop half PASS, mobile rung rehearsed on the simulator.**
+
+| receive path · pair | sizes | outcome |
+|---|---|---|
+| FSA (dialog → OPFS handle) · Chrome B → Chrome A | 1, 2, 3 GiB, 4 GiB + 1 B, 5 GiB | all done, every block verified; 51.1 / 50.7 / 47.0 / 45.1 / 50.6 MB/s; progress monotonic |
+| senders into Chrome FSA | Safari → Chrome 5 GiB · Firefox → Chrome 5 GiB | both done, verified; 50.0 and 48.1 MB/s |
+| Blob, desktop cap · Chrome B → Safari / Firefox / Chrome-without-FSA | 1 GiB + 1 B, 5 GiB | refused BEFORE accept in 0.3–1.0 s, reason names the 1.0 GB limit |
+| same three | exactly 1 GiB | done; Blob verified in-page AND the file the browser saved to disk has the expected SHA-256 (`edef0d81…`) on all three |
+| Blob, mobile cap · Chrome A → iPhone 17 simulator | 512 MiB + 1 B, 5 GiB | refused before accept, reason names the **512 MB** limit (the UA picked the mobile cap) |
+| same | exactly 512 MiB | delivered in ~16 s; iOS asked "Do you want to download…", saved to Files; SHA-256 of the saved file matches (`486628bc…`) |
+
+Memory (RSS of each browser's process tree, sampled every 5 s): the Chrome FSA receiver stayed flat for
+every size (tree ≤ ~550 MiB, largest process ≤ 256 MiB at 5 GiB); the Chrome sender likewise (largest
+≤ 215 MiB). **The Safari SENDER did not stay flat**: its WebContent process grew to ~940 MiB near the end
+of the 5 GiB send (from ~300 MiB) and dropped after it. That is harmless on this Mac and a risk on a
+phone. → BACKLOG. The simulator's largest process peaked at ~640 MiB while holding the 512 MiB Blob, but
+simulator memory is the Mac's, so that number says nothing about a real iPhone. Copy nit: the cap + 1 B
+refusal reads "This file is 1.0 GB — larger than the 1.0 GB this browser can save" (same for 512 MB).
+
+- A7 · T1 · Chrome B → Chrome A (Blob path, download saved) · **PASS** under the corrected wording — the
+  sender listed three files ("Send · 3 files"), the receiver was offered `hushsend-files.zip` 3.8 MB,
+  `unzip -v` shows three Stored members and each is byte-identical (SHA-256) to its source; the next
+  single file after "New transfer" was offered under its own name.
+- A4 · T1 · Chrome A creates, Chrome B joins, 6 fresh rooms · roles vary: in the 5 that completed the
+  creator read 3 times and picked 2 times, the real phrase was always among the picker's 3, all reached
+  "SAS confirmed". One room creation showed no code within 20 s while the iOS Simulator was booting and
+  the Mac was out of memory — not reproduced, unexplained.
+- F8 · T1 desktop half · Chrome A creates a link, a separate Chrome profile joins and never sends its own
+  confirmation tag (transport alive, app silent) · **PASS** — the creator sat on "Verifying…" with its
+  signaling socket still open, then failed **≈120 s after its channel opened** (channel up ~12 s after
+  the join; failure seen between the 126 s and 133 s polls: "Couldn't connect — peer did not complete
+  key confirmation in time"), well before the 180 s token-room TTL, and closed its own socket. The silent side had already verified the creator's tag, showed "Secure channel open" and
+  kept showing it after the creator gave up — the same "peer gone after connected" hole as F3 (BACKLOG).
+- A2 · T1 desktop rehearsal · Chrome A shows the QR; a Chrome profile whose fake camera plays that QR
+  (`--use-file-for-fake-video-capture`) scans it in the app · **PASS** — connected 6.2 s after tapping
+  Scan, fragment scrubbed, creator "one-time secret verified". The real-camera and handset halves stay open.
+- B3 · T1 desktop half · same run · **PASS**, and one plan claim corrected — the only host contacted was
+  `hushsend.frelikh.dev`; the decoder came from `/assets/zxing_reader-B47v7G7e.wasm` (200,
+  `application/wasm`). Chrome HAS a native `BarcodeDetector` and the app still fetched the WASM: the
+  ponyfill never uses the native one, so CLAUDE.md § QR and this plan's AND-1 expectation were wrong
+  (both corrected). iOS/Firefox scans remain.
+- B9 · T1 · **PASS, closed** — the owner confirmed Brave's WebRTC IP-handling policy is **Default**;
+  candidates gathered and A1 + A5 in both modes are in the morning entry. The Brave extension stopped
+  answering this afternoon (two calls timed out) while the Mac was out of memory; not an app issue.
+- A6a · T1 desktop half · **PASS** — every transfer in both 2026-09-27 sessions completed; every verdict
+  on one host was `unknown`; nothing was refused or torn down over attestation.
+- A1 · T1 rehearsal · Chrome A → iPhone 17 simulator (link opened via `simctl openurl`) · **PASS** — "Secure
+  channel open", no SAS; host↔host UDP; Chrome's signaling socket closed 0.3 s after connect.
+- A5 · T1 rehearsal · Chrome A → simulator 5 000 000 B · **PASS** — iOS "Received" + the download prompt;
+  the saved file's SHA-256 matches (`89391b9f…`). The simulator → desktop direction was not run.
+- Tooling, not app: safaridriver cannot open a session on the iOS 27 simulator ("Could not find any
+  session hosts", and its Safari → Advanced has no Remote Automation switch), so the simulator is driven
+  by taps and screenshots with the evidence taken on the desktop side of the pair.
 
 **When the pass is done:** fold the results into `BACKLOG.md` § Step 6 / **6e** (and its
 "Remaining (real devices, post-deploy)" line) and `CLAUDE.md` § Current state / Build order in the

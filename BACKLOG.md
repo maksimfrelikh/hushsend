@@ -555,7 +555,9 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   closed at 8 % of a 900 MB send and the SENDER froze at 46 % "Sending · connected" for >70 s, no
   failure, recoverable only via Close channel; (b) a Firefox↔Safari pair whose ICE went
   `disconnected`→`failed` 14–36 s after connect left BOTH sides on `connected` ("Sending 0 %" /
-  "Receiving 0 %") for >60 s.** One fix covers all three: handle `connectionstatechange`
+  "Receiving 0 %") for >60 s; (c) F8 (2026-09-27 afternoon) — when the SENDER of a link gives up on key
+  confirmation after 120 s, the silent receiver, which had already verified the sender's tag, keeps
+  showing "Secure channel open" to a peer that is gone.** One fix covers all of them: handle `connectionstatechange`
   `failed`/`disconnected` and the DataChannel `close` in the `established` phase — fail the in-flight
   transfer visibly and end the session (a "peer left" terminal state), instead of nothing.
 - [ ] **The SAS reader cannot stop after confirming early (found 2026-09-27, A4b).** The reader taps
@@ -572,7 +574,8 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   visibly with the switch-to-Reliable hint — which points at the wrong fix. The 2026-09-26 "Max
   privacy FAIL 2/2" was exactly this. README / the direct-fail hint should mention the permission on
   macOS 15+; optionally detect "only mDNS host + srflx that is a private address" and say so.
-- [ ] **Copy nits from the 2026-09-27 pass:** the SAS hard-stop kicker says "numbers didn't match"
+- [ ] **Copy nits from the 2026-09-27 pass:** a refusal just over the cap reads "This file is 1.0 GB —
+  larger than the 1.0 GB this browser can save" (same with 512 MB: both sizes round to the cap); the SAS hard-stop kicker says "numbers didn't match"
   (they are words); the CREATOR of an expired words/4-digit room sees "Room not found or code
   expired" (the joiner's wording) after its own 4010; TESTPLAN F7's "4002" is reachable only while the
   first pair is still pairing — after connect the token room is already gone and a second joiner gets
@@ -587,8 +590,28 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   (`i18n` `pathOk`). Seen on a Brave↔Brave Reliable session whose Max-privacy twin cannot connect
   directly, i.e. most likely relayed — not yet proven with `webrtc-internals`. If confirmed: exclude
   relay candidates from the attested set or reword the label.
-- **Multi-file sends are one `hushsend-files.zip` (stored)** — design since `1082b7d`, undocumented in
-  CLAUDE.md / README, and TESTPLAN A7 describes per-file transfers. Document or change; not a bug.
+- ✅ **Multi-file sends are one `hushsend-files.zip` (stored) — DOCUMENTED 2026-09-27.** Owner's decision:
+  keep the behaviour (design since `1082b7d`), describe it. TESTPLAN A7 was reworded and re-ticked (three
+  members unzip byte-identical), CLAUDE.md § File transfer and README now say so.
+- [ ] **The Safari SENDER's memory grows during a very large send (found 2026-09-27, TESTPLAN B10).**
+  Sending 5 GiB from Safari 26.6 to Chrome, its WebContent process grew from ~300 MiB to ~940 MiB by
+  the end and fell back afterwards; Chrome and Firefox senders stayed flat. The source was a Blob built
+  from shared parts, so the growth is in the read path (`File.stream()` → chunking → DataChannel), not
+  the file. Harmless on an 8 GiB Mac, a likely tab kill on an iPhone. Measure a real-file 5 GiB send from
+  iOS before deciding anything; if it reproduces, look for retained `Uint8Array`s in the pump/rechunker.
+- [ ] **STUN cross-check: a cold Firefox can miss the 4 s probe window (found 2026-09-27, TESTPLAN B7).**
+  On a fresh profile Firefox's first srflx from the live STUN took 9.8 s (a 4 s probe got nothing);
+  warm probes take 0.26 s. `PROBE_TIMEOUT_MS` is 4 s, so a cold Firefox reads `unknown`. Harmless while
+  one STUN operator exists (the check says nothing then anyway); revisit with the second operator.
+- [ ] **QR decoding never uses the native `BarcodeDetector` (found 2026-09-27, TESTPLAN B3).** The app
+  imports `barcode-detector/ponyfill`, which is always zxing-wasm; desktop Chrome, which has a native
+  detector, still fetched the 1 MB WASM. The docs claimed "native where available" (corrected in
+  CLAUDE.md § QR and TESTPLAN). Decide: keep one decoder everywhere (simpler, current) or prefer the
+  native one when present (no WASM fetch on Chromium/Android). Not a bug either way.
+- [ ] **iPad may get the DESKTOP receive cap — to check.** `isMobileUA` looks for
+  `Android|iPhone|iPad|iPod|Mobile`; iPadOS Safari requests desktop sites by default and then sends a
+  Macintosh UA without those words, which would select the 1 GiB desktop cap on a tablet. Not observed
+  yet; one iPad-simulator run of TESTPLAN B10 answers it.
 
 - ✅ **Mixed-privacy room never connects (early offer dropped) — DONE.** When the two sides used
   DIFFERENT privacy modes, a **Reliable-mode answerer** is still fetching coturn creds (`ensureTurnReady`)

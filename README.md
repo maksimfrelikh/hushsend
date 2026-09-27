@@ -44,6 +44,11 @@ Ed25519 identity key, channel-bound to the fresh DTLS fingerprints. To the serve
 indistinguishable from a first link meeting. A key that changed under a known pairing is an SSH-style
 hard stop, never a dismissable toast.
 
+Several files picked at once travel as **one uncompressed zip, `hushsend-files.zip`**, so the receiver
+accepts one offer and sees one progress bar. Chrome on desktop streams what it receives straight to
+disk; other browsers hold it in memory until the end and cap it (1 GB on desktop, 512 MB on phones),
+refusing a larger file before anything is sent.
+
 ## Privacy modes
 
 - **Max privacy (default)** — direct only. Your own STUN, never a relay; the peer learns your IP,

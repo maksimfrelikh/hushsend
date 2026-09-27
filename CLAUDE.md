@@ -422,8 +422,9 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
   "nobody here" means expired/used; `link.spec.ts` "dead link"). `parseLink` validates strictly (token = `RENDEZVOUS_TOKEN_LEN`=22 base64url chars, S decodes
   to exactly 16 bytes) — the input is attacker-influenced; an old 4-digit-style code is now rejected.
 - **qr**: the SAME link, rendered to an SVG QR locally (`src/ui/qr.ts`, `qrcode`); the joiner SCANS
-  it with the camera (`getUserMedia` + the `barcode-detector` ponyfill — native `BarcodeDetector`,
-  else **self-hosted** zxing-wasm via `src/ui/zxingWasm.ts`, lazily imported) → decodes to the link →
+  it with the camera (`getUserMedia` + the `barcode-detector` ponyfill — always the **self-hosted**
+  zxing-wasm via `src/ui/zxingWasm.ts`, lazily imported; the ponyfill never uses a native
+  `BarcodeDetector`, measured 2026-09-27) → decodes to the link →
   same join path. Camera denial/absence falls back to a **paste-the-link** input (also the
   deterministic e2e injection point). The zxing WASM is served from our own origin, not a CDN — see § QR.
 - **Enrollment**: TOFU pinning runs after `connected` exactly as for words/room (method-agnostic),
@@ -555,6 +556,9 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
 ## File transfer
 - DataChannel with chunking + **backpressure** (`bufferedAmount` /
   `bufferedAmountLowThreshold`).
+- **Several files in one send travel as ONE store-mode zip, `hushsend-files.zip`** (`client-zip`
+  `makeZip`, streamed; `predictLength` gives the exact size for the offer), so the receiver sees one
+  offer and one progress bar. By design since `1082b7d`; documented 2026-09-27 (TESTPLAN A7).
 - Save-to-disk: **File System Access** (`showSaveFilePicker`) to stream to disk where
   available (Chromium); fall back to in-memory **Blob** on iOS Safari / Firefox (RAM-bound).
   Cap very large files on the Blob path — multi-GB streaming-to-disk is unreliable on iOS
@@ -716,12 +720,13 @@ enforce it in Max-privacy, then a direct failure is **terminal**:
 ## QR (built — step 5b; WASM self-hosted — step 6e)
 `barcode-detector` + `qrcode` are installed. Generation: `qrcode` → an SVG QR rendered locally
 (`src/ui/qr.ts`, dark-on-light so it scans in either theme). Scanning: `getUserMedia` for the
-camera + the **`barcode-detector` ponyfill** (native `BarcodeDetector` where available, zxing-wasm
-fallback) so one path works on iOS/Firefox/everywhere; the ponyfill is **lazily imported** so its
+camera + the **`barcode-detector` ponyfill**, which is ALWAYS the zxing-wasm decoder — it never
+delegates to a native `BarcodeDetector` (desktop Chrome has one and still fetched the WASM, measured
+2026-09-27; this line used to say "native where available") — so one path runs everywhere; it is **lazily imported** so its
 WASM never loads unless the user actually scans. Camera denial/absence falls back to a paste-the-link
 input (`src/ui/screens/ScanScreen.tsx`).
-- **Self-hosted WASM (no CDN — step 6e):** the zxing reader `.wasm` (the fallback decoder on
-  iOS/Firefox) is **vendored into the build** and served from our OWN origin — it is NEVER fetched
+- **Self-hosted WASM (no CDN — step 6e):** the zxing reader `.wasm` (the decoder on every engine)
+  is **vendored into the build** and served from our OWN origin — it is NEVER fetched
   from a third-party CDN. `barcode-detector@3.2.0`'s default Emscripten `locateFile` would pull
   `zxing_reader.wasm` from `fastly.jsdelivr.net` at scan time (leaking the client IP + executing
   WASM from a host we don't control — a privacy + supply-chain risk). `src/ui/zxingWasm.ts`
@@ -740,9 +745,9 @@ input (`src/ui/screens/ScanScreen.tsx`).
   time the ponyfill's JS expects a `zxing_reader.wasm` whose ABI matches ITS inlined copy, but
   `locateFile` now points the loader at OUR vendored asset. If a future `barcode-detector` upgrade
   silently inlines a DIFFERENT zxing-wasm version, our vendored `.wasm` would be ABI-mismatched against
-  the loader JS → the QR-scan FALLBACK breaks **at runtime on iOS/Firefox** (the `.wasm` import still
-  resolves and the build still passes — the mismatch is invisible to `tsc`/`vite build`, and Chromium's
-  native `BarcodeDetector` path masks it in most dev/CI). So when bumping `barcode-detector`, re-verify
+  the loader JS → QR scanning breaks **at runtime on every engine** (the `.wasm` import still
+  resolves and the build still passes — the mismatch is invisible to `tsc`/`vite build`; no native
+  `BarcodeDetector` path masks it, since the ponyfill never takes one). So when bumping `barcode-detector`, re-verify
   the exact zxing-wasm version it inlines (e.g. inspect its `package.json`/lockfile entry) and move our
   direct `zxing-wasm` pin to match in the SAME pass, then re-run `zxingWasm.test.ts` and a real
   non-Chromium scan. Keep both pins EXACT (no `^`/`~`).
@@ -1124,8 +1129,8 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
      host is behind a **residential NAT**, so the router forwards 80/443 tcp + 3478 tcp/udp + the
      relay range 49160–49200/udp, and coturn needs `external-ip=<public>/<lan>` or the relay
      advertises a private address. The old `http2 on;` → `listen … ssl http2;` template fix was for
-     the VPS's nginx 1.24 and no longer applies (1.28 accepts both; HTTP/2 is currently OFF on the
-     vhost — a free win, not a fix). External smoke ALL green (security headers/CSP, `/health`,
+     the VPS's nginx 1.24 and no longer applies (1.28 accepts both; HTTP/2 is ON now — `curl` from the Mac negotiated `HTTP/2 200`, 2026-09-27;
+     this line used to say OFF). External smoke ALL green (security headers/CSP, `/health`,
      `.wasm` as `application/wasm`, `/ws`→426 reaching Node, SPA fallback). **Remaining (ops, not
      code):** the in-browser P2P/SAS/transfer test on two devices + a cross-network TURN relay check
      (overlaps 6e real-device). (link/qr high-entropy rendezvous = codeType=token, done pre-deploy.)
