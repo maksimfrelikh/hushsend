@@ -46,8 +46,15 @@ export interface PeerConnectionHandlers {
   onSignal?: (data: SignalPayload) => void;
   /** DataChannel opened — transport is up. */
   onOpen?: () => void;
-  /** DataChannel or peer connection closed/failed. */
-  onClose?: () => void;
+  /** DataChannel or peer connection closed/failed. `why` names which, for the diagnostics log. */
+  onClose?: (why: string) => void;
+  /**
+   * The connection went `disconnected` (true) or came back to `connected` from it (false) — edge
+   * triggered, so the owner hears each change once. Transient by definition: a Wi-Fi hop or a tunnel
+   * can bring it back and SCTP resumes where it stopped. A connection that does not come back goes
+   * `failed`, which arrives through `onClose` / `onIceFailed` like any other failure.
+   */
+  onInterrupted?: (interrupted: boolean) => void;
   /**
    * ICE could NOT establish connectivity in the Max-privacy STRICT model (we drop the peer's SIGNALLED
    * relay candidates and never request local TURN, so no relay path was offered — a peer-reflexive one
@@ -141,6 +148,11 @@ export class PeerConnection {
   private readonly gateDelayMs: number;
   /** one-shot guard so the Max-privacy ICE-failure is reported (onIceFailed) at most once. */
   private iceFailureReported = false;
+  /** Whether we last told the owner the connection is `disconnected` (see onInterrupted). */
+  private interrupted = false;
+  /** Settlers of the drain waits in flight. Our own close() fires no event on the channel — the spec
+   *  closes data channels abruptly when their connection closes — so it settles these itself. */
+  private readonly drainAborts = new Set<() => void>();
   /** Endpoints (`address|port`) of every relay candidate the filter dropped. ICE can still LEARN one
    *  of these as a peer-reflexive candidate (RFC 8445 §7.3.1.3) — the channel-open gate matches the
    *  selected pair against this set so a relayed path we never accepted cannot be used anyway. */
@@ -178,8 +190,11 @@ export class PeerConnection {
     pc.onconnectionstatechange = () => {
       if (import.meta.env.DEV) console.debug('[webrtc] connectionState =', pc.connectionState);
       if (this.closed) return;
-      if (pc.connectionState === 'failed') this.onIceFailure();
-      else if (pc.connectionState === 'closed') this.handlers.onClose?.();
+      const state = pc.connectionState;
+      if (state === 'failed') this.onIceFailure();
+      else if (state === 'closed') this.handlers.onClose?.('peer connection closed');
+      else if (state === 'disconnected') this.setInterrupted(true);
+      else if (state === 'connected') this.setInterrupted(false);
     };
     pc.oniceconnectionstatechange = () => {
       if (import.meta.env.DEV) console.debug('[webrtc] iceConnectionState =', pc.iceConnectionState);
@@ -215,8 +230,15 @@ export class PeerConnection {
       this.iceFailureReported = true;
       this.handlers.onIceFailed?.();
     } else {
-      this.handlers.onClose?.();
+      this.handlers.onClose?.('ICE failed');
     }
+  }
+
+  /** Tell the owner about a change between `disconnected` and `connected`, once per change. */
+  private setInterrupted(interrupted: boolean): void {
+    if (this.interrupted === interrupted) return;
+    this.interrupted = interrupted;
+    this.handlers.onInterrupted?.(interrupted);
   }
 
   /** Handle an inbound signal payload relayed from the peer. */
@@ -295,6 +317,7 @@ export class PeerConnection {
     this.pc?.close();
     this.channel = null;
     this.pc = null;
+    for (const abort of [...this.drainAborts]) abort();
   }
 
   // ---- internals ----
@@ -313,7 +336,7 @@ export class PeerConnection {
     this.channel = channel;
     channel.onopen = () => void this.openChannelUnlessRelayed();
     channel.onclose = () => {
-      if (!this.closed) this.handlers.onClose?.();
+      if (!this.closed) this.handlers.onClose?.('data channel closed');
     };
     channel.onmessage = (e: MessageEvent) => this.handlers.onMessage?.(e.data as string | ArrayBuffer);
   }
@@ -459,13 +482,27 @@ export class PeerConnection {
     return remote.address ?? remote.ip ?? null;
   }
 
+  /**
+   * Resolve once the send buffer drains below the low-water mark — or REJECT if the channel closes
+   * first. A channel that dies with bytes still queued never reports `bufferedamountlow`, and this
+   * used to wait for it forever: the sender's pump hung inside the await, so its row sat on
+   * "Sending 46 %" to a peer whose tab was long closed (TESTPLAN F3). Rejecting ends the pump through
+   * its own error path, which also cancels the file reader.
+   */
   private waitForDrain(ch: RTCDataChannel): Promise<void> {
-    return new Promise((resolve) => {
-      const onLow = () => {
+    return new Promise((resolve, reject) => {
+      const settle = (closed: boolean): void => {
         ch.removeEventListener('bufferedamountlow', onLow);
-        resolve();
+        ch.removeEventListener('close', onClose);
+        this.drainAborts.delete(onClose);
+        if (closed) reject(new Error('data channel closed'));
+        else resolve();
       };
+      const onLow = (): void => settle(false);
+      const onClose = (): void => settle(true);
       ch.addEventListener('bufferedamountlow', onLow);
+      ch.addEventListener('close', onClose);
+      this.drainAborts.add(onClose);
     });
   }
 }

@@ -210,6 +210,8 @@ export interface ActiveSend {
   handleControl(msg: ControlMessage): void;
   /** Local cancel — notifies the peer and stops sending. */
   cancel(): void;
+  /** The channel died under this send: stop and end with `reason`. Tells no one — nobody is left. */
+  fail(reason: string): void;
 }
 
 /**
@@ -322,6 +324,11 @@ export function sendFiles(
       void wire.send(JSON.stringify({ t: 'cancel' })).catch(() => {});
       finalize({ t: 'cancelled' });
     },
+    fail(reason: string): void {
+      if (ended) return;
+      aborted = true;
+      finalize({ t: 'error', reason });
+    },
   };
 }
 
@@ -341,6 +348,12 @@ export interface ActiveReceive {
   handleControl(msg: ControlMessage): void;
   /** Local cancel — notifies the peer and discards the partial. */
   cancel(): void;
+  /** The channel died under this receive: discard the partial and end with `reason`. A no-op once
+   *  `eof` has arrived — every byte is here by then, and the save is allowed to finish. */
+  fail(reason: string): void;
+  /** Drop the session silently — discard the sink, emit nothing. For a receive whose session ended
+   *  while the save picker was still open, where anything emitted would land on the NEXT session. */
+  discard(): void;
 }
 
 interface ReceiveSink {
@@ -409,6 +422,8 @@ export async function openReceive(
   const sink = await openSink(offer.name, canStream, maxBytes);
   let received = 0;
   let ended = false;
+  /** `eof` arrived: all the bytes are here and only the sink's close is left (see `fail`). */
+  let closing = false;
   // Serialize writes: chunks arrive ordered (the channel is ordered) but writes are async;
   // chaining keeps them in order and bounds concurrency to one outstanding write.
   let tail: Promise<void> = Promise.resolve();
@@ -421,7 +436,8 @@ export async function openReceive(
   const sendCancel = (): void => void wire.send(JSON.stringify({ t: 'cancel' })).catch(() => {});
 
   async function finish(): Promise<void> {
-    if (ended) return;
+    if (ended || closing) return;
+    closing = true;
     try {
       await tail; // drain queued writes (eof is the last message, so this is all of them)
       if (ended) return;
@@ -480,6 +496,16 @@ export async function openReceive(
       if (ended) return;
       sendCancel();
       void abort();
+    },
+    fail(reason: string): void {
+      if (ended || closing) return;
+      finalize({ t: 'error', reason });
+      void sink.abort().catch(() => {});
+    },
+    discard(): void {
+      if (ended) return;
+      ended = true;
+      void sink.abort().catch(() => {});
     },
   };
 }

@@ -126,11 +126,14 @@ be verified without a reference hash.
 
 **Feature-complete and deployed.** All four methods, the codeless reconnect, the mesh lobby, TURN,
 light/dark, the Claude Design screen set (English only for now; the RU table is kept, the switch
-hidden), and the deployment are built and live. **292 vitest tests** and a
-Playwright e2e suite — **40 per engine** across chromium / firefox / webkit (plus 2 opt-in size
-cases), plus a phone profile and 5 cross-engine pairs — cover the protocol paths; the axe gate
-(`npm run test:a11y`, 95 checks) and the screenshot gate (`npm run visual`, 147 checks) cover the
-screens. Counts verified 2026-09-26; refresh them here whenever the suite grows.
+hidden), and the deployment are built and live. **311 vitest tests** and a
+Playwright e2e suite — **43 on chromium, 42 on firefox / webkit** (the silent-peer case needs CDP, so
+it runs on Chromium only; plus 2 opt-in cases, the size ladder and the two-STUN cross-check), plus a
+phone profile and 5 cross-engine pairs — cover the protocol paths; the axe gate
+(`npm run test:a11y`, 101 checks) and the screenshot gate (`npm run visual`, 147 checks, plus 10
+added 2026-09-27 whose baselines are not recorded yet — BACKLOG § Ops) cover the screens. The vitest,
+per-engine e2e and axe counts were re-run 2026-09-27; the phone, cross-engine and screenshot counts
+are from 2026-09-26. Refresh them here whenever the suite grows.
 
 A second internal audit on **2026-09-12** (modelling a fully malicious signaling server, not just a
 passive one) found and fixed three complete breaks — SAS certificate grinding, server-chosen pairing

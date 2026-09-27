@@ -6,7 +6,17 @@ import { useT } from '../prefs';
 import type { StrKey } from '../i18n';
 import type { ConnectionMethod } from '../../store/connectionSlice';
 import { transferActions, type TransferState } from '../../store/transferSlice';
-import { Screen, Space, Grow, Pill, TextLink, IconButton, Disclosure, Glyph } from '../ui';
+import {
+  Screen,
+  Space,
+  Grow,
+  Pill,
+  TextLink,
+  IconButton,
+  Disclosure,
+  Glyph,
+  AlertLine,
+} from '../ui';
 
 /**
  * Connected + transfer screen — the ONLY screen from which file bytes can flow (it renders only at
@@ -25,10 +35,11 @@ export function TransferScreen(): ReactElement {
   const reconnectOutcome = useAppSelector((s) => s.dev.reconnect.outcome);
   const pathCheck = useAppSelector((s) => s.connection.pathCheck);
   const stunDisagreed = useAppSelector((s) => s.connection.stunDisagreed);
+  const interrupted = useAppSelector((s) => s.connection.interrupted);
   const transfer = useAppSelector((s) => s.transfer);
 
   const idle = transfer.phase === 'idle';
-  const hasRows = (pathCheck !== null && pathCheck !== 'ok') || stunDisagreed;
+  const hasRows = (pathCheck !== null && pathCheck !== 'ok') || stunDisagreed || interrupted;
 
   // Reset ONLY the per-transfer projection (progress / file name / phase) back to idle — a clean
   // ready-to-send for the next send. Does NOT touch the connection (the channel stays open) and does
@@ -59,6 +70,10 @@ export function TransferScreen(): ReactElement {
       {hasRows && (
         <>
           <Space h={12} />
+          {/* ICE `disconnected`: nothing is arriving, so the progress below is not live — say so
+              instead of letting it pose as a working transfer (TESTPLAN F2). It either clears by
+              itself or the core ends the session as lost. */}
+          {interrupted && <AlertLine testId="interrupted">{t('interrupted')}</AlertLine>}
           {pathCheck === 'unknown' && (
             <Disclosure
               title={t('pathUnknown')}

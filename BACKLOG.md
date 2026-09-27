@@ -302,6 +302,19 @@ the same pass as CLAUDE.md when items land.
   SAME fix as "link/qr lobby-race resistance" above. (See CLAUDE.md § link/qr method + § Signaling server.)
 
 ## Ops / housekeeping (small, no devices)
+- [ ] **Record the 10 new screenshot baselines on the deploy host (added 2026-09-27, NOT recorded).**
+  `visual/scenes.ts` gained `transfer-interrupted` (phone × 2 themes), `failed-lost` (full matrix, 6)
+  and `failed-lost-delivered` (phone × 2) with the connection-lost fix. The committed baselines are
+  the deploy host's renders — on the Mac every existing scene differs from them, on the untouched
+  commit too (`failed-direct` / `transfer-error`: 8 of 8, 2026-09-27) — so these were reviewed from
+  Mac renders but deliberately NOT committed. Until they are recorded there, `npm run visual` reports
+  those 10 as missing. On the host, after pulling:
+  `npx playwright test -c visual/playwright.config.ts -g "transfer-interrupted|failed-lost" --update-snapshots`,
+  then commit `visual/baseline/{transfer-interrupted,failed-lost}*.png` and update README § Status.
+- [ ] **`visual/.report/index.html` and `visual/.results/.last-run.json` are tracked** (committed with
+  `783c0a6` / `efe8b29`), so every `npm run visual` leaves the tree dirty. They are run artifacts:
+  `git rm --cached` them and add `visual/.report/` + `visual/.results/` to `.gitignore`. (Noticed
+  2026-09-27; restored by hand after a probe run, nothing else touched.)
 - ✅ **The RUNNING signaling copy is back in sync — VERIFIED 2026-09-12.** `/var/www/hush-signaling-server`
   (what systemd runs) is at `3cfd00a`, the `DEV_ORIGINS` commit, and 0 behind its `origin/main`. Keep
   pulling it whenever the repo moves — drift in the other direction is what once hid a hardcoded dev
@@ -548,7 +561,22 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
 
 ## UX bugs — found in the manual test pass (Phase 1)
 
-- [ ] **Peer gone after `connected` is never surfaced (found 2026-09-26, Brave↔Brave T1).** Once
+- ✅ **Peer gone after `connected` — FIXED in code 2026-09-27; NOT yet deployed, F2/F3 not yet re-run.**
+  Every loss signal after `established` (DataChannel close, connection closed, ICE failed, and a
+  30 s backstop on `disconnected`) now reaches `SessionController.onConnectionLost`: the in-flight
+  transfer is failed first ("connection lost"), the session goes `connected → failed`, and
+  FailedScreen's `lost` variant shows the last file's outcome ("not delivered" / "not received" /
+  "delivered"). While ICE is `disconnected` the transfer screen says "Connection interrupted"; the
+  sender's drain wait no longer hangs on a closed channel; a `pagehide` goodbye closes the transport,
+  so a closed receiver is noticed in 41 ms instead of 16.5 s (on Chromium a SENDER closing mid-send
+  still takes ~16 s — cause not established; Firefox and WebKit notice it in under a second). This also
+  covers (c): a link sender that gives up closes its connection, which the verified receiver now reads
+  as lost. Verified: 19 new unit tests and `tests/e2e/connection-lost.spec.ts` — Chromium 154 (receiver
+  closes / sender closes / receiver's renderer crashed: interruption shown at 6.4 s, session ended at
+  16.3 s), Playwright Firefox and WebKit (the two closed-tab cases). Still to do: deploy, then
+  re-run F2 and F3 (TESTPLAN) — F2 for real on a phone. Details: CLAUDE.md § File transfer →
+  *Liveness after connect*. The original report, for the record:
+  **Peer gone after `connected` is never surfaced (found 2026-09-26, Brave↔Brave T1).** Once
   `established`, `SessionController.onChannelClose` has no branch: the peer navigates away, its
   DataChannel closes, and this side stays on "Secure channel open" / `connected` indefinitely. A
   later Send fails visibly ("transfer error · data channel is not open"), so it is not a hang, but
@@ -582,6 +610,11 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   browsing folders in that dialog can easily take 20 s. Options, owner's call: prefer the Blob path on
   mobile UAs, or survive/resume after the picker (needs the peer-gone fix above at the least).
   Cancelling the picker is handled well: the receiver ends "Transfer ended · cancelled".
+  **Since the peer-gone fix (2026-09-27, in code, not deployed):** the freeze half is gone — both sides
+  end on the connection-lost screen when ICE fails under the picker, and what the picker returns
+  afterwards is discarded instead of opening a writer to a dead peer. The underlying behaviour (the
+  connection dying while the picker is up) and the 0-byte file are unchanged — the decision above
+  still stands.
 - [ ] **A signaling drop during pairing reads as "Room not found or code expired" (found 2026-09-27,
   Android emulator).** `FailedScreen` puts any `signaling closed (code N)` into the `expired` variant
   (`/(not found|expired|4009|room full|signaling closed)/`), so a network drop (1006) while a LINK or

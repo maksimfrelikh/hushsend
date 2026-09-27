@@ -604,6 +604,26 @@ function errText(err: unknown): string {
  */
 const DIRECT_FAIL_REASON = "couldn't connect directly (Max privacy)";
 
+/**
+ * Failure reason when an AUTHENTICATED channel dies: the other tab closed, its network dropped, ICE
+ * failed for good. A stable marker the FailedScreen keys its "connection lost" variant off — keep the
+ * "connection lost" token in sync with FailedScreen's detection.
+ */
+const CONNECTION_LOST_REASON = 'connection lost — the other device closed hushsend or its network dropped';
+/** What an in-flight transfer's row says when the channel dies under it. */
+const TRANSFER_LOST_REASON = 'connection lost';
+
+/**
+ * How long an authenticated connection may sit in ICE `disconnected` before we call it lost ourselves.
+ * The engines normally get there first — on 2026-09-27 Chrome went `failed` 10 s after `disconnected`
+ * under a real airplane-mode cut (Android emulator), and 10 s after it when the peer's renderer was
+ * crashed (e2e: `disconnected` at 6.4 s, `failed` at 16.3 s) — so this is a backstop for an engine that
+ * lingers, not the clock a user normally sees. Kept well ABOVE those numbers on purpose: ending a
+ * connection the engine would still have recovered costs a transfer, ending a dead one a few seconds
+ * late costs a few seconds.
+ */
+const INTERRUPT_GRACE_MS = 30_000;
+
 /** Fresh SAS state for the room method, with our own nonce drawn from the CSPRNG. The role is
  *  PROVISIONAL ('initiator' placeholder) — beginPairing overwrites it with the per-pairing,
  *  id-derived role once both ids are known, well before any SAS signal is processed. */
@@ -768,9 +788,10 @@ export class SessionController {
    *  declines to expire the room hangs the client indefinitely. Fail-closed, liveness only: no
    *  crypto, no transcript, no guessing budget is touched. (2026-09-12 audit.) */
   private confirmTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Path-attestation state for this pairing. `verified` gates FILE BYTES in both directions: an
-   *  authenticated pair still has to establish that the path carries them to each other and not
-   *  through an interposer. Null off an established pairing. */
+  /** Path-attestation state for this pairing: does the path carry the bytes to each other and not
+   *  through an interposer. ADVISORY — `verified` is recorded but gates nothing; the byte gate was
+   *  written and then removed (see sendFiles, and the mismatch note in verifyPath for why). Null off an
+   *  established pairing. */
   private pathAttest: {
     peerAddrs: string[] | null;
     verified: boolean;
@@ -794,6 +815,8 @@ export class SessionController {
    *  the SOLE liveness authority for the 1:1 methods — a signaling `peer-left` no longer aborts the
    *  pairing (see onPeerLeft / livenessGate). Reset on a words retry / lobby reset / dispose. */
   private channelOpen = false;
+  /** Armed while an authenticated connection sits in ICE `disconnected` (see INTERRUPT_GRACE_MS). */
+  private interruptTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly signalingUrl: string;
 
   // --- privacy toggle + TURN relay (step 6d, client side) — picks the iceServers the PeerConnection
@@ -1174,9 +1197,10 @@ export class SessionController {
       {
         onSignal: (data) => this.signaling?.send(peerId, data),
         onOpen: () => void this.onChannelOpen(),
-        onClose: () => this.onChannelClose(),
+        onClose: (why) => this.onChannelClose(why),
         onMessage: (data) => this.onPeerMessage(data),
         onIceFailed: () => this.onIceFailed(),
+        onInterrupted: (interrupted) => this.onPeerInterrupted(interrupted),
       },
       {
         iceServers,
@@ -1266,12 +1290,73 @@ export class SessionController {
    * PeerConnection reported ICE could NOT connect — only reachable in Max-privacy (the filter is on,
    * see PeerConnection.onIceFailure), so we never requested TURN and dropped the peer's relay
    * candidates: no relay path could ever have formed. STRICT model — this is terminal: fail with a
-   * switch-to-Reliable hint (the FailedScreen renders the hint off this reason). No-op once established.
+   * switch-to-Reliable hint (the FailedScreen renders the hint off this reason). Once established it is
+   * no longer "couldn't connect directly" but a live channel dying, handled like every other loss.
    */
   private onIceFailed(): void {
-    if (this.established) return;
+    if (this.established) {
+      this.onConnectionLost('ICE failed');
+      return;
+    }
     this.dispatch(devActions.appendLog('ice: direct connection failed (Max privacy) — failing'));
     this.failDirect(DIRECT_FAIL_REASON);
+  }
+
+  /**
+   * An authenticated channel died — the one outcome for every signal that reports it (DataChannel
+   * close, connection closed, ICE failed, the interrupt backstop). Until 2026-09-27 none of them had a
+   * branch after `established`, so both screens went on saying "Secure channel open" / "Sending 46 %"
+   * to a peer that was gone (TESTPLAN F2, F3, the Android save-dialog death).
+   *
+   * Fails whatever was in flight so its row says what became of the file, drops the PeerConnection,
+   * and lands on the FailedScreen's "connection lost" variant: `connected → failed`, no new state.
+   * The transfer projection is deliberately LEFT in the store — the failure screen shows the last
+   * file's outcome, which after a loss is the one thing the user still needs to know. One-shot: the
+   * first signal wins, `peer` is null after it.
+   */
+  private onConnectionLost(why: string): void {
+    if (!this.established || !this.peer) return;
+    this.dispatch(devActions.appendLog(`p2p: connection lost after connect — ${why}`));
+    this.clearInterruptTimer();
+    this.sender?.fail(TRANSFER_LOST_REASON);
+    this.receiver?.fail(TRANSFER_LOST_REASON);
+    this.sender = null;
+    this.receiver = null;
+    if (this.pendingOffer) {
+      // Still waiting for Accept, or with the save picker open over it: nothing was written and
+      // nothing will arrive. acceptIncoming finds the offer gone and discards what the picker returns.
+      this.pendingOffer = null;
+      this.dispatch(transferActions.failed({ reason: TRANSFER_LOST_REASON }));
+    }
+    this.clearPathAttest();
+    this.peer.close();
+    this.peer = null;
+    this.clearPendingPeerSignals();
+    this.fail(new Error(CONNECTION_LOST_REASON));
+  }
+
+  /**
+   * The connection went `disconnected` (true) or came back (false). This ends nothing — it may well
+   * come back, and SCTP resumes where it stopped — it tells the transfer screen that the progress it
+   * shows is not live, and arms the backstop for an engine that never reports `failed`. Before
+   * authentication the pairing deadlines already bound a stall, so it is ignored there.
+   */
+  private onPeerInterrupted(interrupted: boolean): void {
+    if (!this.established || !this.peer) return;
+    this.clearInterruptTimer();
+    this.dispatch(connectionActions.interrupted(interrupted));
+    this.dispatch(devActions.appendLog(interrupted ? 'p2p: connection interrupted' : 'p2p: connection back'));
+    if (interrupted) {
+      this.interruptTimer = setTimeout(() => {
+        this.interruptTimer = null;
+        this.onConnectionLost(`no response for ${INTERRUPT_GRACE_MS / 1000} s`);
+      }, INTERRUPT_GRACE_MS);
+    }
+  }
+
+  private clearInterruptTimer(): void {
+    if (this.interruptTimer != null) clearTimeout(this.interruptTimer);
+    this.interruptTimer = null;
   }
 
   /**
@@ -1740,8 +1825,14 @@ export class SessionController {
     this.tryVerifyConfirmation();
   }
 
-  private onChannelClose(): void {
-    if (import.meta.env.DEV) console.debug('[session] data channel closed');
+  private onChannelClose(why = 'data channel closed'): void {
+    if (import.meta.env.DEV) console.debug('[session] transport closed:', why);
+    // After authentication the channel IS the session: the other tab closed, its network died, or
+    // ICE failed for good. See onConnectionLost.
+    if (this.established) {
+      this.onConnectionLost(why);
+      return;
+    }
     // words method: the channel closing BEFORE we're connected means this pairing attempt
     // failed — typically the peer detected the key-confirmation mismatch and tore the channel
     // down before its tag reached us. Without this, a peer could hang in `confirming` forever
@@ -1874,10 +1965,19 @@ export class SessionController {
   async acceptIncoming(): Promise<void> {
     const offer = this.pendingOffer;
     if (!offer || this.receiver || !this.established) return;
+    let recv: ActiveReceive | null = null;
     try {
-      const recv = await openReceive(this.wire(), offer, offer.canStream, offer.maxBytes, (e) =>
+      recv = await openReceive(this.wire(), offer, offer.canStream, offer.maxBytes, (e) =>
         this.onReceiveEvent(e),
       );
+      // The save picker stays up as long as the human keeps it up, and the session can end under it
+      // — on Android a picker left open ~20 s took ICE down with it (BACKLOG § UX bugs). The offer is
+      // gone then (onConnectionLost / dispose took it): drop what the picker opened, silently, so
+      // nothing lands on the row that already says why — or on the next session's.
+      if (this.pendingOffer !== offer) {
+        recv.discard();
+        return;
+      }
       this.receiver = recv;
       this.pendingOffer = null;
       await recv.start(); // sends `accept` — receiver ref is already stored, so chunks route
@@ -1885,9 +1985,13 @@ export class SessionController {
     } catch (err) {
       // Most commonly the user dismissed the save picker (AbortError) → treat as a decline.
       if (import.meta.env.DEV) console.debug('[session] receive setup aborted:', err);
+      recv?.discard(); // a sink the picker opened must not linger (an FSA writable holds a swap file)
+      if (this.receiver === recv) this.receiver = null;
+      // Ended while we waited: that teardown already put the reason on the row, and nobody is left
+      // to tell.
+      if (!this.peer) return;
       this.pendingOffer = null;
-      this.receiver = null;
-      void this.peer?.send(JSON.stringify({ t: 'reject', reason: 'recipient cancelled' }));
+      void this.peer.send(JSON.stringify({ t: 'reject', reason: 'recipient cancelled' })).catch(() => {});
       this.dispatch(transferActions.cancelled());
     }
   }
@@ -3258,6 +3362,20 @@ export class SessionController {
     await this.createWordsSession();
   }
 
+  /**
+   * The page is going away for good (tab closed, reload, navigation — App.tsx calls this on a
+   * non-persisted `pagehide`). Close the transport OURSELVES, so the other side hears it now instead
+   * of from ICE consent failure. Without this a closed tab left the survivor waiting exactly as long as
+   * a crashed one — 16.5 s on Chrome 154, 2026-09-27 — as if the tab went without any WebRTC teardown;
+   * with it, 41 ms (tests/e2e/connection-lost.spec.ts logs the figure). Sends nothing at the
+   * application level — the peer's own loss path names what happened — and touches no state here:
+   * the page is being torn down anyway.
+   */
+  closeOnPageHide(): void {
+    this.peer?.close();
+    this.signaling?.close();
+  }
+
   /** Tear everything down and reset state (cancel / session end / failure). */
   dispose(): void {
     this.sender?.cancel();
@@ -3275,6 +3393,7 @@ export class SessionController {
     this.isCreator = false;
     this.established = false;
     this.channelOpen = false;
+    this.clearInterruptTimer();
     // words-method state
     this.method = null;
     if (this.sas?.timer != null) clearTimeout(this.sas.timer); // disarm a pending SAS timeout

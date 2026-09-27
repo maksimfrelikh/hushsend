@@ -60,7 +60,10 @@ awaitingSas | confirming | connected | failed`. Illegal transitions are ignored 
 (Identity enrollment is an action on `connected`, not a state; SAS timeouts lead to `failed`
 without adding states. **Reconnect re-auth (4b-ii) adds NO states** — it reuses `joining →
 awaitingPeer` (waiting for the other device at the derived rendezvous) `→ pairing → confirming →
-connected | failed`; there is no SAS fallback any more.)
+connected | failed`; there is no SAS fallback any more.) **An authenticated channel that dies** — the
+DataChannel closes, the connection closes, ICE fails, or it sits in `disconnected` past the backstop —
+ends as `connected → failed` with `CONNECTION_LOST_REASON`, again no new state (see § File transfer →
+*Liveness after connect*).
 
 **Hard invariant:** no file bytes flow unless the connection is authenticated (status reaches
 `connected` / the `established` gate, i.e. after key-confirmation or mutual SAS-confirm). Keep
@@ -563,6 +566,39 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
   available (Chromium); fall back to in-memory **Blob** on iOS Safari / Firefox (RAM-bound).
   Cap very large files on the Blob path — multi-GB streaming-to-disk is unreliable on iOS
   (platform limit). The transfer itself works on all browsers.
+- **Liveness after connect (2026-09-27 — TESTPLAN F2 / F3).** Until then nothing after `established`
+  reacted to a dead channel: `onChannelClose` had no branch for it, `onIceFailed` returned early, and a
+  sender blocked in `PeerConnection.waitForDrain` waited for a `bufferedamountlow` a closed channel never
+  fires — so both screens kept saying "Secure channel open" / "Sending 46 %" to a peer that was gone.
+  Now every loss signal (`onChannelClose` with `why`, `onIceFailed`, the backstop below) reaches
+  **`SessionController.onConnectionLost`** (one-shot): it fails the in-flight transfer FIRST
+  (`ActiveSend.fail` / `ActiveReceive.fail` → the row reads `connection lost`; a receive whose `eof`
+  already arrived is let finish), marks a pending offer lost, drops the PeerConnection and goes
+  `connected → failed` with `CONNECTION_LOST_REASON`. The transfer projection is **left in the store**:
+  FailedScreen's `lost` variant ("channel closed · The other device is no longer connected") shows the
+  last file's outcome (`last-transfer`, `data-outcome`), so a file delivered a moment before the other
+  tab closed still says delivered. `waitForDrain` now REJECTS on the channel's `close` (and on our own
+  `close()`, which fires no event), so the pump exits through its own error path.
+  - ICE **`disconnected`** is transient — surfaced, not fatal: `PeerConnection.onInterrupted` →
+    `connection.interrupted` (a projection, not a state) → TransferScreen's `interrupted` alert line;
+    back to `connected` clears it. **`INTERRUPT_GRACE_MS` = 30 s** is a backstop only — the engines get
+    to `failed` first (Chrome 154: `disconnected` 6.4 s and `failed` 16.3 s after the peer's renderer
+    crashed, e2e 2026-09-27). Ignored before `established` (the pairing deadlines own that stall).
+  - **`pagehide` goodbye**: `App.tsx` `PageHideGoodbye` → `closeOnPageHide()` closes the transport on a
+    non-persisted `pagehide`. Without it a closed tab left the survivor waiting as long as for a crash
+    (as if the tab went without any WebRTC teardown): the sender noticed a closed receiver after **16.5 s** before this,
+    **41 ms** after (Chrome 154, e2e; Firefox 31 ms, WebKit 105 ms). The reverse on Chromium — a SENDER
+    closing mid-send — still takes ~16 s (see § Known residuals).
+  - `acceptIncoming` survives the session ending under an open save picker (Android's picker left
+    ~20 s took ICE down with it — BACKLOG): the offer is gone by then, so whatever the picker returns is
+    `discard()`ed silently and nothing overwrites the row.
+  - Unit: `SessionController.connectionLost.test.ts`, `transfer/fileTransfer.lost.test.ts`. e2e:
+    `tests/e2e/connection-lost.spec.ts` (512 MB sparse file, each tab its own context: the receiver
+    closes mid-transfer → the sender ends "not delivered"; the sender closes → the receiver ends "not
+    received" with no download; Chromium only — the receiver's renderer crashed via CDP `Page.crash` →
+    the sender shows `interrupted`, then ends lost). Screens: `visual/scenes.ts` `transfer-interrupted`,
+    `failed-lost`, `failed-lost-delivered` (axe-checked; screenshot baselines still to be recorded on
+    the deploy host — BACKLOG § Ops).
 
 ## Privacy mode + ICE (Max-privacy / Reliable — step 6d, DONE)
 *(Separate privacy lever — server learns no session duration: for the 1:1 methods the client closes its
@@ -1180,7 +1216,9 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   e.g. a Reliable answerer still awaiting coturn creds in `startPeer`) are buffered in
   `pendingPeerSignals` and replayed by `flushPendingPeerSignals` after the PC is built, then cleared on
   every teardown — the **mixed-privacy / link-qr deadlock fix** (`SessionController.pendingPeerSignals.test.ts`;
-  see **Privacy mode + ICE** §).
+  see **Privacy mode + ICE** §). The post-connect loss path — `onConnectionLost` (every loss signal
+  after `established`), `onPeerInterrupted` + the `INTERRUPT_GRACE_MS` backstop, `closeOnPageHide` — is
+  described in § File transfer → *Liveness after connect* (`SessionController.connectionLost.test.ts`).
 - ✅ `src/core/relax.ts` — Max-privacy STRICT relay enforcement (step 6d + the 2026-09-12 audit fix;
   pure + `relax.test.ts`): the relay-candidate predicate (`isRelayCandidate`/`shouldDropCandidate` —
   Max-privacy ALWAYS drops the peer's `typ relay` candidates, off in Reliable) AND the
@@ -1220,10 +1258,12 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   row per transfer with its progress; incoming Accept / Decline; delivered / declined / cancelled /
   error inside the same container, then **"New transfer"** [`new-transfer-btn`] which
   `transferActions.reset()`s the per-transfer projection → a CLEAN ready-to-send per send, never
-  touching the connection or the history), `FailedScreen` (ONE screen, variants by reason + method;
+  touching the connection or the history; the `interrupted` alert line while ICE is `disconnected`),
+  `FailedScreen` (ONE screen, variants by reason + method, incl. `lost` — an authenticated channel
+  died — which shows the last file's outcome, `LastTransfer` / `last-transfer`;
   `FailureLayout` is shared with the SAS restart; the reconnect key-changed hard stop inverts the whole
   viewport via `hs-app--inverted` set in `App.tsx`). The link fragment auto-join + scrub lives in
-  `App.tsx` (`LinkFragmentJoin`). Shared `ui.tsx` (Glyph, Space/Grow, Pill on the kit's `.pill`,
+  `App.tsx` (`LinkFragmentJoin`), and so does the `pagehide` goodbye (`PageHideGoodbye`). Shared `ui.tsx` (Glyph, Space/Grow, Pill on the kit's `.pill`,
   TextLink, IconButton, AlertLine, Collapsible, Disclosure, MeetDots, CopyPill, SharePill, TopBar with
   the kit theme toggle, Wordmark, StatusBeacon, Screen, Kicker), `components/` (`WordPicker` — five
   fields, listbox on touch / inline completion on pointer; DEV-only `Diagnostics`), `qr.ts` (link→SVG QR
@@ -1337,6 +1377,18 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   the one both sides share. Not fixed (no GC / pin-merge yet).
   (Server cap/TTL/rate-limit for 4-digit rooms is **done — step 6a**; see Signaling server §
   *Managed-room hardening*.)
+- **A lost channel ends the session — nothing resumes it (2026-09-27).** A drop the engine does not
+  recover from by itself (Chrome goes `failed` ~10 s after `disconnected`) is terminal: there is no ICE
+  restart (it would need the signaling socket, which is closed on connect by design) and no transfer
+  resume. The user reconnects and sends again. Two measured edges of the loss path: on Chromium a
+  SENDER that closes its tab mid-send is noticed only after ~16 s, the ICE timeout, although its
+  `pagehide` goodbye runs (a closing receiver is noticed in 41 ms; Firefox and WebKit notice both in
+  under a second) — likely the goodbye queues behind the data still in flight, not established; and on
+  the File System Access path an
+  aborted receive can leave an EMPTY file where the save picker pointed — seen on Android 2026-09-27
+  (0 bytes, twice, after the connection died under the picker); desktop Chrome not checked. The partial
+  data is discarded (`writable.abort()`); deleting the file itself was ruled out — the picker may have
+  pointed at an existing file the user meant to replace.
 
 ## Path attestation (`src/core/pathAttest.ts`) — who is actually on the wire
 Authentication answers "is this my peer?"; attestation answers **"is the traffic going to them?"**.

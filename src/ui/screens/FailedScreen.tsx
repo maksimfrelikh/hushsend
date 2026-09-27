@@ -1,15 +1,17 @@
 import { type ReactElement, type ReactNode } from 'react';
 import { useSession } from '../SessionProvider';
 import { useAppSelector } from '../../store/hooks';
+import { formatBytes } from '../../core/transfer/fileTransfer';
 import { useT } from '../prefs';
 import { Screen, Space, Pill, TextLink, Kicker, Glyph } from '../ui';
 
 /**
  * ONE terminal failure screen with variants, classified from the error text and the method:
  * compromised (SAS / key-confirmation mismatch), room not found, nobody came (reconnect), direct
- * path failed (Max privacy, ± the missing-relay hint in Reliable), generic, and the words method,
- * which additionally offers fresh words. There is no "Try again". Each surfaces the raw reason as
- * a mono line and one exit.
+ * path failed (Max privacy, ± the missing-relay hint in Reliable), connection lost (an AUTHENTICATED
+ * channel died — with the last file's outcome), generic, and the words method, which additionally
+ * offers fresh words. There is no "Try again". Each surfaces the raw reason as a mono line and one
+ * exit.
  *
  * The reconnect KEY-CHANGED case is the hard stop: it inverts the WHOLE viewport (danger = inversion,
  * never red — App.tsx adds `hs-app--inverted`), and the only action is "Don't connect". No bytes ever
@@ -58,16 +60,20 @@ export function FailedScreen(): ReactElement {
   // Codeless reconnect: the wait cap fired with nobody at the rendezvous. Keyed off the stable
   // RECONNECT_NO_SHOW_REASON marker the core sets.
   const isNoShow = /did not show up/.test(lower);
+  // An AUTHENTICATED channel died after `connected`. Keyed off CONNECTION_LOST_REASON.
+  const isLost = /connection lost/.test(lower);
 
   const variant = isMismatch
     ? 'mismatch'
-    : isNoShow
-      ? 'noShow'
-      : isExpired
-        ? 'expired'
-        : isDirectFail
-          ? 'direct'
-          : 'generic';
+    : isLost
+      ? 'lost'
+      : isNoShow
+        ? 'noShow'
+        : isExpired
+          ? 'expired'
+          : isDirectFail
+            ? 'direct'
+            : 'generic';
   const copy = {
     mismatch: {
       kicker: t('erMismatchEyebrow'),
@@ -81,6 +87,7 @@ export function FailedScreen(): ReactElement {
       title: t('directFailTitle'),
       desc: t('directFailHint'),
     },
+    lost: { kicker: t('lostEyebrow'), title: t('lostTitle'), desc: t('lostDesc') },
     generic: { kicker: t('erGenericEyebrow'), title: t('erGenericTitle'), desc: '' },
   }[variant];
 
@@ -91,7 +98,10 @@ export function FailedScreen(): ReactElement {
       desc={copy.desc}
       descTestId={variant === 'direct' ? 'direct-fail-hint' : undefined}
       extra={
-        relayUnavailable ? (
+        variant === 'lost' ? (
+          // The session was authenticated and is over; what the user still needs is the file.
+          <LastTransfer />
+        ) : relayUnavailable ? (
           <p className="hs-p hs-p--muted hs-p--narrow" data-testid="relay-unavailable-hint">
             {t('relayUnavailableHint')}
           </p>
@@ -99,7 +109,9 @@ export function FailedScreen(): ReactElement {
       }
       reason={error}
       actions={
-        method === 'words' ? (
+        // Fresh words fix a CODE problem (wrong, spent, expired). A lost connection is not one — the
+        // words did their job — so it gets the plain exit.
+        method === 'words' && variant !== 'lost' ? (
           <>
             <Pill
               variant="primary"
@@ -120,6 +132,50 @@ export function FailedScreen(): ReactElement {
         )
       }
     />
+  );
+}
+
+/**
+ * The connection-lost variant's one fact: what became of the last file. The core fails an in-flight
+ * transfer BEFORE it ends the session and leaves the transfer projection in place (see
+ * SessionController.onConnectionLost), so this reads the same state the transfer screen did — a file
+ * delivered a moment before the other tab closed still says delivered. Nothing when nothing was ever
+ * offered on this channel.
+ */
+function LastTransfer(): ReactElement | null {
+  const t = useT();
+  const { phase, direction, fileName, totalBytes, transferredBytes } = useAppSelector(
+    (s) => s.transfer,
+  );
+  if (phase === 'idle' || !fileName) return null;
+  const done = phase === 'done';
+  const receiving = direction === 'receive';
+  const outcome = done
+    ? t(receiving ? 'receivedLabel' : 'deliveredLabel')
+    : phase === 'rejected'
+      ? t('rejectedLabel')
+      : phase === 'cancelled'
+        ? t('cancelledLabel')
+        : t(receiving ? 'notReceivedLabel' : 'notDeliveredLabel');
+  const aside =
+    done || transferredBytes === 0
+      ? formatBytes(totalBytes)
+      : `${t('stoppedAt')} ${formatBytes(transferredBytes)}`;
+  return (
+    <div
+      className={`hs-box hs-failed__transfer${done ? '' : ' hs-box--ended'}`}
+      data-testid="last-transfer"
+      data-outcome={phase}
+    >
+      <div className="hs-box__head">
+        <span className="hs-box__label">{outcome}</span>
+        <span className="hs-box__aside">{aside}</span>
+      </div>
+      <div className="hs-file">
+        <span className="hs-file__name">{fileName}</span>
+        {done && <Glyph name="check" size={20} />}
+      </div>
+    </div>
   );
 }
 

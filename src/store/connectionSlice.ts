@@ -75,6 +75,14 @@ export interface ConnectionState {
    * missing instead of reading as ordinary bad luck. Always false in Max privacy, which never asks.
    */
   relayUnavailable: boolean;
+  /**
+   * The authenticated connection is in ICE `disconnected`: nothing is arriving from the other device
+   * right now. Transient — it either comes back (false again) or the core ends the session as lost
+   * (`connected → failed`). A projection for the transfer screen, NOT an FSM state: while it is true
+   * the progress on screen is not live, and saying so is the whole point (TESTPLAN F2). Only ever set
+   * while `connected`.
+   */
+  interrupted: boolean;
   /** Mesh-lobby roster (room method): everyone currently in the 4-digit room EXCEPT us. The human
    *  picks whom to raise a 1:1 channel with. Maintained from welcome (set) / peer-joined (add) /
    *  peer-left (remove). Empty/unused for words/link/qr (they auto-pair with a single peer). */
@@ -98,6 +106,7 @@ const initialState: ConnectionState = {
   pathCheck: null,
   stunDisagreed: false,
   relayUnavailable: false,
+  interrupted: false,
   roster: [],
   notice: null,
   error: null,
@@ -196,6 +205,10 @@ const slice = createSlice({
     relayUnavailable(state) {
       state.relayUnavailable = true;
     },
+    /** The connected channel went quiet (true) or came back (false) — see the field's note. */
+    interrupted(state, action: PayloadAction<boolean>) {
+      state.interrupted = state.status === 'connected' && action.payload;
+    },
 
     // --- mesh-lobby roster (room method) — serializable projections, NOT FSM transitions ---
     /** Replace the roster (from `welcome` — the peers already in the room when we arrived). */
@@ -239,6 +252,7 @@ const slice = createSlice({
       if (!canGo(state.status, 'failed')) return warnIllegal(state.status, 'failed');
       state.status = 'failed';
       state.error = action.payload.reason;
+      state.interrupted = false;
     },
     /** Hard reset back to idle (cancel / session end). */
     reset: () => initialState,

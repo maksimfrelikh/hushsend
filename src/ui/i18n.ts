@@ -199,6 +199,11 @@ export const STR = {
     en: 'The servers that tell this browser its own public address gave different answers. That can be honest — a connection with two providers, or a large carrier NAT, genuinely has more than one. It can also mean one of them is not telling the truth, which matters because the route check trusts that address. Your files are encrypted either way.',
     ru: 'Серверы, которые сообщают браузеру его собственный публичный адрес, ответили по-разному. Это бывает честно — при двух провайдерах или крупном операторском NAT адресов действительно несколько. А бывает, что один из них говорит неправду, и это важно: проверка маршрута опирается на этот адрес. Файлы зашифрованы в любом случае.',
   },
+  /** Shown while the authenticated connection is in ICE `disconnected` — the progress on screen is
+   *  not live then, and a bar that claims otherwise is exactly what TESTPLAN F2 forbids. */
+  interrupted: {
+    en: 'Connection interrupted — nothing is arriving from the other device. If it comes back, this carries on; if not, the channel closes by itself.',
+  },
   pathMismatch: { en: 'route did not match', ru: 'маршрут не совпал' },
   pathMismatchHint: {
     en: 'The address this connection actually used is not one your correspondent listed. Your files are still encrypted end-to-end and unreadable to anyone in between — this is about the ROUTE, not the contents. Two things cause it: some browsers (Safari above all) cannot report the address they were reached on, or something is carrying your connection through itself. If that distinction matters to you, stop here and reconnect over a different network.',
@@ -262,6 +267,17 @@ export const STR = {
     en: 'Make sure Reconnect was tapped on it too, and that it still lists this device. If it has forgotten this pairing (storage cleared), connect a new way — a fresh pairing will pin it again.',
     ru: 'Убедитесь, что «Переподключить» нажали и там, и что это устройство ещё в его списке. Если оно забыло сопряжение (очищено хранилище), соединитесь заново любым способом — новое сопряжение снова его запомнит.',
   },
+  // An AUTHENTICATED channel died (the other tab closed, its network dropped): the session is over,
+  // and the last file's outcome is shown under this copy.
+  lostEyebrow: { en: 'channel closed' },
+  lostTitle: { en: 'The other device is no longer connected' },
+  lostDesc: {
+    en: 'It closed hushsend, or its network dropped. Nothing more can travel on this channel — connect again to send more.',
+  },
+  deliveredLabel: { en: 'delivered' },
+  receivedLabel: { en: 'received' },
+  notDeliveredLabel: { en: 'not delivered' },
+  notReceivedLabel: { en: 'not received' },
   newWords: { en: 'New words', ru: 'Новые слова' },
   backHome: { en: 'Back home', ru: 'На главную' },
 

@@ -44,8 +44,26 @@ function Shell(): ReactElement {
       <HistorySync />
       <PrivacyModeSync />
       <LinkFragmentJoin />
+      <PageHideGoodbye />
     </div>
   );
+}
+
+/**
+ * Leaving the page ends the session, so let the other side hear it at once: close the transport on
+ * `pagehide` (see SessionController.closeOnPageHide for the 16 s it saves). A `persisted` pagehide is
+ * a trip into the back/forward cache, not an ending — the session is left alone then. Renders nothing.
+ */
+function PageHideGoodbye(): null {
+  const session = useSession();
+  useEffect(() => {
+    const onHide = (e: PageTransitionEvent): void => {
+      if (!e.persisted) session.closeOnPageHide();
+    };
+    window.addEventListener('pagehide', onHide);
+    return () => window.removeEventListener('pagehide', onHide);
+  }, [session]);
+  return null;
 }
 
 /**

@@ -15,6 +15,15 @@ A4, A5, B4 (paste fallback), B5, B6, B8, B10's caps, F1, F2 and F8 — rehearsal
 (A4b, F3, and F2 on the emulator with real airplane mode) and are in BACKLOG; the rest need a handset,
 a radio or a camera.** The ticks in § 0.1 are PRECONDITIONS, not cases; do not read them as progress.
 
+> **2026-09-27, after the pass: the F2/F3 root cause is fixed in code** (the connection-lost path —
+> BACKLOG § UX bugs, first item) **but NOT deployed** — so § 0.1's deploy precondition is stale for any
+> case run after that change until the next deploy is re-ticked. F3 and F2 stay unticked until re-run on
+> the live build: F3 on desktop (T1), F2 on a real phone. Expected now: F3 — the sender ends on
+> "channel closed · not delivered" within ~1 s; F2 — "Connection interrupted" within ~6 s of the cut,
+> then the same failure screen when the engine gives up (Chrome ~16 s). The same change closes the
+> transport on `pagehide`: in **F1**, if the session ends the instant the phone locks or switches apps
+> (rather than when the network gives up), suspect that and write it down.
+
 - **Target:** the live deploy — `https://hushsend.frelikh.dev` (production build).
 - **Scope closes:** BACKLOG § Step 6 / 6e "Remaining (real devices, post-deploy)" and DEPLOY.md § 0
   "Still pending" (in-browser P2P/SAS/transfer on two devices + cross-network TURN relay).

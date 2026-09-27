@@ -1027,6 +1027,12 @@
   width: 100%;
   max-width: 320px;
 }
+/* the last file's outcome on the connection-lost screen: the transfer box, at the actions' width */
+.hs-failed__transfer {
+  width: 100%;
+  max-width: 320px;
+  text-align: left;
+}
 
 /* ---------- DEV diagnostics (tree-shaken from prod builds) ---------- */
 .hs-diag {

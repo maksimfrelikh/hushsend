@@ -41,6 +41,8 @@ const WORDS = ['bathrobe', 'gadget', 'spider', 'ladder', 'digit'];
 const PHRASE = 'bathrobe gadget spider';
 const FILE = 'photos-2026-09.zip';
 const SIZE = 48 * 1024 * 1024;
+/** SessionController's CONNECTION_LOST_REASON (the FailedScreen keys the variant off its text). */
+const LOST = 'connection lost — the other device closed hushsend or its network dropped';
 
 export async function dispatch(page: Page, ...actions: Action[]): Promise<void> {
   await page.evaluate((acts) => {
@@ -342,6 +344,11 @@ export const SCENES: Scene[] = [
     setup: (page) => dispatch(page, ...sending, tr('failed', { reason: 'channel closed' })),
   },
   {
+    name: 'transfer-interrupted',
+    matrix: 'phone',
+    setup: (page) => dispatch(page, ...sending, conn('interrupted', true)),
+  },
+  {
     name: 'transfer-path-unknown',
     matrix: 'phone',
     setup: (page) => dispatch(page, ...connected, conn('pathSettled', { verdict: 'unknown' })),
@@ -404,6 +411,24 @@ export const SCENES: Scene[] = [
           'the other device did not show up — open hushsend there and tap Reconnect on this device',
         ),
       ),
+  },
+  {
+    // An authenticated channel died mid-send: the session ends, the file is named as not delivered.
+    name: 'failed-lost',
+    matrix: 'full',
+    setup: (page) =>
+      dispatch(
+        page,
+        ...sending,
+        tr('failed', { reason: 'connection lost' }),
+        conn('failed', { reason: LOST }),
+      ),
+  },
+  {
+    // ...and right after a delivery: the same screen, but the file made it.
+    name: 'failed-lost-delivered',
+    matrix: 'phone',
+    setup: (page) => dispatch(page, ...sending, tr('completed'), conn('failed', { reason: LOST })),
   },
   {
     name: 'failed-generic',
