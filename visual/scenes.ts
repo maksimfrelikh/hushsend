@@ -400,12 +400,14 @@ export const SCENES: Scene[] = [
     setup: (page) => dispatch(page, ...failed('words', "couldn't connect directly (Max privacy)")),
   },
   {
+    // Reliable whose relay never came: its ICE failure is a plain close (filterRelay is off, so it is
+    // never the Max-privacy "connect directly" reason), and the relay hint is the one explanation.
     name: 'failed-relay',
     matrix: 'phone',
     setup: (page) =>
       dispatch(
         page,
-        ...failed('link', "couldn't connect directly (Max privacy)", [conn('relayUnavailable')]),
+        ...failed('link', 'channel closed during pairing', [conn('relayUnavailable')]),
       ),
   },
   {

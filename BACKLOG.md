@@ -302,11 +302,18 @@ the same pass as CLAUDE.md when items land.
   SAME fix as "link/qr lobby-race resistance" above. (See CLAUDE.md § link/qr method + § Signaling server.)
 
 ## Ops / housekeeping (small, no devices)
-- [ ] **Screenshot baselines for the 2026-09-28 screen changes — NOT recorded yet.** New scenes
-  `sas-reader-waiting`, `home-forget-confirm`, `failed-server`, `transfer-path-relayed`; changed ones:
-  every failure variant (no eyebrows, fewer reason lines — `failed-*`, `key-changed`, `sas-restart`).
-  Record on the deploy host in a `cp -a` copy under `/tmp` (NOT a symlinked `node_modules` — Vite then
-  refuses the webfonts), review the renders, commit, update README.
+- ✅ **Screenshot baselines for the 2026-09-28 screen changes are recorded — DONE 2026-09-28, on the
+  deploy host.** 8 new (`sas-reader-waiting`, `home-forget-confirm`, `failed-server`,
+  `transfer-path-relayed`, phone × 2 themes each) and 26 re-recorded (every failure variant lost its
+  eyebrow and its repeated reason line: `failed-compromised`, `-direct` ×6, `-generic`, `-noshow`,
+  `-relay`, `-room`, `-words`, `key-changed` ×6, `sas-restart`). A compare-only run at `673509d` failed
+  exactly those 34 and nothing else — the lobby scenes did not move, since the device label had never
+  been rendered, only carried. Recorded with `--update-snapshots=changed` (unlike `=missing`, it reports
+  what it writes as passed) in a `cp -a` copy under `/tmp`; the whole gate then passed there,
+  **167 / 167**. The review caught one scene that drew an impossible state: `failed-relay` combined the
+  Max-privacy reason with `relayUnavailable`, which only Reliable sets, and so rendered "Switch to
+  Reliable" to someone already in Reliable. In Reliable an ICE failure is a plain close
+  (`filterRelay` is off), so the scene now uses that reason; the screen itself was right.
 - ✅ **The 12 connection-lost screenshot baselines are recorded — DONE 2026-09-27, on the deploy host.**
   `transfer-interrupted` (phone × 2 themes), `failed-lost` (full matrix, 6), `failed-lost-delivered`
   and `failed-lost-idle` (phone × 2 each). The committed baselines are the deploy host's renders — on
