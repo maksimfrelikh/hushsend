@@ -6,23 +6,23 @@ e2e across four engine projects, feature-detection review, self-hosted QR WASM);
 
 This used to open "the last open item before the security audit" — the audit has since run twice
 internally (2026-09-12 and 2026-09-13, BACKLOG § Security audit), so that ordering is gone: the
-device pass is now the last open item before a public launch, not before the audit. **Progress: 19 of
-the 46 A–F cases are closed (A4a, A6, A7, B1, B7, B9, D1–D5, E1–E5, F5–F7 — see the three 2026-09-27
+device pass is now the last open item before a public launch, not before the audit. **Progress: 20 of
+the 46 A–F cases are closed (A4a, A6, A7, B1, B7, B9, D1–D5, E1–E5, F3, F5–F7 — see the four 2026-09-27
 entries in § Result log); the desktop halves of A1, A2, A3, A4, A5, A6a, B2, B3, B5, B6, B8, B10, C6,
 E7 and F8 ran on the REAL desktop engines (Chrome, Brave, Safari, Firefox) and wait for their handset
 half; the iOS-Simulator, iPad-Simulator and Android-Emulator rehearsals (third entry) covered A1, A3,
-A4, A5, B4 (paste fallback), B5, B6, B8, B10's caps, F1, F2 and F8 — rehearsals, not ticks; 3 FAILED
-(A4b, F3, and F2 on the emulator with real airplane mode) and are in BACKLOG; the rest need a handset,
-a radio or a camera.** The ticks in § 0.1 are PRECONDITIONS, not cases; do not read them as progress.
+A4, A5, B4 (paste fallback), B5, B6, B8, B10's caps, F1, F2 and F8 — rehearsals, not ticks; 2 are
+still FAILED (A4b, and F2 on the emulator with real airplane mode) and are in BACKLOG — F3 failed too
+and passes on the live build since the connection-lost fix; the rest need a handset, a radio or a
+camera.** The ticks in § 0.1 are PRECONDITIONS, not cases; do not read them as progress.
 
-> **2026-09-27, after the pass: the F2/F3 root cause is fixed in code** (the connection-lost path —
-> BACKLOG § UX bugs, first item) **but NOT deployed** — so § 0.1's deploy precondition is stale for any
-> case run after that change until the next deploy is re-ticked. F3 and F2 stay unticked until re-run on
-> the live build: F3 on desktop (T1), F2 on a real phone. Expected now: F3 — the sender ends on
-> "Connection lost · not delivered" within ~1 s; F2 — "Connection interrupted" within ~6 s of the cut,
-> then the same failure screen when the engine gives up (Chrome ~16 s). The same change closes the
-> transport on `pagehide`: in **F1**, if the session ends the instant the phone locks or switches apps
-> (rather than when the network gives up), suspect that and write it down.
+> **2026-09-27, after the pass: the F2/F3 root cause is fixed and DEPLOYED** (the connection-lost
+> path — BACKLOG § UX bugs, first item; live since 19:58 UTC as `153addd`, § 0.1 re-ticked). **F3 passes
+> on the live build** (fourth 2026-09-27 entry). F2 stays unticked until re-run on a real phone.
+> Expected: "Connection interrupted" within ~6 s of the cut, then the "Connection lost" screen when the
+> engine gives up (Chrome ~16 s). The same change closes the transport on `pagehide`: in **F1**, if the
+> session ends the instant the phone locks or switches apps (rather than when the network gives up),
+> suspect that and write it down.
 
 - **Target:** the live deploy — `https://hushsend.frelikh.dev` (production build).
 - **Scope closes:** BACKLOG § Step 6 / 6e "Remaining (real devices, post-deploy)" and DEPLOY.md § 0
@@ -81,15 +81,16 @@ Last run 2026-09-27 against the bundle fetched over HTTPS from the live host (`i
 ### 0.1 Preconditions
 
 - [x] Frontend redeployed from current `main` (`bash ~/projects/hushsend/deploy/deploy-frontend.sh`)
-      — re-done 2026-09-26 (commit `efe8b29`, the SAS-refusal / display-cap follow-up to the Claude
-      Design redesign); `/var/www/hushsend/dist` is byte-identical to the local build and serves
-      `index-BBI2zUuS.js`. The signaling server is unchanged since 2026-09-25 (`hush-signaling-server`
-      `2b5b913`, token rooms join-or-create, running copy at the same sha) and the live host was
-      checked that day to open a token room for its first arrival. **Re-run it if `main` has moved since**, and re-tick. It had gone stale
+      — re-done 2026-09-27 19:58 UTC by the owner (commit `153addd`: the connection-lost fix and its
+      follow-ups); `/var/www/hushsend/dist` is byte-identical to a local build of `153addd` (41 files,
+      equal sha256 manifests) and serves `index-DJlj4l6z.js`. The signaling server is unchanged since
+      2026-09-25 (`hush-signaling-server` `2b5b913`, token rooms join-or-create, running copy at the same
+      sha — re-checked 2026-09-27) and the live host was checked that day to open a token room for its
+      first arrival. **Re-run it if `main` has moved since**, and re-tick. It had gone stale
       once already (ticked 2026-09-12, `main` moved, nobody re-ticked) — this tick is only worth the
       date next to it.
 - [x] **Verify the new bundle is live:** `grep -r 'stun.l.google' /var/www/hushsend/dist` returns
-      nothing — re-confirmed 2026-09-25 (the pre-2026-09-12 bundle matched; this was the BACKLOG
+      nothing — re-confirmed 2026-09-27 for `index-DJlj4l6z.js` (the pre-2026-09-12 bundle matched; this was the BACKLOG
       "verify after redeploy" item). The only STUN in the served bundle is
       `stun:turn.hushsend.frelikh.dev:3478`, i.e. our own — which is also the whole of BACKLOG's
       "separate the STUN server" item: one operator still holds app, signaling and STUN.
@@ -558,7 +559,7 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       happens; this is the single most likely real-world surprise.
 - [ ] **F2 · network drop** — mid-transfer, disable Wi-Fi on one side for ~20 s and re-enable.
       Expected: a visible failure or a recovery, never a frozen progress bar that claims to be alive.
-- [ ] **F3 · tab close** — close the receiver's tab mid-transfer. Expected: the sender notices and shows
+- [x] **F3 · tab close** — close the receiver's tab mid-transfer. Expected: the sender notices and shows
       a failure.
 - [ ] **F4 · large transfer** — ≈2 GB MBP-A Chrome → MBP-B Chrome (FSA both ways). Expected: it
       completes, memory stays flat, and the signaling socket is long gone by then (A6).
@@ -994,6 +995,25 @@ googlecertificates"). Chrome's first-run was skipped with `am set-debug-app --pe
 com.android.chrome` + `/data/local/tmp/chrome-command-line` (both reverted afterwards). Playwright calls
 into the Android page hung for the full 170 s while DocumentsUI was in front, so native UI is driven with
 `adb shell input tap` (web content appears in `uiautomator dump` with its bounds).
+
+### 2026-09-27 (late evening) · the connection-lost fix, deployed · F3 on the live build · Chrome 154 ↔ Chrome 154
+
+Setup: production bundle `index-DJlj4l6z.js` (`153addd`; its code is `defe379`'s), deployed by the owner
+at 19:58 UTC. `/var/www/hushsend/dist` is byte-identical to a local build of `153addd` (41 files, equal
+sha256 manifests), `stun.l.google` is absent, `/health` ok, nginx / signaling / coturn `active`, the
+signaling server unchanged at `2b5b913`. Real Google Chrome 154 driven by Playwright (`channel:
+'chrome'`), two SEPARATE browser contexts on the Mac with mDNS host-candidate obfuscation off
+(same-machine pairing); the receiver's `showSaveFilePicker` deleted so it takes the Blob path (headless
+Chrome cannot show the native picker). Link pairing, Max privacy, a 512 MB sparse file.
+- F3 · the receiver's tab closed with 1 MiB received · **PASS** — the sender ended on "Connection lost"
+  25 ms after the close: "not delivered · stopped at 3.5 MB", signal "data channel closed" (the
+  receiver's `pagehide` goodbye). Before the fix the same shape left the sender on "Sending 46 %" for
+  over a minute.
+- Its mirror (not a plan case) · the SENDER's tab closed with 1 MiB received · the receiver ended
+  "Connection lost · not received · stopped at 1.3 MB" after 16.2 s, signal "ICE failed" — the
+  Chromium-only delay CLAUDE.md § Known residuals records; no frozen screen in between.
+- The sender counted 3.5 MB while the receiver had 1 MiB: "sent" is what went into the send buffer —
+  which is why a "Delivered" that waits for the receiver's confirmation is in the works (BACKLOG).
 
 **When the pass is done:** fold the results into `BACKLOG.md` § Step 6 / **6e** (and its
 "Remaining (real devices, post-deploy)" line) and `CLAUDE.md` § Current state / Build order in the

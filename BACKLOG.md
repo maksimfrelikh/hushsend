@@ -561,7 +561,8 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
 
 ## UX bugs — found in the manual test pass (Phase 1)
 
-- ✅ **Peer gone after `connected` — FIXED in code 2026-09-27; NOT yet deployed, F2/F3 not yet re-run.**
+- ✅ **Peer gone after `connected` — FIXED and DEPLOYED 2026-09-27 (`153addd`); F3 re-run PASS on the live
+  build; F2 not yet re-run (needs a phone).**
   Every loss signal after `established` (DataChannel close, connection closed, ICE failed, and a
   30 s backstop on `disconnected`) now reaches `SessionController.onConnectionLost`: the in-flight
   transfer is failed first ("connection lost"), the session goes `connected → failed`, and
@@ -573,8 +574,9 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   covers (c): a link sender that gives up closes its connection, which the verified receiver now reads
   as lost. Verified: 19 new unit tests and `tests/e2e/connection-lost.spec.ts` — Chromium 154 (receiver
   closes / sender closes / receiver's renderer crashed: interruption shown at 6.4 s, session ended at
-  16.3 s), Playwright Firefox and WebKit (the two closed-tab cases). Still to do: deploy, then
-  re-run F2 and F3 (TESTPLAN) — F2 for real on a phone. Details: CLAUDE.md § File transfer →
+  16.3 s), Playwright Firefox and WebKit (the two closed-tab cases). Live since 19:58 UTC; on the live build F3
+  passed (the sender said "Connection lost · not delivered" 25 ms after the receiver's tab closed —
+  TESTPLAN, fourth 2026-09-27 entry). Still to do: re-run F2 on a real phone. Details: CLAUDE.md § File transfer →
   *Liveness after connect*. The original report, for the record:
   **Peer gone after `connected` is never surfaced (found 2026-09-26, Brave↔Brave T1).** Once
   `established`, `SessionController.onChannelClose` has no branch: the peer navigates away, its
@@ -610,7 +612,7 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   browsing folders in that dialog can easily take 20 s. Options, owner's call: prefer the Blob path on
   mobile UAs, or survive/resume after the picker (needs the peer-gone fix above at the least).
   Cancelling the picker is handled well: the receiver ends "Transfer ended · cancelled".
-  **Since the peer-gone fix (2026-09-27, in code, not deployed):** the freeze half is gone — both sides
+  **Since the peer-gone fix (deployed 2026-09-27):** the freeze half is gone — both sides
   end on the connection-lost screen when ICE fails under the picker, and what the picker returns
   afterwards is discarded instead of opening a writer to a dead peer. The underlying behaviour (the
   connection dying while the picker is up) and the 0-byte file are unchanged — the decision above
