@@ -6,8 +6,11 @@ e2e across four engine projects, feature-detection review, self-hosted QR WASM);
 
 This used to open "the last open item before the security audit" — the audit has since run twice
 internally (2026-09-12 and 2026-09-13, BACKLOG § Security audit), so that ordering is gone: the
-device pass is now the last open item before a public launch, not before the audit. **Progress: 0 of
-the 45 A–F cases are closed; T1 rehearsals started 2026-09-26 (§ Result log).** The two ticks in § 0.1 are PRECONDITIONS, not cases; do not read
+device pass is now the last open item before a public launch, not before the audit. **Progress: 14 of
+the 45 A–F cases are closed (the T1-only ones: A4a, A6, D1–D5, E1–E3, E5, F5–F7 — see the 2026-09-27
+entry in § Result log); the desktop halves of A1, A3, A4, A5, B2, B5, B6, B8 and C6 ran on all three
+REAL desktop engines and wait for their handset half; 2 FAILED (A4b, F3) and are in BACKLOG; the rest
+need a handset, a radio or a camera.** The two ticks in § 0.1 are PRECONDITIONS, not cases; do not read
 them as progress.
 
 - **Target:** the live deploy — `https://hushsend.frelikh.dev` (production build).
@@ -167,8 +170,9 @@ Last run 2026-09-26 (after the second deploy of the day, `efe8b29`, `index-BBI2z
 |---|---|---|---|---|---|---|---|
 | MBP-A | MacBook | | Chrome | Blink | Claude (MCP) | FSA streaming (unbounded) | native/ponyfill |
 | MBP-A | MacBook | | Brave (shields up) | Blink | Claude (MCP) | FSA streaming | native/ponyfill |
-| MBP-A | MacBook | | Safari | **WebKit (the real one)** | **owner clicks** — no MCP driver for WebKit (found 2026-09-26) | Blob (1 GiB cap) | zxing ponyfill |
-| MBP-A | MacBook | | Firefox | Gecko | **owner clicks** — no MCP driver for Gecko (found 2026-09-26) | Blob (1 GiB cap) | zxing ponyfill |
+| MBP-A | MacBook | macOS 26 | Safari 26.6 | **WebKit (the real one)** | Claude via **WebDriver** (`safaridriver`, since 2026-09-27 — see § 0.5) | Blob (1 GiB cap) | zxing ponyfill |
+| MBP-A | MacBook | macOS 26 | Firefox 156 | Gecko | Claude via **WebDriver** (`geckodriver`, since 2026-09-27) | Blob (1 GiB cap) | zxing ponyfill |
+| MBP-A | MacBook | macOS 26 | Claude's built-in Chromium 152 | Blink | Claude (built-in browser) — a SECOND profile next to Brave, so E-cases are honest | FSA present but its dialog cannot be shown in the pane → Blob when `showSaveFilePicker` is removed in-page | native |
 | MBP-B | MacBook | | Chrome | Blink | Claude (MCP) | FSA streaming | native/ponyfill |
 | IPH | iPhone | | Safari (WebKit) | WebKit + phone limits | Claude via Safari Web Inspector (USB) | Blob (512 MiB cap) | zxing ponyfill |
 | AND-1 | Android | | Chrome | Blink | Claude via `chrome://inspect` (USB) | Blob (512 MiB cap) | native BarcodeDetector |
@@ -262,7 +266,7 @@ Both peers on the home Wi-Fi, default **Max-privacy**. Baseline: if these fail, 
       from the creator and no longer from the id order, precisely so the untrusted server cannot make
       BOTH peers the blind picker. Just check that **exactly one** side reads and the other picks —
       re-pair a few times and expect the roles to land differently. Correct pick → `connected`.
-- [ ] **A4a · the SAS refusal is reachable and equal-weight** — on the picker screen confirm
+- [x] **A4a · the SAS refusal is reachable and equal-weight** — on the picker screen confirm
       "None of these match — stop" is a full-width pill of the same size as the confirm, not a faint
       label (the 2026-09-12 audit decision; the 2026-09-26 redesign briefly made it a label and that
       was reverted the same day), and on the reader screen that "Stop — they don't have this phrase"
@@ -277,7 +281,7 @@ Both peers on the home Wi-Fi, default **Max-privacy**. Baseline: if these fail, 
 - [ ] **A5 · transfer both ways** — over the A1 connection send a small file (≈5 MB) MBP-A → IPH, then
       IPH → MBP-A. Expected: progress advances monotonically, file arrives intact (**check the size and
       open it**), receiver's terminal plaque shows a **"New transfer"** button.
-- [ ] **A6 · WS closes on connect** — in devtools Network → WS, confirm the signaling socket **closes
+- [x] **A6 · WS closes on connect** — in devtools Network → WS, confirm the signaling socket **closes
       shortly after `connected`** for all of A1–A4 **and for reconnect (Phase E)**, while the transfer
       keeps working afterwards. This is the per-pair privacy close: the server must not observe the
       session duration. Reconnect was the last exemption and was folded in on 2026-09-12 — if its
@@ -438,32 +442,32 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
 
 ## Phase D — room lobby (mesh) · entirely T1
 
-- [ ] **D1 · roster** — MBP-A creates a room; IPH, AND-1, AND-2 join. Expected: every member sees the
+- [x] **D1 · roster** — MBP-A creates a room; IPH, AND-1, AND-2 join. Expected: every member sees the
       others with a sane device label and join order; leaving a device removes its row.
-- [ ] **D2 · joiner ↔ joiner** — IPH connects to AND-1 (neither is the creator). Expected: it pairs and
+- [x] **D2 · joiner ↔ joiner** — IPH connects to AND-1 (neither is the creator). Expected: it pairs and
       completes SAS normally. The TRANSPORT role (who offers) still comes from the id order, which is
       why this case exists; the SAS reader/picker split no longer does (see A4), so check here too
       that exactly one side reads.
-- [ ] **D3 · busy reject** — while IPH↔AND-1 are paired, MBP-A presses Connect on IPH. Expected: MBP-A
+- [x] **D3 · busy reject** — while IPH↔AND-1 are paired, MBP-A presses Connect on IPH. Expected: MBP-A
       gets a clear **busy notice and returns to the lobby** — no hang, no silent failure.
-- [ ] **D4 · two independent pairs** — pair IPH↔AND-1 and MBP-A↔AND-2 **in the same room**, then
+- [x] **D4 · two independent pairs** — pair IPH↔AND-1 and MBP-A↔AND-2 **in the same room**, then
       transfer on both at once. Expected: both work; neither pair's per-pair signaling close disturbs
       the other; the room survives.
-- [ ] **D5 · SAS mismatch** — on a fresh pair, deliberately pick the **wrong** phrase. Expected: a hard
+- [x] **D5 · SAS mismatch** — on a fresh pair, deliberately pick the **wrong** phrase. Expected: a hard
       failure with a clear message; no transfer possible afterwards.
 
 ## Phase E — reconnect (codeless since 2026-09-25: tap Reconnect on both, no code) · T1, except E6/E7 on real devices
 
-- [ ] **E1 · pin created** — after any successful fresh pairing (A1–A4), both devices list the peer
+- [x] **E1 · pin created** — after any successful fresh pairing (A1–A4), both devices list the peer
       under recent devices, **once** (the dedup-by-peer-key fix — pair the same two devices 3 times and
       confirm still exactly one row).
-- [ ] **E2 · reconnect happy path** — on MBP-A tap **Reconnect** on the IPH row; MBP-A shows "Waiting
+- [x] **E2 · reconnect happy path** — on MBP-A tap **Reconnect** on the IPH row; MBP-A shows "Waiting
       for the other device" with **no code anywhere**. On IPH tap **Reconnect** on the MBP-A row.
       Expected: `connected` **without any SAS screen** (pin-based re-auth), then transfer works. In
       devtools → WS on either side: the socket URL carries `room=<22-char token>&codeType=token` and
       no `create=1` — the same shape as a link (this is the "server cannot tell a reconnect from a
       first meeting" claim; record it).
-- [ ] **E3 · order does not matter** — repeat E2 with IPH tapping first and MBP-A a minute later, and
+- [x] **E3 · order does not matter** — repeat E2 with IPH tapping first and MBP-A a minute later, and
       once more tapping both within a second of each other. Expected: `connected` every time. (Under
       the old by-code design "both press Start" opened two rooms that never met; that is the bug this
       case now proves gone.)
@@ -483,7 +487,7 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       run that sits in "agreeing on keys" and then fails at ~120 s is the same bug returning — capture
       the DEV log, which names which guard dropped what (`reconnect: dropped …` / `holding …` /
       `replaying held …`).
-- [ ] **E5 · the other side forgot the pairing** — on IPH press **forget** (clears pins), then tap
+- [x] **E5 · the other side forgot the pairing** — on IPH press **forget** (clears pins), then tap
       Reconnect on MBP-A using the stale row. Expected: IPH has no row to tap and cannot derive the
       rendezvous; MBP-A waits and ends in "did not show up" (E4), whose copy says to pair afresh. Then
       pair afresh by any method (A1–A4): expected `connected`, and afterwards MBP-A lists IPH **once**
@@ -509,12 +513,12 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       a failure.
 - [ ] **F4 · large transfer** — ≈2 GB MBP-A Chrome → MBP-B Chrome (FSA both ways). Expected: it
       completes, memory stays flat, and the signaling socket is long gone by then (A6).
-- [ ] **F5 · code expiry** — create a words session and leave it untouched past its TTL, then try to
+- [x] **F5 · code expiry** — create a words session and leave it untouched past its TTL, then try to
       join. Expected: the code is freed — the waiting side is closed out (4010) and a later join gets
       `room not found` (4009), with a readable message rather than a raw code.
-- [ ] **F6 · history is session-only** — after a few transfers, reload the page. Expected: the transfer
+- [x] **F6 · history is session-only** — after a few transfers, reload the page. Expected: the transfer
       history is **empty** (in-memory only); `localStorage` holds only lang/theme/privacy prefs.
-- [ ] **F7 · second joiner on a 1:1 method** — forward the same link/QR to a second device. Expected:
+- [x] **F7 · second joiner on a 1:1 method** — forward the same link/QR to a second device. Expected:
       the second joiner is rejected (4002) — the one-time link reaches exactly one receiver.
 - [ ] **F8 · silent peer on the 1:1 confirm path** — open a link on the receiving device and, the
       instant the connection starts, put that browser in a state where it cannot answer (airplane mode
@@ -584,6 +588,146 @@ pages (`webrtc-internals`) are unreachable through it, so ICE evidence needs the
   nothing happens. Pasting a link into the address bar of an open hushsend tab does exactly this.
 - Tool note, not app: the extension's ref-based clicks did not toggle the privacy radio nor open
   Invite; coordinate clicks did.
+
+### 2026-09-27 · T1 on all three REAL desktop engines · Brave 154 ↔ Claude Chromium 152 ↔ Safari 26.6 ↔ Firefox 156
+
+Setup: production bundle `index-BBI2zUuS.js` (`efe8b29`, unchanged); `/health` ok. Four browsers,
+four separate profiles/keystores: **Brave 154** (Claude-in-Chrome extension; no FSA), **Claude's
+built-in Chromium 152** (its own profile; FSA present but the pane cannot show the save dialog),
+**Safari.app 26.6** and **Firefox.app 156.0.1** driven over **WebDriver** (`safaridriver -p 4444`
+after `safaridriver --enable` + Develop → Allow Remote Automation; `geckodriver 0.37.1` from brew) by a
+file-based driver running in the owner's terminal, outside the Claude sandbox. This supersedes the
+2026-09-26 "Firefox and Safari cannot be driven" note: they can, but two caveats — **safaridriver
+sessions are storage-isolated and geckodriver starts a fresh profile per session**, so Safari/Firefox
+pins live only inside one session (E-cases on them need Safari.app/Firefox.app by hand). SSH to the
+host failed from the sandbox all session (`No route to host`), so server-side evidence (`ss`,
+journalctl) is absent; all WS/ICE evidence below comes from in-page wrappers over `WebSocket` and
+`RTCPeerConnection` installed on the creator side before the pairing. `chrome://webrtc-internals` is
+unreachable from both Chromium drivers.
+
+**Root cause of the 2026-09-26 Max-privacy failures — the macOS "Local Network" permission, not the
+app.** On this LAN every browser gathers one mDNS host candidate (`<uuid>.local`) plus an srflx of
+`192.168.1.1` — the hairpinned STUN reply names the ROUTER's LAN address, useless between LAN peers —
+so a same-LAN Max-privacy pair rides on mDNS alone. Brave could not even connect two
+`RTCPeerConnection`s inside ONE page (ICE stayed `new` for 20 s; Chromium: 8 ms), and the moment the
+owner granted Privacy & Security → Local Network to Brave/Firefox/Safari it opened in 14 ms and every
+Max-privacy case below passed. README item: on macOS 15+ a browser without that permission cannot pair
+on the same LAN in Max privacy; the app fails visibly with the Reliable hint (correct), but the hint
+sends the user to the wrong fix.
+
+Engine pairs (all link method, Max privacy unless stated; `unknown` = "direct path not confirmed"):
+
+| pair (creator → joiner) | connected | selected pair (creator's stats) | WS close after connect | path verdict |
+|---|---|---|---|---|
+| Brave → Chromium · Max | 14 ms after the joiner arrived | host udp → host (mDNS, addresses hidden) | 50 ms | unknown / unknown |
+| Brave → Chromium · **Reliable** | 0.2 s | host udp → host — `turn-request`/`turn-credentials` exchanged, TURN in `iceServers`, relay NOT selected | at connect | unknown |
+| Safari → Chromium | 1.0 s | host → host udp | 160 ms | unknown / unknown |
+| Firefox → Chromium | 1.8 s | host `<uuid>.local` → host `<uuid>.local` udp | 200 ms | unknown / unknown |
+| Firefox → Safari (run 1) | 1.2 s | host (mDNS) → **prflx** | 34 ms | Firefox unknown; Safari pending at +3 s |
+| Firefox → Safari (run 2) | 0.8 s | host (mDNS) → prflx | 20 ms | unknown / unknown |
+| Safari → Firefox | 0.6 s | host → host udp | 208 ms | unknown / unknown (Safari read at +60 s) |
+
+So on one LAN in Max privacy the attestation verdict is `unknown` on EVERY engine pair, including
+Blink↔Blink, because mDNS hides the host addresses the check needs; the headless firefox↔webkit
+`mismatch` did NOT reproduce on the real engines. The A6a table still needs the cross-network runs.
+
+- A1 · T1 · every pair in the table · **PASS** — auto-join, no SAS, fragment scrubbed. (Handset half
+  open.) First Brave→Chromium Max run FAILED at 9.6 s with the Reliable hint — the permission, above.
+- A3 · T1 · Brave creates, Chromium enters the five words · **PASS** — `connected` in 0.8 s, "code
+  words verified", no SAS; only the rendezvous word reached the server (`room=ebook&codeType=word`).
+- A4 · T1 · Brave↔Chromium (room 0164, then 4422) · **PASS** — both land in the lobby, pick → SAS
+  asymmetric: one reader, one blind picker with the real phrase among 3. Roles vary (Safari read once
+  and picked once against Chromium); Brave read in all 3 Brave↔Chromium pairs — sample more.
+- A4a · T1 · **PASS** — both refusals are 52-px full-width pills directly under the confirm
+  (400/431 px wide at desktop), the HEARD sentence sits directly above the reader's confirm; picker's
+  refusal → both sides on "This channel may be compromised" in ≤1.4 s, no transfer UI. Copy nit: the
+  kicker says "numbers didn't match".
+- A4b · T1 · **FAIL** — the reader confirmed before the picker answered and landed on "Verifying…"
+  (`confirming`) with NO control at all: no abort, no Back. The controller would accept a reject after
+  approval; the screen cannot send one. → BACKLOG.
+- A5 · T1 · all directions Brave↔Chromium (Reliable + Max), Chromium↔Safari, Chromium↔Firefox,
+  Safari↔Firefox · **PASS** — 5 000 000 B each way, monotonic, receiver Blob captured via a
+  `URL.createObjectURL` hook and SHA-256 equal to the sender's every time; "New transfer" present.
+  200 MiB Chromium→Brave ≈48 MB/s on the LAN. (Handset half open.)
+- A6 · T1 · link (Max, Reliable), words, room/SAS, reconnect — on Brave, Chromium, Safari, Firefox ·
+  **PASS** — every creator/joiner closed its socket 20–460 ms after `connected` (code 1005), transfers
+  ran afterwards. Reconnect included (Brave 170 ms, Chromium 100 ms).
+- A7 · T1 · **PASS with the known note** — 3 files arrive as one `hushsend-files.zip` (2 700 724 B);
+  wording decision still open, not re-ticked.
+- B2 · T1 desktop half · real Safari and real Firefox receivers · **PASS** — Blob path, no dialog; a
+  1 258 291 200 B offer is refused BEFORE accept within 1.5 s: "This file is 1.2 GB — larger than the
+  1.0 GB this browser can save. Open hushsend in Chrome on desktop to receive it."; the sender shows
+  "declined" + that reason. Note for drivers: the FSA-vs-Blob choice is made when the OFFER arrives.
+- B5 · T1 desktop half · **PASS** — Firefox (no `navigator.share`): Share absent, Copy present;
+  Safari desktop: both present.
+- B6 · T1 desktop half · Chromium emulating 375×812 + dark · **PASS** — home, the open
+  network-exposure block and the words picker: no horizontal scroll, nothing overflows the viewport,
+  52-px pills, 44-px word fields at 17.6 px. Real phone still T3.
+- B8 · T1 · real Safari + real Firefox · **PASS** — `network-exposure` is a `<details>`, closed by
+  default, opens on click, 777 chars naming the direct-connection fact and the Tor/VPN advice; no
+  horizontal scroll at 1000/1710 px. Phone width covered by B6 above (375 px, Chromium).
+- B9 · partial — Brave 154 shields default: Max privacy WORKS once Local Network is granted (host
+  candidates gathered and used, srflx gathered); `showSaveFilePicker` still absent (so B1/F4 need a
+  real Chrome, which the owner does not have). The WebRTC-policy value in `brave://settings` is
+  still the owner's eyes.
+- C6 · T1 arithmetic half · Brave→Chromium Max · **PASS** — 307 200 B file → data-channel
+  `bytesSent` 524 745 B (= the 512 KiB bucket + ~457 B control), receiver wrote the real 307 200 B,
+  hash equal; 5 000 000 B → 5 243 376 B (the 5 MiB bucket, +4.9 %). LTE cost half open.
+- D1 · T1 · room 4422 with Brave, Chromium ×2 tabs, real Safari · **PASS** — every roster lists the
+  other three with a label + join time; leavers disappear; a pair that CONNECTS also leaves the roster
+  (its sockets close on connect — so D3 must be provoked during pairing, and the "room survives" of D4
+  means the other pair's closes do not disturb it).
+- D2 · T1 · Safari(joiner) picks Chromium tab-2(joiner) · **PASS** — one reader, one picker,
+  `connected` in 0.6 s, "SAS confirmed".
+- D3 · T1 · **PASS** — with Brave↔Chromium in the SAS phase, a third member pressed Connect on Brave →
+  "vivid-robin is busy with another peer — pick someone else." in 0.2 s, back in the lobby with the
+  roster intact; Brave's SAS undisturbed.
+- D4 · T1 · Brave↔Chromium and Safari↔Chromium-2 in one room · **PASS** — both connected, transfers on
+  both at once (52 428 800 B in 1.2 s; 5 000 000 B in 0.4 s; hashes equal), both still connected.
+- D5 · T1 · picker chose a decoy · **PASS** — hard failure both sides in ≤0.6 s, no transfer.
+- E1 · T1 · Brave↔Chromium paired 4× today, Chromium↔Safari/Firefox once each · **PASS** — one row
+  per distinct peer key (Chromium: Brave, Firefox, two Safari sessions = 4 rows; Brave: Chromium once).
+- E2 · T1 · Brave(profile A) ↔ Chromium(profile B) · **PASS** — "Waiting for the other device", no
+  code; the other side taps → idle→joining→connected in 0.3 s, "verified via pinned key", no SAS;
+  socket URL `room=<22-char token>&codeType=token&device=Desktop`, no `create=1` (claim recorded);
+  1 000 000 B transfer afterwards, hash equal.
+- E3 · T1 · **PASS** — Chromium-first (Brave ~5 s later; a full minute could not be waited from the
+  sandbox, but the 10-min hold with 2-min re-takes is proven in E5) and both-within-101-ms: connected
+  in 0.3–0.7 s, no SAS, every ordering.
+- E4 · mechanics observed inside E5 (the lone waiter re-took the rendezvous at 120.6/240.6/389.6/
+  510.9 s, a NEW token at 268.6 s = the 06:00 UTC bucket boundary, "did not show up" at 600.15 s);
+  the "MBP-A only" and "plain 4-digit join on the other side" variants not run — not ticked.
+- E5 · T1 · **PASS** — Chromium reconnect to Firefox whose profile no longer holds the pin → 10-min
+  wait → "The other device did not show up" + the pair-afresh copy; forget Brave via the row ×
+  ("Forget device …") → row gone; fresh link pairing → Chromium lists Brave ONCE again; reconnect from
+  the new row → connected in 0.6 s. No silent auto-accept anywhere.
+- F3 · T1 · Chromium sends 900 MB to Brave, Brave's tab closed at 8 % · **FAIL** — the sender froze
+  at 46 % "Sending · connected" and never failed in 72 s of polling; recovered only via Close channel.
+  Same root as the BACKLOG "peer gone after connected" bug, now shown mid-transfer. → BACKLOG.
+- F5 · T1 · **PASS** — Firefox's words room: WS 4010 "expired" at 180.6 s, failed screen "Room not
+  found or code expired" + "New words"; a later join with the same words: 4009 "room not found",
+  same human message with the raw detail as a secondary line. (Copy nit: the CREATOR's expiry reads
+  "Room not found".) Also observed: a 4-digit lobby with two members and no new joins dies at 3 min
+  (idle TTL, by design) with the same "room not found" copy.
+- F6 · T1 · re-confirmed on Chromium (reload → history gone; localStorage = theme/privacy only).
+- F7 · T1 · Safari opens a link Brave→Chromium had already consumed · **PASS, different path** —
+  failed in 0.4 s "the link has expired or was already used": the pair's sockets close on connect, so
+  the token room is gone before a second joiner can be bounced with 4002; 4002 is reachable only while
+  the first two are still pairing. The one-receiver guarantee holds either way.
+- **Transport finding (real WebKit): Firefox(creator)↔Safari(joiner), run 1** connected, then Firefox
+  saw `ice:disconnected` at +14 s and `failed` at +36 s, transport total 1 132 B, data-channel gone;
+  a 5 MB transfer accepted on Safari stayed at 0 %. Run 2 and the reverse direction lived for minutes,
+  and Safari.app CRASHED ("unexpectedly quit") minutes after run 1 and again later in the session —
+  so the likelier reading is a WebKit process crash, not a protocol issue. Watch Console.app crash
+  reports for Safari/WebContent; needs more runs.
+- **UX finding (F2-class):** after that ICE failure BOTH sides kept showing `connected` ("Sending
+  0 %" / "Receiving 0 %") for >60 s. Nothing in the app reacts to a dead connection after
+  `established`. → BACKLOG (same item as F3 / peer-gone).
+- Tooling notes: (1) the built-in-browser JS, the extension JS and Bash calls in one message run
+  SEQUENTIALLY, so a 40 s poll on one side delays the other's action; (2) loading `/` and then the link
+  in the same tab is the hash-only bug — always go through `/health`; (3) the Brave extension's first
+  click after a navigation is often swallowed — JS `.click()` on the testids is reliable; (4)
+  `d.type` in safaridriver hung the session twice — set values with the native setter + `input` event.
 
 **When the pass is done:** fold the results into `BACKLOG.md` § Step 6 / **6e** (and its
 "Remaining (real devices, post-deploy)" line) and `CLAUDE.md` § Current state / Build order in the

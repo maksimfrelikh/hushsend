@@ -551,7 +551,32 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   DataChannel closes, and this side stays on "Secure channel open" / `connected` indefinitely. A
   later Send fails visibly ("transfer error · data channel is not open"), so it is not a hang, but
   the screen lies until then. Expected: a "peer left" terminal state (or a notice + return home).
-  Distinct from TESTPLAN F3 (mid-transfer), which is still to run.
+  **Confirmed 2026-09-27 in two more shapes (TESTPLAN § Result log): (a) F3 — the receiver's tab was
+  closed at 8 % of a 900 MB send and the SENDER froze at 46 % "Sending · connected" for >70 s, no
+  failure, recoverable only via Close channel; (b) a Firefox↔Safari pair whose ICE went
+  `disconnected`→`failed` 14–36 s after connect left BOTH sides on `connected` ("Sending 0 %" /
+  "Receiving 0 %") for >60 s.** One fix covers all three: handle `connectionstatechange`
+  `failed`/`disconnected` and the DataChannel `close` in the `established` phase — fail the in-flight
+  transfer visibly and end the session (a "peer left" terminal state), instead of nothing.
+- [ ] **The SAS reader cannot stop after confirming early (found 2026-09-27, A4b).** The reader taps
+  "They read it back — connect" before the picker has answered and lands on "Verifying…"
+  (`confirming`) with no control at all — no abort, no Back. `SessionController` accepts a reject
+  after our own approval up to settle (that is the whole point of the A4b case), but the waiting screen
+  never offers one, so a reader who clicked too early is trapped until the picker answers or the
+  120 s deadline. Expected: the same "Stop — they don't have this phrase" pill on the waiting screen,
+  wired to `confirmSas(false)`.
+- [ ] **Same-LAN Max privacy needs the macOS "Local Network" permission — document it (found
+  2026-09-27).** On one LAN every browser gathers only an mDNS host candidate plus an srflx that is the
+  ROUTER's LAN address (the hairpinned STUN reply), so LAN peers pair over mDNS alone; a browser that
+  lacks Privacy & Security → Local Network (Brave did) cannot resolve or publish `.local` and fails
+  visibly with the switch-to-Reliable hint — which points at the wrong fix. The 2026-09-26 "Max
+  privacy FAIL 2/2" was exactly this. README / the direct-fail hint should mention the permission on
+  macOS 15+; optionally detect "only mDNS host + srflx that is a private address" and say so.
+- [ ] **Copy nits from the 2026-09-27 pass:** the SAS hard-stop kicker says "numbers didn't match"
+  (they are words); the CREATOR of an expired words/4-digit room sees "Room not found or code
+  expired" (the joiner's wording) after its own 4010; TESTPLAN F7's "4002" is reachable only while the
+  first pair is still pairing — after connect the token room is already gone and a second joiner gets
+  the dead-link copy instead (correct behaviour, plan text to adjust).
 - [ ] **A link pasted into an already-open hushsend tab does nothing (found 2026-09-26).** Only the
   fragment differs, so the browser does a same-document navigation and `App.tsx` reads
   `location.hash` at load only. Either listen to `hashchange` (join if idle) or document that the
