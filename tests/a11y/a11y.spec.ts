@@ -157,6 +157,26 @@ test('mode radios: one tab stop, arrows move the selection, the description foll
   await expect(max).toBeFocused();
 });
 
+test('forget pinned devices: the row asks first, Cancel is focused and keeps them, Forget all wipes them', async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name === 'phone', 'desktop project');
+  await open(page, 'light', SCENES.find((s) => s.name === 'home-paired')!);
+  await expect(page.getByTestId('reconnect-btn')).toBeVisible();
+
+  await page.getByTestId('reset-identity-btn').click();
+  await expect(page.getByTestId('forget-confirm')).toBeVisible();
+  // The safe answer takes the focus, so Enter on a stray double-tap cannot wipe anything.
+  await expect(page.getByTestId('forget-cancel-btn')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('forget-confirm')).toHaveCount(0);
+  await expect(page.getByTestId('reconnect-btn')).toBeVisible(); // nothing was forgotten
+
+  await page.getByTestId('reset-identity-btn').click();
+  await page.getByTestId('forget-confirm-btn').click();
+  await expect(page.getByTestId('reconnect-btn')).toHaveCount(0); // the Reconnect section is gone
+});
+
 test('theme toggle: aria-pressed mirrors "light is active" and the flip is a cut', async ({
   page,
 }, testInfo) => {

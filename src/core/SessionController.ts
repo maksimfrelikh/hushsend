@@ -2018,6 +2018,7 @@ export class SessionController {
         break;
       case 'accept':
       case 'reject':
+      case 'received':
         this.sender?.handleControl(msg);
         break;
       case 'eof':

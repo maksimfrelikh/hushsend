@@ -75,6 +75,7 @@ function LandingView({
   const [joinCode, setJoinCode] = useState('');
   // Paired devices are read from the keystore (the source of pins), not from localStorage.
   const [devices, setDevices] = useState<PinEntry[]>([]);
+  const [confirmForget, setConfirmForget] = useState(false);
   const refreshDevices = useCallback(() => {
     let alive = true;
     void loadRecentDevices().then((d) => {
@@ -181,9 +182,47 @@ function LandingView({
             );
           })}
           <Space h={4} />
-          <TextLink align="start" testId="reset-identity-btn" onClick={onForgetAll}>
-            {t('forgetPins')}
-          </TextLink>
+          {/* One tap used to wipe every pin at once (and a stray one did, on the iPhone simulator):
+              the row now asks first, in place — no dialog. Cancel takes the focus, the safe default. */}
+          {confirmForget ? (
+            <div
+              className="hs-confirm"
+              role="group"
+              aria-label={t('forgetPins')}
+              data-testid="forget-confirm"
+            >
+              <p className="hs-p">{t('forgetConfirm')}</p>
+              <div className="hs-confirm__actions">
+                <Pill
+                  size="sm"
+                  variant="primary"
+                  testId="forget-confirm-btn"
+                  onClick={() => {
+                    setConfirmForget(false);
+                    onForgetAll();
+                  }}
+                >
+                  {t('forgetConfirmBtn')}
+                </Pill>
+                <Pill
+                  size="sm"
+                  autoFocus
+                  testId="forget-cancel-btn"
+                  onClick={() => setConfirmForget(false)}
+                >
+                  {t('cancel')}
+                </Pill>
+              </div>
+            </div>
+          ) : (
+            <TextLink
+              align="start"
+              testId="reset-identity-btn"
+              onClick={() => setConfirmForget(true)}
+            >
+              {t('forgetPins')}
+            </TextLink>
+          )}
         </>
       )}
 

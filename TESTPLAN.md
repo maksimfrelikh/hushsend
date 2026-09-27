@@ -67,7 +67,7 @@ grep -ohE 'URLSearchParams|location\.search' /var/www/hushsend/dist/assets/*.js 
 
 Must print **exactly `1 URLSearchParams` and `1 location.search`**. Every knob reads the query string,
 and production reads the URL in exactly two places: `SignalingClient.connect`, building the socket's
-query (`app` / `room` / `codeType` / `device`), and the link-join scrub that rewrites the address to
+query (`app` / `room` / `codeType`), and the link-join scrub that rewrites the address to
 `pathname + search` to strip the secret fragment. A third occurrence is a knob that shipped.
 
 Last run 2026-09-27 against the bundle fetched over HTTPS from the live host (`index-BBI2zUuS.js` + the lazy `ponyfill-DEVIBFUV.js`, still `efe8b29`): no globals, and 1 + 1, both in the entry chunk. (The ponyfill chunk does contain the string `fastly.jsdelivr.net` — its default `locateFile`, overridden at runtime; B3 is where it must never be requested.) **Re-run it after any deploy** — do not trust this line. Every build renames the bundle, so naming a hash here only guarantees the note goes stale; what the host is serving right now is
@@ -489,11 +489,10 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
 ## Phase D — room lobby (mesh) · entirely T1
 
 - [x] **D1 · roster** — MBP-A creates a room; IPH, AND-1, AND-2 join. Expected: every member sees the
-      others with a sane device label and join order; leaving a device removes its row. *(Since the
-      2026-09-26 redesign a row shows the readable id and the join time only — the coarse device label
-      still travels in `peer-joined` (iPad: `Desktop`, Android: `Mobile`, measured 2026-09-27) but is not
-      rendered. The 2026-09-27 tick read "label" as the id. Whether the label should come back is in
-      BACKLOG.)*
+      others by readable id and join time, in join order; leaving a device removes its row. *(Reworded
+      2026-09-27: the coarse device label the plan used to expect is gone from the protocol — owner's
+      decision, BACKLOG § UX bugs — after the redesign had already stopped rendering it. The 2026-09-27
+      tick checked exactly the id + join time.)*
 - [x] **D2 · joiner ↔ joiner** — IPH connects to AND-1 (neither is the creator). Expected: it pairs and
       completes SAS normally. The TRANSPORT role (who offers) still comes from the id order, which is
       why this case exists; the SAS reader/picker split no longer does (see A4), so check here too

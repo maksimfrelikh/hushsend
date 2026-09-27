@@ -529,6 +529,18 @@
   color: var(--faint);
 }
 
+/* the in-row confirmation before "Forget pinned devices" wipes every pin */
+.hs-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 0;
+}
+.hs-confirm__actions {
+  display: flex;
+  gap: 10px;
+}
+
 /* ---------- Collapsible (About items) ---------- */
 .hs-fold__summary {
   display: flex;
@@ -1024,6 +1036,11 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  width: 100%;
+  max-width: 320px;
+}
+/* the SAS reader's "Stop" while it waits for the picker (ConnectingScreen), at the actions' width */
+.hs-connecting__actions {
   width: 100%;
   max-width: 320px;
 }

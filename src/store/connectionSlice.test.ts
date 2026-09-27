@@ -9,7 +9,7 @@ import type { PeerInfo } from '../types/protocol';
  * WITHOUT leaving the room; and `joining → awaitingPeer` lets a room joiner land in the lobby.
  */
 
-const peer = (id: string, device = 'Desktop', joinedAt = 1000): PeerInfo => ({ id, device, joinedAt });
+const peer = (id: string, joinedAt = 1000): PeerInfo => ({ id, joinedAt });
 
 describe('connection slice — lobby roster', () => {
   it('rosterSet replaces the roster (the existing-room peers from welcome)', () => {
@@ -22,9 +22,9 @@ describe('connection slice — lobby roster', () => {
 
   it('rosterAdd appends a newcomer and is idempotent on id', () => {
     let s = reducer(undefined, connectionActions.rosterSet([peer('alpha-fox')]));
-    s = reducer(s, connectionActions.rosterAdd(peer('zeta-owl', 'Mobile', 2000)));
+    s = reducer(s, connectionActions.rosterAdd(peer('zeta-owl', 2000)));
     expect(s.roster.map((p) => p.id)).toEqual(['alpha-fox', 'zeta-owl']);
-    expect(s.roster[1]).toMatchObject({ device: 'Mobile', joinedAt: 2000 });
+    expect(s.roster[1]).toMatchObject({ id: 'zeta-owl', joinedAt: 2000 });
     // a duplicate peer-joined for the same id does not double it
     s = reducer(s, connectionActions.rosterAdd(peer('zeta-owl')));
     expect(s.roster.filter((p) => p.id === 'zeta-owl')).toHaveLength(1);

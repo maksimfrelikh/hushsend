@@ -115,7 +115,9 @@ test('happy path: matching SAS on both sides → authenticated connected → sma
   expect(sha256(readFileSync(out))).toBe(srcHash);
 });
 
-test('mismatch: one side rejects the SAS → both fail, no channel, no transfer', async ({ context }) => {
+test('mismatch: one side rejects the SAS → both fail, no channel, no transfer', async ({
+  context,
+}) => {
   const { sender, code } = await createSasRoom(context);
   const receiver = await joinSasRoom(context, code);
 
@@ -133,6 +135,27 @@ test('mismatch: one side rejects the SAS → both fail, no channel, no transfer'
   await expect(reader.getByTestId('status')).toHaveText('failed', { timeout: 60_000 });
 
   // Neither side ever rendered the file UI (only shown when connected) → no byte crossed.
+  await expect(sender.getByTestId('file-input')).toHaveCount(0);
+  await expect(receiver.getByTestId('file-input')).toHaveCount(0);
+});
+
+test('A4b: the reader who confirmed early can still stop from "Verifying…" → both fail closed, no transfer', async ({
+  context,
+}) => {
+  const { sender, code } = await createSasRoom(context);
+  const receiver = await joinSasRoom(context, code);
+  const { reader, picker } = await resolveSasParties(sender, receiver);
+  await readMatchingSas(reader, picker);
+
+  // The reader confirms BEFORE the picker has answered and lands on the waiting screen…
+  await reader.getByTestId('sas-reader-confirm').click();
+  await expect(reader.getByTestId('status')).toHaveText('confirming');
+  // …which used to have no control at all. The abort there is a real reject, not a way home.
+  await reader.getByTestId('sas-waiting-abort').click();
+
+  await expect(reader.getByTestId('status')).toHaveText('failed', { timeout: 60_000 });
+  await expect(picker.getByTestId('status')).toHaveText('failed', { timeout: 60_000 });
+  // The picker never got to answer; nothing can make this pair `connected` now.
   await expect(sender.getByTestId('file-input')).toHaveCount(0);
   await expect(receiver.getByTestId('file-input')).toHaveCount(0);
 });
@@ -163,10 +186,13 @@ test('pre-SAS deadline FIRES: a peer withholds its sas-nonce → the other side 
   const stallPage = initiatorIsSender ? receiver : sender; // larger id = responder = stalls its nonce
   const failPage = initiatorIsSender ? sender : receiver; // smaller id = initiator = fails at the deadline
   await stallPage.evaluate(() => {
-    (window as unknown as { __HUSHSEND_STALL_SAS_NONCE__?: boolean }).__HUSHSEND_STALL_SAS_NONCE__ = true;
+    (window as unknown as { __HUSHSEND_STALL_SAS_NONCE__?: boolean }).__HUSHSEND_STALL_SAS_NONCE__ =
+      true;
   });
   await failPage.evaluate(() => {
-    (window as unknown as { __HUSHSEND_PRE_SAS_TIMEOUT_MS__?: number }).__HUSHSEND_PRE_SAS_TIMEOUT_MS__ = 6000;
+    (
+      window as unknown as { __HUSHSEND_PRE_SAS_TIMEOUT_MS__?: number }
+    ).__HUSHSEND_PRE_SAS_TIMEOUT_MS__ = 6000;
   });
 
   // Lobby: the joiner is in the creator's roster; the creator PICKS it to start the 1:1 pairing, which

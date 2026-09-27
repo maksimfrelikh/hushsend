@@ -46,6 +46,8 @@ function makeWire(opts: { hangAfter?: number } = {}): {
 }
 
 const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+const EOF = JSON.stringify({ t: 'eof' });
+const RECEIVED = JSON.stringify({ t: 'received' });
 
 async function until(cond: () => boolean): Promise<void> {
   for (let i = 0; i < 200 && !cond(); i++) await tick();
@@ -96,14 +98,94 @@ describe('a send whose channel dies', () => {
     expect(events.map((e) => e.t)).toEqual(['offered', 'error']);
   });
 
-  it('changes nothing once the send has finished — a delivered file stays delivered', async () => {
-    const { wire } = makeWire();
+  it('changes nothing once the receiver confirmed — a delivered file stays delivered', async () => {
+    const { wire, sent } = makeWire();
     const events: SendEvent[] = [];
     const tx = sendFiles(wire, [new File(['hello'], 'a.txt')], (e) => events.push(e));
     tx.handleControl({ t: 'accept' });
-    await until(() => events.some((e) => e.t === 'done'));
+    await until(() => sent.includes(EOF));
+    tx.handleControl({ t: 'received' });
     tx.fail('connection lost');
+    expect(events.map((e) => e.t)).toContain('done');
     expect(events.some((e) => e.t === 'error')).toBe(false);
+  });
+
+  it('a send that has pushed every byte but has no confirmation yet is NOT delivered', async () => {
+    const { wire, sent } = makeWire();
+    const events: SendEvent[] = [];
+    const tx = sendFiles(wire, [new File(['hello'], 'a.txt')], (e) => events.push(e));
+    tx.handleControl({ t: 'accept' });
+    await until(() => sent.includes(EOF));
+    tx.fail('connection lost');
+    expect(events.at(-1)).toEqual({ t: 'error', reason: 'connection lost' });
+    expect(events.some((e) => e.t === 'done')).toBe(false);
+  });
+});
+
+describe('"Delivered" waits for the receiver', () => {
+  it('is reported only once the receiver says `received`', async () => {
+    const { wire, sent } = makeWire();
+    const events: SendEvent[] = [];
+    const tx = sendFiles(wire, [new File(['hello'], 'a.txt')], (e) => events.push(e));
+    tx.handleControl({ t: 'accept' });
+    await until(() => sent.includes(EOF));
+    await tick();
+    expect(events.some((e) => e.t === 'done')).toBe(false);
+    tx.handleControl({ t: 'received' });
+    expect(events.at(-1)).toEqual({ t: 'done' });
+  });
+
+  it('counts a `received` that overtakes the eof send stuck on a full buffer', async () => {
+    // offer + the one data chunk go; the eof send never returns (the buffer is draining).
+    const { wire, sent } = makeWire({ hangAfter: 2 });
+    const events: SendEvent[] = [];
+    const tx = sendFiles(wire, [new File(['hello'], 'a.txt')], (e) => events.push(e));
+    tx.handleControl({ t: 'accept' });
+    await until(() => sent.includes(EOF));
+    tx.handleControl({ t: 'received' });
+    expect(events.at(-1)).toEqual({ t: 'done' });
+  });
+
+  it('ignores a `received` before the last byte — nothing is confirmed that was not sent', async () => {
+    const { wire } = makeWire({ hangAfter: 2 }); // stuck mid-file
+    const events: SendEvent[] = [];
+    const tx = sendFiles(wire, [new File([new Uint8Array(64 * 1024)], 'a.bin')], (e) =>
+      events.push(e),
+    );
+    tx.handleControl({ t: 'accept' });
+    await tick();
+    tx.handleControl({ t: 'received' });
+    expect(events.some((e) => e.t === 'done')).toBe(false);
+  });
+
+  it('the receiver confirms after saving, and never for a file that stopped short', async () => {
+    stubDownloadDom();
+    const whole = makeWire();
+    const rx = await openReceive(
+      whole.wire,
+      { name: 'f.bin', size: 100, isZip: false },
+      false,
+      1 << 20,
+      () => {},
+    );
+    rx.handleChunk(new ArrayBuffer(100));
+    rx.handleControl({ t: 'eof' });
+    await until(() => whole.sent.includes(RECEIVED));
+
+    const short = makeWire();
+    const events: ReceiveEvent[] = [];
+    const rx2 = await openReceive(
+      short.wire,
+      { name: 'f.bin', size: 100, isZip: false },
+      false,
+      1 << 20,
+      (e) => events.push(e),
+    );
+    rx2.handleChunk(new ArrayBuffer(60));
+    rx2.handleControl({ t: 'eof' }); // the sender says "that's all" at 60 of 100
+    await until(() => events.some((e) => e.t === 'error'));
+    expect(short.sent).not.toContain(RECEIVED);
+    expect(short.sent).toContain(JSON.stringify({ t: 'cancel' })); // so the sender stops waiting
   });
 });
 

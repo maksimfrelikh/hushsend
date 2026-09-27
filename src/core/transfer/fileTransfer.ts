@@ -10,7 +10,13 @@
  *   { t:'offer-file', name, size, isZip }  sender → receiver, BEFORE any bytes
  *   { t:'accept' } | { t:'reject', reason } receiver → sender
  *   { t:'eof' }                             sender → receiver, AFTER the last chunk
+ *   { t:'received' }                        receiver → sender, once the whole file is saved
  *   { t:'cancel' }                          either side — basic cancel
+ *
+ * "Delivered" on the sender waits for `received` (2026-09-27). It used to fire the moment `eof` was
+ * queued — up to a MiB could still be in the send buffer, so a receiver whose tab died in that window
+ * left the sender saying "Delivered" about a file that never arrived. A sender whose peer never
+ * confirms (a tab still running an older build) ends as the connection-lost path says: not delivered.
  *
  * Send: one file → `file.stream()`; many files → a single store (no compression) zip
  * stream built on the fly with client-zip (streams; never held whole in RAM). Bytes are
@@ -62,6 +68,7 @@ const controlSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('accept') }),
   z.object({ t: z.literal('reject'), reason: z.string() }),
   z.object({ t: z.literal('eof') }),
+  z.object({ t: z.literal('received') }),
   z.object({ t: z.literal('cancel') }),
 ]);
 export type ControlMessage = z.infer<typeof controlSchema>;
@@ -101,7 +108,11 @@ function blobMaxOverride(): number | null {
 
 function isMobileUA(): boolean {
   if (typeof navigator === 'undefined') return false;
-  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  if (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)) return true;
+  // iPadOS Safari requests desktop sites by default and sends a Mac's UA — no "iPad" anywhere — so it
+  // used to get the DESKTOP cap and hold a whole GiB in a tablet's RAM (measured on the iPad
+  // simulator, 2026-09-27). A "Mac" with a multi-touch screen is an iPad: no Mac has one.
+  return /Macintosh/.test(navigator.userAgent) && (navigator.maxTouchPoints ?? 0) > 1;
 }
 
 /** True when we can stream the received file straight to disk (Chromium File System Access). */
@@ -225,7 +236,7 @@ export function sendFiles(
   opts: { pad?: boolean } = {},
 ): ActiveSend {
   const source = prepareSource(files);
-  let phase: 'offering' | 'sending' | 'ended' = 'offering';
+  let phase: 'offering' | 'sending' | 'confirming' | 'ended' = 'offering';
   let aborted = false;
   let ended = false;
 
@@ -288,8 +299,11 @@ export function sendFiles(
         }
       }
       if (aborted) return;
+      // Every byte is in the send buffer, which is not the same as every byte arrived: "done" waits
+      // for the receiver's `received` (handleControl). The phase flips BEFORE the await — with a full
+      // buffer the eof send waits for a drain, and the confirmation can overtake it.
+      phase = 'confirming';
       await wire.send(JSON.stringify({ t: 'eof' }));
-      finalize({ t: 'done' });
     } catch (err) {
       if (!aborted) finalize({ t: 'error', reason: errMsg(err) });
     } finally {
@@ -306,6 +320,10 @@ export function sendFiles(
       if (msg.t === 'cancel') {
         aborted = true;
         finalize({ t: 'cancelled' });
+        return;
+      }
+      if (msg.t === 'received') {
+        if (phase === 'confirming') finalize({ t: 'done' });
         return;
       }
       if (phase !== 'offering') return;
@@ -441,10 +459,16 @@ export async function openReceive(
     try {
       await tail; // drain queued writes (eof is the last message, so this is all of them)
       if (ended) return;
+      // Confirm only what was promised: an eof before every declared byte is a broken transfer,
+      // not a smaller file (padding past the declared size is already dropped, so "complete" is exact).
+      if (received !== offer.size) throw new Error(`incomplete — ${received} of ${offer.size} bytes arrived`);
       await sink.close();
+      // The sender's "Delivered" waits for this (see the header).
+      void wire.send(JSON.stringify({ t: 'received' })).catch(() => {});
       finalize({ t: 'done' });
     } catch (err) {
       await sink.abort().catch(() => {});
+      sendCancel(); // or the sender would wait for a `received` that is never coming
       finalize({ t: 'error', reason: errMsg(err) });
     }
   }

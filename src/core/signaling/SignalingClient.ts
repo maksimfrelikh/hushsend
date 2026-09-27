@@ -2,9 +2,9 @@ import { serverMessageSchema, type PeerInfo } from '../../types/protocol';
 import { NO_TURN, type TurnCredentials } from '../iceServers';
 
 export interface SignalingHandlers {
-  /** `peers` is the existing-room roster (mesh lobby): {id, device, joinedAt} each. */
+  /** `peers` is the existing-room roster (mesh lobby): {id, joinedAt} each. */
   onWelcome?: (selfId: string, room: string, peers: PeerInfo[]) => void;
-  /** a newcomer arrived — carries its coarse device + server-stamped joinedAt for the roster. */
+  /** a newcomer arrived — carries the server-stamped joinedAt for the roster. */
   onPeerJoined?: (peer: PeerInfo) => void;
   onPeerLeft?: (peerId: string) => void;
   onSignal?: (from: string, data: unknown) => void;
@@ -26,19 +26,6 @@ export type ConnectOptions =
   | { join: string; codeType?: 'word' | 'token' };
 
 const APP_ID = 'filetransfer';
-
-/**
- * A COARSE, cosmetic device label sent to the server on connect (relayed to room peers for the
- * lobby roster). Deliberately NOT the full user-agent: this travels to the UNTRUSTED server and to
- * peers, so it is kept to a coarse Mobile/Desktop hint. It authenticates nothing — the SAS does.
- */
-function coarseDeviceLabel(): string {
-  try {
-    return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '') ? 'Mobile' : 'Desktop';
-  } catch {
-    return 'Desktop'; // no navigator (non-browser) — a harmless default
-  }
-}
 
 /**
  * Thin wrapper over the signaling WebSocket. PURE signaling — never carries file
@@ -68,7 +55,8 @@ export class SignalingClient {
     if ('create' in opts) params.set('create', '1');
     else params.set('room', opts.join);
     if (opts.codeType) params.set('codeType', opts.codeType);
-    params.set('device', coarseDeviceLabel()); // cosmetic lobby-roster hint (server caps the length)
+    // No `device` hint any more (removed 2026-09-27 — see protocol.ts peerInfoSchema): nothing about
+    // this device goes to the server beyond what the connection itself exposes.
 
     const ws = new WebSocket(`${this.url}?${params}`);
     this.ws = ws;
@@ -116,7 +104,7 @@ export class SignalingClient {
         this.handlers.onWelcome?.(msg.selfId, msg.room, msg.peers);
         break;
       case 'peer-joined':
-        this.handlers.onPeerJoined?.({ id: msg.peerId, device: msg.device, joinedAt: msg.joinedAt });
+        this.handlers.onPeerJoined?.({ id: msg.peerId, joinedAt: msg.joinedAt });
         break;
       case 'peer-left':
         this.handlers.onPeerLeft?.(msg.peerId);

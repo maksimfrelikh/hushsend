@@ -35,7 +35,7 @@ the same pass as CLAUDE.md when items land.
   role 6b); glare/dedup handled; **busy-reject** returns the picker to the lobby with a clear notice (no
   hang). Works for ANY pair incl. joiner↔joiner. Signaling protocol grew: `welcome.peers` + `peer-joined`
   now carry `{id, device, joinedAt}` (coarse client device label, server-capped ≤32 + server-stamped
-  joinedAt). words/link/qr stay 1:1 auto-pair; reconnect is its own codeless method (since 2026-09-25).
+  joinedAt; the `device` label was removed again 2026-09-27 — see § UX bugs). words/link/qr stay 1:1 auto-pair; reconnect is its own codeless method (since 2026-09-25).
   `tests/e2e/lobby.spec.ts` (joiner↔joiner + busy) + `connectionSlice.test.ts` + `room-server.test.ts`.
   (See CLAUDE.md § Room lobby.) **Deferred follow-ups below.**
   - ✅ **reconnect-in-lobby — SUPERSEDED 2026-09-25 by the codeless reconnect** (§ Reconnect UX below).
@@ -599,6 +599,14 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   One fix covers all of them: handle `connectionstatechange`
   `failed`/`disconnected` and the DataChannel `close` in the `established` phase — fail the in-flight
   transfer visibly and end the session (a "peer left" terminal state), instead of nothing.
+- ✅ **"Delivered" waits for the receiver's confirmation — DONE 2026-09-27 (in code, not deployed; owner's
+  decision).** Found while fixing the item above: the sender said "Delivered" the moment `eof` sat in its
+  send buffer, with up to a MiB still in flight (the live F3 run showed it — 3.5 MB "sent" against 1 MiB
+  received), so a receiver whose tab died in that window left the sender claiming a delivery that never
+  happened. Now the receiver sends `{t:'received'}` once every DECLARED byte is saved (an `eof` short of
+  the declared size is an error, and the receiver sends `cancel` so the sender stops waiting), and the
+  sender reports done only on it; a loss while it waits ends "not delivered". The phase flips before the
+  eof send, so a confirmation that overtakes a drain wait still counts. `fileTransfer.lost.test.ts`.
 - [ ] **Android Chrome: the transfer dies if the system save dialog stays open for more than ~10–20 s
   (found 2026-09-27, emulator, TESTPLAN § Result log third entry).** Chrome 149 on Android HAS
   `showSaveFilePicker`, so Accept opens Android's own save UI (DocumentsUI → Downloads → SAVE) inside
@@ -632,16 +640,29 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   saved a byte-identical file. On a real iPhone this is the likeliest shape of F1; the receiver should
   re-offer the save (a "Save file" button on the finished row) when the page was hidden at the
   hand-off. Needs the real-phone run to confirm.
-- [ ] **The lobby no longer shows the device label (found 2026-09-27).** Since the 2026-09-26 redesign a
-  roster row is the readable id + join time; `peer.device` (`Desktop`/`Mobile`, still sent and
-  capped by the server) is not rendered, while TESTPLAN D1 expects "a sane device label". Decide:
-  render it again, or drop it from the protocol and the plan.
-- [ ] **"Forget pinned devices" acts on one tap, with no confirmation (noted 2026-09-27).** `onForgetAll`
+- ✅ **The lobby device label — REMOVED from the protocol 2026-09-27 (owner's decision); client in code,
+  server in `hush-signaling-server`, NOT yet deployed.** Since the 2026-09-26 redesign a roster row was
+  the readable id + join time and `peer.device` (`Desktop`/`Mobile`) was sent, capped and relayed but
+  never rendered — metadata for the untrusted server and nobody else. The client no longer sends
+  `?device=`, the server neither reads nor relays it, and the client's schema tolerates an old server
+  that still does (zod strips the key). TESTPLAN D1 reworded. Deploy order: the frontend first (it
+  ignores `device` either way), then the signaling server — a tab still running the OLD client rejects
+  roster frames without `device`, so hard-refresh after the deploy, as § 0.1 already says.
+- ✅ **"Forget pinned devices" asks first — DONE 2026-09-27 (in code, not deployed).** The row turns into
+  "Forget every paired device? Each will have to pair again." with **Forget all** / **Cancel**, Cancel
+  focused (a stray Enter cannot wipe anything); `tests/a11y` covers the contract, `visual` the state
+  (`home-forget-confirm`). It still also rotates this browser's own identity key: once the pins are
+  gone no pairing survives either way, and a fresh key keeps this browser unlinkable to its past
+  pairings — nothing the user would notice, so the owner was told rather than asked. The report:
+  **"Forget pinned devices" acts on one tap, with no confirmation (noted 2026-09-27).** `onForgetAll`
   calls `resetIdentity` directly — the identity key is regenerated and every pin is gone, so every
   paired device has to pair afresh. On the iPhone simulator the keystore was found in exactly that state
   (new identity, 0 pins) after a tap sequence of mine near the bottom of the home screen — the likely
   cause, not verified. A confirm step (or an undo) is cheap for an irreversible action.
-- [ ] **The SAS reader cannot stop after confirming early (found 2026-09-27, A4b).** The reader taps
+- ✅ **The SAS reader can stop after confirming early — DONE 2026-09-27 (in code, not deployed; A4b to
+  re-run).** "Verifying…" now carries the reader screen's "Stop — they don't have this phrase" pill
+  (`sas-waiting-abort`, `ConnectingScreen`) wired to `confirmSas(false)`; e2e `room-sas.spec.ts` "A4b".
+  The report: **The SAS reader cannot stop after confirming early (found 2026-09-27, A4b).** The reader taps
   "They read it back — connect" before the picker has answered and lands on "Verifying…"
   (`confirming`) with no control at all — no abort, no Back. `SessionController` accepts a reject
   after our own approval up to settle (that is the whole point of the A4b case), but the waiting screen
@@ -694,7 +715,10 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   detector, still fetched the 1 MB WASM. The docs claimed "native where available" (corrected in
   CLAUDE.md § QR and TESTPLAN). Decide: keep one decoder everywhere (simpler, current) or prefer the
   native one when present (no WASM fetch on Chromium/Android). Not a bug either way.
-- [ ] **iPad gets the DESKTOP receive cap — CONFIRMED 2026-09-27 (iPad (A16) simulator, iPadOS 27.0).**
+- ✅ **iPad gets the MOBILE cap — DONE 2026-09-27 (in code, not deployed; owner: 512 MB, "a gigabyte of
+  RAM is too much"; no real iPad to measure).** `isMobileUA` also treats a Macintosh UA with
+  `maxTouchPoints > 1` as a tablet (no Mac has a multi-touch screen); unit-tested both ways. The
+  report: **iPad gets the DESKTOP receive cap — CONFIRMED 2026-09-27 (iPad (A16) simulator, iPadOS 27.0).**
   `isMobileUA` looks for `Android|iPhone|iPad|iPod|Mobile`; iPadOS Safari requests desktop sites by
   default and sends a UA without those words. Measured: a 1 GiB + 1 B offer was refused naming "the
   1.0 GB this browser can save" (an iPhone names 512 MB), a 512 MiB + 1 B offer was OFFERED (Accept

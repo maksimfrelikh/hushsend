@@ -140,6 +140,16 @@ export const SCENES: Scene[] = [
   { name: 'home-empty', matrix: 'full', setup: async () => {} },
   { name: 'home-paired', matrix: 'full', setup: seedDevices },
   {
+    // "Forget pinned devices" asks in the row before it wipes every pin.
+    name: 'home-forget-confirm',
+    matrix: 'phone',
+    setup: async (page) => {
+      await seedDevices(page);
+      await page.getByTestId('reset-identity-btn').click();
+      await expect(page.getByTestId('forget-confirm')).toBeVisible();
+    },
+  },
+  {
     name: 'home-reliable',
     matrix: 'phone',
     setup: async (page) => {
@@ -243,8 +253,8 @@ export const SCENES: Scene[] = [
         page,
         ...awaiting('room', '4827', null),
         conn('rosterSet', [
-          { id: 'brave-otter', device: 'Desktop', joinedAt: 1790000000000 },
-          { id: 'calm-lynx', device: 'Mobile', joinedAt: 1790000060000 },
+          { id: 'brave-otter', joinedAt: 1790000000000 },
+          { id: 'calm-lynx', joinedAt: 1790000060000 },
         ]),
       ),
   },
@@ -256,8 +266,8 @@ export const SCENES: Scene[] = [
         page,
         ...awaiting('room', '4827', null),
         conn('rosterSet', [
-          { id: 'brave-otter', device: 'Desktop', joinedAt: 1790000000000 },
-          { id: 'calm-lynx', device: 'Mobile', joinedAt: 1790000060000 },
+          { id: 'brave-otter', joinedAt: 1790000000000 },
+          { id: 'calm-lynx', joinedAt: 1790000060000 },
         ]),
         conn('lobbyNotice', { kind: 'busy', peerId: 'brave-otter' }),
       ),
@@ -278,6 +288,12 @@ export const SCENES: Scene[] = [
     setup: (page) => dispatch(page, ...awaiting('reconnect', 'tok', null)),
   },
   { name: 'sas-reader', matrix: 'full', setup: (page) => dispatch(page, ...roomSas('reader')) },
+  {
+    // The reader confirmed before the picker answered: "Verifying…" with the Stop pill (A4b).
+    name: 'sas-reader-waiting',
+    matrix: 'phone',
+    setup: (page) => dispatch(page, ...roomSas('reader'), conn('confirmStarted')),
+  },
   {
     name: 'sas-picker',
     matrix: 'full',

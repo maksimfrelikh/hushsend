@@ -41,6 +41,9 @@ export const STR = {
   reconnectAction: { en: 'Reconnect', ru: 'Переподключить' },
   forgetDevice: { en: 'Forget' },
   forgetPins: { en: 'Forget pinned devices', ru: 'Забыть устройства' },
+  /** Asked in the row itself before the one irreversible action on the home screen. */
+  forgetConfirm: { en: 'Forget every paired device? Each will have to pair again.' },
+  forgetConfirmBtn: { en: 'Forget all' },
 
   // --- home · About privacy and security (collapsible items) ---
   aboutTitle: { en: 'About privacy and security' },

@@ -151,7 +151,7 @@ describe('2. onWelcome is idempotent — an injected second welcome cannot flip 
     i.onWelcome('id-zzz', 'room-1', []); // first: accepted, no peers so no pairing starts
     expect(i.selfId).toBe('id-zzz');
     i.role = 'responder'; // we are mid-handshake, having already emitted our tag as the responder
-    i.onWelcome('id-aaa', 'room-1', [{ id: 'id-mmm', device: 'Desktop', joinedAt: 1 }]);
+    i.onWelcome('id-aaa', 'room-1', [{ id: 'id-mmm', joinedAt: 1 }]);
     expect(i.selfId).toBe('id-zzz'); // not rewritten
     expect(i.role).toBe('responder'); // and crucially NOT flipped to initiator
   });

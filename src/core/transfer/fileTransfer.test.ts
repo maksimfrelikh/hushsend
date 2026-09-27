@@ -41,6 +41,15 @@ describe('receive ceiling by device class', () => {
     expect(receiveMaxBytes(false)).toBe(MAX_BYTES_DESKTOP_BLOB);
   });
 
+  it('an iPad asking for the desktop site (a Mac UA with a touch screen) is still a tablet', () => {
+    // iPadOS Safari's default UA is a Mac's; only the touch points give it away.
+    vi.stubGlobal('navigator', { userAgent: MAC, maxTouchPoints: 5 });
+    expect(receiveMaxBytes(false)).toBe(MAX_BYTES_MOBILE_BLOB);
+    // A real Mac reports 0 — and so does a Mac with a trackpad.
+    vi.stubGlobal('navigator', { userAgent: MAC, maxTouchPoints: 0 });
+    expect(receiveMaxBytes(false)).toBe(MAX_BYTES_DESKTOP_BLOB);
+  });
+
   it('the mobile cap is the SMALLER of the two (a phone has less room, not more)', () => {
     expect(MAX_BYTES_MOBILE_BLOB).toBeLessThan(MAX_BYTES_DESKTOP_BLOB);
   });

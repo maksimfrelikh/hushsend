@@ -170,7 +170,8 @@ auto-pairs. **Both the creator AND every joiner land in `awaitingPeer`** (a join
 `joining → awaitingPeer` transition — no new FSM state) and see the same `LobbyScreen`: the shareable
 4-digit code + a **roster** of everyone else in the room, each with a **Connect** button. The human
 PICKS whom to raise a 1:1 channel with.
-- **Roster projection**: `connection.roster: PeerInfo[]` (`{id, device, joinedAt}`), maintained by the
+- **Roster projection**: `connection.roster: PeerInfo[]` (`{id, joinedAt}` — the coarse `device` label
+  was removed from the protocol 2026-09-27, see § Signaling server), maintained by the
   core from signaling — `welcome` (set the existing peers) / `peer-joined` (add) / `peer-left` (remove,
   also clearing a stale busy notice). Serializable; the live objects stay in the core. (Seeded for all
   methods, but only the room `LobbyScreen` renders it.)
@@ -566,6 +567,11 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
   available (Chromium); fall back to in-memory **Blob** on iOS Safari / Firefox (RAM-bound).
   Cap very large files on the Blob path — multi-GB streaming-to-disk is unreliable on iOS
   (platform limit). The transfer itself works on all browsers.
+- **"Delivered" means the receiver confirmed (2026-09-27).** The receiver sends `{t:'received'}` after
+  saving every DECLARED byte (an `eof` short of the declared size is an error + `cancel`); the sender's
+  `done` waits for it (`confirming` phase, flipped BEFORE the eof send so a confirmation that overtakes a
+  drain wait still counts). Before, "Delivered" fired once `eof` was in the send buffer. Control
+  messages: `offer-file` / `accept` / `reject` / `eof` / `received` / `cancel` (fileTransfer.ts header).
 - **Liveness after connect (2026-09-27 — TESTPLAN F2 / F3).** Until then nothing after `established`
   reacted to a dead channel: `onChannelClose` had no branch for it, `onIceFailed` returned early, and a
   sender blocked in `PeerConnection.waitForDrain` waited for a `bufferedamountlow` a closed channel never
@@ -913,12 +919,16 @@ X-Forwarded-For; binds to `127.0.0.1` (only the local nginx reaches it). Run wit
 - Frontend (static `dist/`) and the WS share one host behind nginx; nginx must set
   `proxy_set_header X-Real-IP $remote_addr;` and proxy the WS (e.g. `location /ws`) to
   `127.0.0.1:8080`. Client connects to `wss://<host>/ws?app=filetransfer&…`.
-- **Lobby roster protocol (step 6c)**: `welcome.peers` and `peer-joined` now carry the room roster as
-  `{id, device, joinedAt}` (was a bare id / `{peerId}`). `device` is a COARSE cosmetic label the client
-  sends on connect (query `?device=` — e.g. `Desktop`/`Mobile`, never a full UA); the server strips
-  control chars + **caps it ≤32** (untrusted, cosmetic — the SAS authenticates) and **stamps `joinedAt`
-  on its own clock**. `peer-left` is unchanged (`{peerId}`). The client validates the new shape with
-  zod (`peerInfoSchema`) before it reaches the store. Used only for the room mesh-lobby roster UI.
+- **Lobby roster protocol (step 6c)**: `welcome.peers` and `peer-joined` carry the room roster as
+  `{id, joinedAt}` (was a bare id / `{peerId}`); the server **stamps `joinedAt` on its own clock**.
+  `peer-left` is unchanged (`{peerId}`). The client validates the shape with zod (`peerInfoSchema`)
+  before it reaches the store. Used only for the room mesh-lobby roster UI. **No `device` label any
+  more (removed 2026-09-27, owner's decision):** it was a coarse `Desktop`/`Mobile` the client sent as
+  `?device=` and the server capped and relayed — and since the 2026-09-26 redesign no screen showed
+  it, so it was metadata handed to the untrusted server for nobody. The client no longer sends it; the
+  server neither reads nor relays it (an old client's `?device=` is ignored); a not-yet-updated server
+  that still sends `device` is harmless — zod strips the unknown key. Same change in
+  `hush-signaling-server`.
 - **codeType allocation (`codeSpec`)**: the server resolves a per-connection `codeType` to a
   validator + allocator. THREE codeTypes for `filetransfer`: **''** (default, 4-digit `code`/`allocate`
   — the ROOM method); **`word`** (server keeps its own EFF short #2 copy, allocates a rendezvous word
@@ -1109,7 +1119,8 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
      (per-pairing role 6b), glare/dedup handled, **busy-reject** returns the picker to the lobby with a
      clear notice (no hang). Works for ANY pair incl. **joiner↔joiner**. Signaling protocol grew:
      `welcome.peers` + `peer-joined` now carry `{id, device, joinedAt}` (coarse device label sent by
-     the client, server-capped ≤32 + server-stamped joinedAt). words/link/qr are NOT lobbies (auto-pair
+     the client, server-capped ≤32 + server-stamped joinedAt; the `device` label was removed again
+     2026-09-27 — § Signaling server). words/link/qr are NOT lobbies (auto-pair
      with one peer); reconnect is its own codeless method (own wait screen, auto-pairs). `LobbyScreen` +
      `pickPeer`/`onPairRequest`/`onBusy`; `tests/e2e/lobby.spec.ts` (joiner↔joiner + busy),
      `connectionSlice.test.ts` (roster), `room-server.test.ts` (roster protocol). See **Room lobby** §.

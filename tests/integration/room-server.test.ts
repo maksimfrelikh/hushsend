@@ -436,7 +436,7 @@ describe('4-digit room: idle TTL re-armed on join', () => {
   );
 });
 
-describe('lobby roster protocol: welcome.peers + peer-joined carry {id, device, joinedAt}', () => {
+describe('lobby roster protocol: welcome.peers + peer-joined carry {id, joinedAt} — no device label', () => {
   const PORT = 8098;
   let server: ChildProcess;
   beforeAll(async () => {
@@ -446,50 +446,31 @@ describe('lobby roster protocol: welcome.peers + peer-joined carry {id, device, 
     server?.kill();
   });
 
-  it('welcome.peers is a roster of {id, device, joinedAt}; peer-joined carries them too; device is capped ≤32', async () => {
-    // Creator sends a coarse device label; it must surface in the joiner's welcome roster.
+  it('welcome.peers is a roster of {id, joinedAt}; peer-joined carries the same; a sent device is dropped', async () => {
+    // An OLD client still sends a coarse `device` label — the server must neither keep nor relay it
+    // (removed 2026-09-27: no screen showed it, so it was metadata for nobody).
     const a = client(PORT, 'app=filetransfer&create=1&device=Desktop', '203.0.116.1');
     await a.opened();
     const aWelcome = await a.waitFor('welcome');
     const code = aWelcome.room as string;
     expect(aWelcome.peers).toEqual([]); // first in the room → empty roster
 
-    // Joiner sends an over-long device label (40 chars) → the server caps it to ≤32.
-    const longDevice = 'X'.repeat(40);
-    const b = client(PORT, `app=filetransfer&room=${code}&device=${longDevice}`, '203.0.116.2');
+    const b = client(PORT, `app=filetransfer&room=${code}&device=${'X'.repeat(40)}`, '203.0.116.2');
     await b.opened();
     const bWelcome = await b.waitFor('welcome');
 
-    // B's welcome roster lists A with its coarse device + a numeric server-stamped joinedAt.
-    const roster = bWelcome.peers as Array<{ id: string; device: string; joinedAt: number }>;
+    // B's welcome roster lists A: its id + a numeric server-stamped joinedAt, and nothing else.
+    const roster = bWelcome.peers as Array<Record<string, unknown>>;
     expect(roster).toHaveLength(1);
-    expect(roster[0].device).toBe('Desktop');
+    expect(Object.keys(roster[0]).sort()).toEqual(['id', 'joinedAt']);
     expect(typeof roster[0].id).toBe('string');
-    expect(typeof roster[0].joinedAt).toBe('number');
-    expect(roster[0].joinedAt).toBeGreaterThan(0);
+    expect(roster[0].joinedAt as number).toBeGreaterThan(0);
 
-    // A's peer-joined for B carries B's (capped) device + joinedAt — not just the bare id.
-    const joined = (await a.waitFor('peer-joined')) as unknown as {
-      peerId: string;
-      device: string;
-      joinedAt: number;
-    };
+    // A's peer-joined for B: the same two facts, no device.
+    const joined = (await a.waitFor('peer-joined')) as unknown as Record<string, unknown>;
+    expect(Object.keys(joined).sort()).toEqual(['joinedAt', 'peerId', 'type']);
     expect(typeof joined.peerId).toBe('string');
-    expect(joined.device).toHaveLength(32); // 40 → capped to 32 server-side
-    expect(typeof joined.joinedAt).toBe('number');
-    expect(joined.joinedAt).toBeGreaterThan(0);
-  });
-
-  it('a peer that sends no device gets an empty (not missing) device field', async () => {
-    const a = client(PORT, 'app=filetransfer&create=1', '203.0.116.10'); // no device param
-    await a.opened();
-    const code = (await a.waitFor('welcome')).room as string;
-    const b = client(PORT, `app=filetransfer&room=${code}`, '203.0.116.11');
-    await b.opened();
-    await b.waitFor('welcome');
-    const joined = (await a.waitFor('peer-joined')) as unknown as { device: string; joinedAt: number };
-    expect(joined.device).toBe(''); // absent → '' (still present, schema-valid)
-    expect(typeof joined.joinedAt).toBe('number');
+    expect(joined.joinedAt as number).toBeGreaterThan(0);
   });
 });
 

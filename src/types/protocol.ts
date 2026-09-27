@@ -10,23 +10,25 @@ import { z } from 'zod';
  */
 /**
  * A peer in the room roster (mesh lobby — room method). `id` is the readable signaling label (a
- * LABEL, not identity); `device` is a COARSE cosmetic hint the peer sent on connect (e.g. "Desktop"
- * / "Mobile" — never a full UA); `joinedAt` is the server's clock at join. None of this authenticates
- * anything (the SAS does) — it is display metadata for the human picking whom to pair with. The
- * server is UNTRUSTED, so it is validated here before reaching the store/UI.
+ * LABEL, not identity); `joinedAt` is the server's clock at join. Neither authenticates anything (the
+ * SAS does) — it is display metadata for the human picking whom to pair with. The server is UNTRUSTED,
+ * so it is validated here before reaching the store/UI.
+ *
+ * There used to be a third field, `device` — a coarse "Desktop" / "Mobile" the client sent on connect.
+ * Removed 2026-09-27 (owner's decision): since the 2026-09-26 redesign no screen showed it, so it was
+ * pure metadata handed to the untrusted server. A server that still sends it is harmless: zod strips
+ * the unknown key.
  */
-/** Bounds on every server-supplied string. The honest server already caps `device` at 32 and mints
- *  short ids; a MALICIOUS one does not, and these land in the roster and on screen. Unbounded
- *  `z.string()` let it push megabyte strings into the store for layout/memory abuse — cheap to
- *  refuse at the boundary that exists for exactly this. (2026-09-12 audit.) */
+/** Bounds on every server-supplied string. The honest server mints short ids; a MALICIOUS one does
+ *  not, and these land in the roster and on screen. Unbounded `z.string()` let it push megabyte
+ *  strings into the store for layout/memory abuse — cheap to refuse at the boundary that exists for
+ *  exactly this. (2026-09-12 audit.) */
 const ID_MAX = 64;
-const DEVICE_MAX = 32; // mirrors the server's own slice(0, 32)
 const ROOM_MAX = 64; // 4-digit room, a word, or a 22-char base64url token
 const REASON_MAX = 256;
 
 export const peerInfoSchema = z.object({
   id: z.string().max(ID_MAX),
-  device: z.string().max(DEVICE_MAX),
   joinedAt: z.number(),
 });
 export type PeerInfo = z.infer<typeof peerInfoSchema>;
@@ -41,7 +43,6 @@ export const welcomeSchema = z.object({
 export const peerJoinedSchema = z.object({
   type: z.literal('peer-joined'),
   peerId: z.string().max(ID_MAX),
-  device: z.string().max(DEVICE_MAX),
   joinedAt: z.number(),
 });
 
