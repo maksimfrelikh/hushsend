@@ -130,7 +130,7 @@ hidden), and the deployment are built and live. **311 vitest tests** and a
 Playwright e2e suite — **43 on chromium, 42 on firefox / webkit** (the silent-peer case needs CDP, so
 it runs on Chromium only; plus 2 opt-in cases, the size ladder and the two-STUN cross-check), plus a
 phone profile and 5 cross-engine pairs — cover the protocol paths; the axe gate
-(`npm run test:a11y`, 101 checks) and the screenshot gate (`npm run visual`, 147 checks, plus 10
+(`npm run test:a11y`, 103 checks) and the screenshot gate (`npm run visual`, 147 checks, plus 12
 added 2026-09-27 whose baselines are not recorded yet — BACKLOG § Ops) cover the screens. The vitest,
 per-engine e2e and axe counts were re-run 2026-09-27; the phone, cross-engine and screenshot counts
 are from 2026-09-26. Refresh them here whenever the suite grows.

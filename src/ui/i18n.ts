@@ -201,9 +201,7 @@ export const STR = {
   },
   /** Shown while the authenticated connection is in ICE `disconnected` — the progress on screen is
    *  not live then, and a bar that claims otherwise is exactly what TESTPLAN F2 forbids. */
-  interrupted: {
-    en: 'Connection interrupted — nothing is arriving from the other device. If it comes back, this carries on; if not, the channel closes by itself.',
-  },
+  interrupted: { en: 'Connection interrupted — waiting for it to come back' },
   pathMismatch: { en: 'route did not match', ru: 'маршрут не совпал' },
   pathMismatchHint: {
     en: 'The address this connection actually used is not one your correspondent listed. Your files are still encrypted end-to-end and unreadable to anyone in between — this is about the ROUTE, not the contents. Two things cause it: some browsers (Safari above all) cannot report the address they were reached on, or something is carrying your connection through itself. If that distinction matters to you, stop here and reconnect over a different network.',
@@ -267,13 +265,9 @@ export const STR = {
     en: 'Make sure Reconnect was tapped on it too, and that it still lists this device. If it has forgotten this pairing (storage cleared), connect a new way — a fresh pairing will pin it again.',
     ru: 'Убедитесь, что «Переподключить» нажали и там, и что это устройство ещё в его списке. Если оно забыло сопряжение (очищено хранилище), соединитесь заново любым способом — новое сопряжение снова его запомнит.',
   },
-  // An AUTHENTICATED channel died (the other tab closed, its network dropped): the session is over,
-  // and the last file's outcome is shown under this copy.
-  lostEyebrow: { en: 'channel closed' },
-  lostTitle: { en: 'The other device is no longer connected' },
-  lostDesc: {
-    en: 'It closed hushsend, or its network dropped. Nothing more can travel on this channel — connect again to send more.',
-  },
+  // An AUTHENTICATED channel died (a tab closed or a network dropped — on EITHER side, so the copy
+  // names no culprit): the session is over, and the last file's outcome is shown under the title.
+  lostTitle: { en: 'Connection lost' },
   deliveredLabel: { en: 'delivered' },
   receivedLabel: { en: 'received' },
   notDeliveredLabel: { en: 'not delivered' },

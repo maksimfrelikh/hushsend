@@ -10,7 +10,8 @@ import { transferActions } from '../store/transferSlice';
  * `disconnected` connection: both screens went on saying "Secure channel open" / "Sending 46 %" to a
  * peer that was gone. Now every one of those signals reaches `onConnectionLost`, which fails the
  * in-flight transfer, drops the PeerConnection and goes `connected → failed` with the stable
- * CONNECTION_LOST_REASON — and an ICE `disconnected` is surfaced as `interrupted`, with a backstop.
+ * `connection lost: <signal>` (CONNECTION_LOST_PREFIX) — and an ICE `disconnected` is surfaced as
+ * `interrupted`, with a backstop.
  *
  * Driven at the SessionController level with a mock PeerConnection (the real one needs
  * RTCPeerConnection, absent under Node) and the controller's private hooks reached through a cast.

@@ -13,3 +13,8 @@ server/.env.local
 
 # Local record of the hashes this host last deployed (see deploy/deploy-frontend.sh step 3b).
 MANIFEST.sha256
+
+# Playwright run artifacts of the visual gate (report + per-run results) — never commit them;
+# the baselines under visual/baseline/ are the only committed output.
+visual/.report/
+visual/.results/

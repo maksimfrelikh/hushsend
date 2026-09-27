@@ -605,11 +605,12 @@ function errText(err: unknown): string {
 const DIRECT_FAIL_REASON = "couldn't connect directly (Max privacy)";
 
 /**
- * Failure reason when an AUTHENTICATED channel dies: the other tab closed, its network dropped, ICE
- * failed for good. A stable marker the FailedScreen keys its "connection lost" variant off — keep the
- * "connection lost" token in sync with FailedScreen's detection.
+ * Failure-reason prefix when an AUTHENTICATED channel dies (a tab closed, a network dropped — on
+ * either side — ICE failed for good). The full reason is `connection lost: <which signal>`, e.g.
+ * `connection lost: ICE failed`. FailedScreen keys its "connection lost" variant off the prefix and
+ * shows only the signal — its title already says "lost" — so keep the two in sync.
  */
-const CONNECTION_LOST_REASON = 'connection lost — the other device closed hushsend or its network dropped';
+const CONNECTION_LOST_PREFIX = 'connection lost';
 /** What an in-flight transfer's row says when the channel dies under it. */
 const TRANSFER_LOST_REASON = 'connection lost';
 
@@ -1332,7 +1333,7 @@ export class SessionController {
     this.peer.close();
     this.peer = null;
     this.clearPendingPeerSignals();
-    this.fail(new Error(CONNECTION_LOST_REASON));
+    this.fail(new Error(`${CONNECTION_LOST_PREFIX}: ${why}`));
   }
 
   /**

@@ -302,19 +302,19 @@ the same pass as CLAUDE.md when items land.
   SAME fix as "link/qr lobby-race resistance" above. (See CLAUDE.md § link/qr method + § Signaling server.)
 
 ## Ops / housekeeping (small, no devices)
-- [ ] **Record the 10 new screenshot baselines on the deploy host (added 2026-09-27, NOT recorded).**
-  `visual/scenes.ts` gained `transfer-interrupted` (phone × 2 themes), `failed-lost` (full matrix, 6)
-  and `failed-lost-delivered` (phone × 2) with the connection-lost fix. The committed baselines are
-  the deploy host's renders — on the Mac every existing scene differs from them, on the untouched
-  commit too (`failed-direct` / `transfer-error`: 8 of 8, 2026-09-27) — so these were reviewed from
-  Mac renders but deliberately NOT committed. Until they are recorded there, `npm run visual` reports
-  those 10 as missing. On the host, after pulling:
+- [ ] **Record the 12 new screenshot baselines on the deploy host (added 2026-09-27, NOT recorded).**
+  `visual/scenes.ts` gained `transfer-interrupted` (phone × 2 themes), `failed-lost` (full matrix, 6),
+  `failed-lost-delivered` and `failed-lost-idle` (phone × 2 each) with the connection-lost fix. The
+  committed baselines are the deploy host's renders — on the Mac every existing scene differs from
+  them, on the untouched commit too (`failed-direct` / `transfer-error`: 8 of 8, 2026-09-27) — so
+  these were reviewed from Mac renders but deliberately NOT committed. Until they are recorded there,
+  `npm run visual` reports those 12 as missing. On the host, after pulling:
   `npx playwright test -c visual/playwright.config.ts -g "transfer-interrupted|failed-lost" --update-snapshots`,
   then commit `visual/baseline/{transfer-interrupted,failed-lost}*.png` and update README § Status.
-- [ ] **`visual/.report/index.html` and `visual/.results/.last-run.json` are tracked** (committed with
-  `783c0a6` / `efe8b29`), so every `npm run visual` leaves the tree dirty. They are run artifacts:
-  `git rm --cached` them and add `visual/.report/` + `visual/.results/` to `.gitignore`. (Noticed
-  2026-09-27; restored by hand after a probe run, nothing else touched.)
+- ✅ **The visual gate's run artifacts are no longer tracked — DONE 2026-09-27.**
+  `visual/.report/index.html` and `visual/.results/.last-run.json` had been committed with `783c0a6` /
+  `efe8b29`, so every `npm run visual` left the tree dirty; they are `git rm --cached` now and both
+  directories are in `.gitignore`.
 - ✅ **The RUNNING signaling copy is back in sync — VERIFIED 2026-09-12.** `/var/www/hush-signaling-server`
   (what systemd runs) is at `3cfd00a`, the `DEV_ORIGINS` commit, and 0 behind its `origin/main`. Keep
   pulling it whenever the repo moves — drift in the other direction is what once hid a hardcoded dev

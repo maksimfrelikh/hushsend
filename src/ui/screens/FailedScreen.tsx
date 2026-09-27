@@ -26,6 +26,8 @@ export function FailedScreen(): ReactElement {
   // Reliable only (Max privacy never requests creds, so this is always false there): the relay this
   // mode exists to provide was not available, which is WHY the attempt behaved like Max privacy.
   const relayUnavailable = useAppSelector((s) => s.connection.relayUnavailable);
+  // Whether this session ever had a file on the wire (the connection-lost variant then shows it).
+  const hadTransfer = useAppSelector((s) => s.transfer.phase !== 'idle' && !!s.transfer.fileName);
 
   if (reconnectOutcome === 'key-changed') {
     return (
@@ -60,8 +62,9 @@ export function FailedScreen(): ReactElement {
   // Codeless reconnect: the wait cap fired with nobody at the rendezvous. Keyed off the stable
   // RECONNECT_NO_SHOW_REASON marker the core sets.
   const isNoShow = /did not show up/.test(lower);
-  // An AUTHENTICATED channel died after `connected`. Keyed off CONNECTION_LOST_REASON.
-  const isLost = /connection lost/.test(lower);
+  // An AUTHENTICATED channel died after `connected`. Keyed off CONNECTION_LOST_PREFIX
+  // (`connection lost: <which signal>`).
+  const isLost = lower.startsWith('connection lost');
 
   const variant = isMismatch
     ? 'mismatch'
@@ -87,12 +90,15 @@ export function FailedScreen(): ReactElement {
       title: t('directFailTitle'),
       desc: t('directFailHint'),
     },
-    lost: { kicker: t('lostEyebrow'), title: t('lostTitle'), desc: t('lostDesc') },
+    // Title, the file, the signal — nothing else. An eyebrow or a description would only say "lost"
+    // again, and could not honestly say WHOSE side dropped (it may well be this one).
+    lost: { kicker: '', title: t('lostTitle'), desc: '' },
     generic: { kicker: t('erGenericEyebrow'), title: t('erGenericTitle'), desc: '' },
   }[variant];
 
   return (
     <FailureLayout
+      variant={variant}
       kicker={copy.kicker}
       title={copy.title}
       desc={copy.desc}
@@ -100,14 +106,17 @@ export function FailedScreen(): ReactElement {
       extra={
         variant === 'lost' ? (
           // The session was authenticated and is over; what the user still needs is the file.
-          <LastTransfer />
+          hadTransfer ? (
+            <LastTransfer />
+          ) : null
         ) : relayUnavailable ? (
           <p className="hs-p hs-p--muted hs-p--narrow" data-testid="relay-unavailable-hint">
             {t('relayUnavailableHint')}
           </p>
         ) : null
       }
-      reason={error}
+      // The lost variant's title already says "lost"; its mono line keeps only which signal said so.
+      reason={variant === 'lost' ? error.replace(/^connection lost:\s*/i, '') : error}
       actions={
         // Fresh words fix a CODE problem (wrong, spent, expired). A lost connection is not one — the
         // words did their job — so it gets the plain exit.
@@ -180,8 +189,10 @@ function LastTransfer(): ReactElement | null {
 }
 
 /** The failure composition shared by every variant (and by the SAS fail-closed restart): glyph,
- *  mono kicker, title, optional description(s), the raw reason, the actions column. */
+ *  optional mono kicker, title, optional description(s), the raw reason, the actions column.
+ *  `variant` is exposed as `data-variant` for tooling and tests. */
 export function FailureLayout({
+  variant,
   kicker,
   title,
   desc,
@@ -190,7 +201,8 @@ export function FailureLayout({
   reason,
   actions,
 }: {
-  kicker: string;
+  variant?: string;
+  kicker?: string;
   title: string;
   desc?: string;
   descTestId?: string;
@@ -200,11 +212,15 @@ export function FailureLayout({
 }): ReactElement {
   return (
     <Screen center>
-      <div className="hs-failed">
+      <div className="hs-failed" data-testid="failure" data-variant={variant}>
         <Glyph name="warn" size={40} className="hs-failed__glyph" />
         <Space h={24} />
-        <Kicker>{kicker}</Kicker>
-        <Space h={10} />
+        {kicker && (
+          <>
+            <Kicker>{kicker}</Kicker>
+            <Space h={10} />
+          </>
+        )}
         <h2 className="hs-h2">{title}</h2>
         {desc && (
           <>

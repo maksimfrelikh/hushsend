@@ -41,8 +41,9 @@ const WORDS = ['bathrobe', 'gadget', 'spider', 'ladder', 'digit'];
 const PHRASE = 'bathrobe gadget spider';
 const FILE = 'photos-2026-09.zip';
 const SIZE = 48 * 1024 * 1024;
-/** SessionController's CONNECTION_LOST_REASON (the FailedScreen keys the variant off its text). */
-const LOST = 'connection lost — the other device closed hushsend or its network dropped';
+/** What SessionController fails with when an authenticated channel closes (CONNECTION_LOST_PREFIX + the
+ *  signal); the FailedScreen keys its connection-lost variant off the prefix. */
+const LOST = 'connection lost: data channel closed';
 
 export async function dispatch(page: Page, ...actions: Action[]): Promise<void> {
   await page.evaluate((acts) => {
@@ -429,6 +430,12 @@ export const SCENES: Scene[] = [
     name: 'failed-lost-delivered',
     matrix: 'phone',
     setup: (page) => dispatch(page, ...sending, tr('completed'), conn('failed', { reason: LOST })),
+  },
+  {
+    // ...and before any file: title, signal, exit.
+    name: 'failed-lost-idle',
+    matrix: 'phone',
+    setup: (page) => dispatch(page, ...connected, conn('failed', { reason: LOST })),
   },
   {
     name: 'failed-generic',

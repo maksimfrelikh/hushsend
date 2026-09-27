@@ -19,7 +19,7 @@ a radio or a camera.** The ticks in § 0.1 are PRECONDITIONS, not cases; do not 
 > BACKLOG § UX bugs, first item) **but NOT deployed** — so § 0.1's deploy precondition is stale for any
 > case run after that change until the next deploy is re-ticked. F3 and F2 stay unticked until re-run on
 > the live build: F3 on desktop (T1), F2 on a real phone. Expected now: F3 — the sender ends on
-> "channel closed · not delivered" within ~1 s; F2 — "Connection interrupted" within ~6 s of the cut,
+> "Connection lost · not delivered" within ~1 s; F2 — "Connection interrupted" within ~6 s of the cut,
 > then the same failure screen when the engine gives up (Chrome ~16 s). The same change closes the
 > transport on `pagehide`: in **F1**, if the session ends the instant the phone locks or switches apps
 > (rather than when the network gives up), suspect that and write it down.

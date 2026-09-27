@@ -79,7 +79,9 @@ async function midTransfer(browser: Browser): Promise<{ sender: Page; receiver: 
 /** The survivor's end state: the connection-lost screen, naming the file and what became of it. */
 async function expectLost(page: Page, outcome: RegExp, timeout: number): Promise<void> {
   await expect(page.getByTestId('status')).toHaveText('failed', { timeout });
-  await expect(page.getByTestId('error')).toContainText('connection lost');
+  await expect(page.getByTestId('failure')).toHaveAttribute('data-variant', 'lost');
+  // The mono line names the signal that ended it (engine-dependent: a closed channel, a failed ICE…).
+  await expect(page.getByTestId('error')).not.toBeEmpty();
   const last = page.getByTestId('last-transfer');
   await expect(last).toHaveAttribute('data-outcome', 'error');
   await expect(last).toContainText('big.bin');

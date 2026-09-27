@@ -62,8 +62,8 @@ without adding states. **Reconnect re-auth (4b-ii) adds NO states** — it reuse
 awaitingPeer` (waiting for the other device at the derived rendezvous) `→ pairing → confirming →
 connected | failed`; there is no SAS fallback any more.) **An authenticated channel that dies** — the
 DataChannel closes, the connection closes, ICE fails, or it sits in `disconnected` past the backstop —
-ends as `connected → failed` with `CONNECTION_LOST_REASON`, again no new state (see § File transfer →
-*Liveness after connect*).
+ends as `connected → failed` with `connection lost: <signal>` (`CONNECTION_LOST_PREFIX`), again no
+new state (see § File transfer → *Liveness after connect*).
 
 **Hard invariant:** no file bytes flow unless the connection is authenticated (status reaches
 `connected` / the `established` gate, i.e. after key-confirmation or mutual SAS-confirm). Keep
@@ -574,10 +574,13 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
   **`SessionController.onConnectionLost`** (one-shot): it fails the in-flight transfer FIRST
   (`ActiveSend.fail` / `ActiveReceive.fail` → the row reads `connection lost`; a receive whose `eof`
   already arrived is let finish), marks a pending offer lost, drops the PeerConnection and goes
-  `connected → failed` with `CONNECTION_LOST_REASON`. The transfer projection is **left in the store**:
-  FailedScreen's `lost` variant ("channel closed · The other device is no longer connected") shows the
-  last file's outcome (`last-transfer`, `data-outcome`), so a file delivered a moment before the other
-  tab closed still says delivered. `waitForDrain` now REJECTS on the channel's `close` (and on our own
+  `connected → failed` with `connection lost: <signal>` (`CONNECTION_LOST_PREFIX`). The transfer
+  projection is **left in the store**: FailedScreen's `lost` variant (`data-variant="lost"`) is the
+  title "Connection lost", the last file's outcome (`last-transfer`, `data-outcome`) and the signal as
+  the mono line — no eyebrow, no description: they only repeated "lost" and could not honestly say
+  WHOSE side dropped (after the owner's 2026-09-27 review: too many blocks, repeats, the app's name in
+  the copy). A file delivered a moment before the other tab closed
+  still says delivered. `waitForDrain` now REJECTS on the channel's `close` (and on our own
   `close()`, which fires no event), so the pump exits through its own error path.
   - ICE **`disconnected`** is transient — surfaced, not fatal: `PeerConnection.onInterrupted` →
     `connection.interrupted` (a projection, not a state) → TransferScreen's `interrupted` alert line;
@@ -597,7 +600,7 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
     closes mid-transfer → the sender ends "not delivered"; the sender closes → the receiver ends "not
     received" with no download; Chromium only — the receiver's renderer crashed via CDP `Page.crash` →
     the sender shows `interrupted`, then ends lost). Screens: `visual/scenes.ts` `transfer-interrupted`,
-    `failed-lost`, `failed-lost-delivered` (axe-checked; screenshot baselines still to be recorded on
+    `failed-lost`, `failed-lost-delivered`, `failed-lost-idle` (axe-checked; screenshot baselines still to be recorded on
     the deploy host — BACKLOG § Ops).
 
 ## Privacy mode + ICE (Max-privacy / Reliable — step 6d, DONE)
