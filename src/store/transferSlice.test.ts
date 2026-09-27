@@ -15,6 +15,7 @@ const dirtyDone: TransferState = {
   transferredBytes: 1000,
   phase: 'done',
   error: null,
+  saveNeeded: true, // a received file still waiting for "Save file" must not survive a reset either
 };
 
 describe('transfer slice — per-send reset', () => {
@@ -27,6 +28,7 @@ describe('transfer slice — per-send reset', () => {
       transferredBytes: 0,
       phase: 'idle',
       error: null,
+      saveNeeded: false,
     });
   });
 
@@ -47,6 +49,7 @@ describe('transfer slice — per-send reset', () => {
       transferredBytes: 0,
       phase: 'offered',
       error: null,
+      saveNeeded: false,
     });
   });
 });

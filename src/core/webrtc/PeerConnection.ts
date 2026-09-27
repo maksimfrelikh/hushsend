@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   classifySelectedPath,
   relayCandidateEndpoint,
+  selectedPairRelayed,
   selectedRemoteCandidate,
   shouldDropCandidate,
   stripRelayCandidates,
@@ -468,6 +469,13 @@ export class PeerConnection {
   async localAddresses(): Promise<string[]> {
     const entries = await this.readStats();
     return entries ? localCandidateAddresses(entries) : [];
+  }
+
+  /** Whether the selected pair runs through a TURN relay on either side (see relax.selectedPairRelayed);
+   *  null when nothing is selected yet or stats are unavailable. */
+  async selectedPathRelayed(): Promise<boolean | null> {
+    const entries = await this.readStats();
+    return entries ? selectedPairRelayed(entries) : null;
   }
 
   /**

@@ -12,7 +12,14 @@ export type TransferDirection = 'send' | 'receive';
  *   cancelled    — either side cancelled mid-flight
  *   error        — sink/transport failure; see `error`
  */
-export type TransferPhase = 'idle' | 'offered' | 'transferring' | 'done' | 'rejected' | 'cancelled' | 'error';
+export type TransferPhase =
+  | 'idle'
+  | 'offered'
+  | 'transferring'
+  | 'done'
+  | 'rejected'
+  | 'cancelled'
+  | 'error';
 
 export interface TransferState {
   direction: TransferDirection | null;
@@ -22,6 +29,9 @@ export interface TransferState {
   phase: TransferPhase;
   /** reject reason / failure message (for rejected | error) */
   error: string | null;
+  /** A received file is complete but was NOT handed to the browser yet: the page was hidden when it
+   *  finished (iOS drops a download started then), so the finished row shows "Save file". */
+  saveNeeded: boolean;
 }
 
 const initialState: TransferState = {
@@ -31,6 +41,7 @@ const initialState: TransferState = {
   transferredBytes: 0,
   phase: 'idle',
   error: null,
+  saveNeeded: false,
 };
 
 const slice = createSlice({
@@ -48,6 +59,7 @@ const slice = createSlice({
       state.transferredBytes = 0;
       state.phase = 'offered';
       state.error = null;
+      state.saveNeeded = false;
     },
     /** Offer accepted — bytes start flowing. */
     accepted(state) {
@@ -70,6 +82,10 @@ const slice = createSlice({
     failed(state, action: PayloadAction<{ reason: string }>) {
       state.phase = 'error';
       state.error = action.payload.reason;
+    },
+    /** The finished file waits for a tap (true) / was handed over (false) — see the field. */
+    saveNeeded(state, action: PayloadAction<boolean>) {
+      state.saveNeeded = action.payload;
     },
     reset: () => initialState,
   },

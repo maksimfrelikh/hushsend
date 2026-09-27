@@ -22,10 +22,15 @@
  * stream built on the fly with client-zip (streams; never held whole in RAM). Bytes are
  * re-chunked to CHUNK_SIZE and pushed through the backpressure-aware wire.send().
  *
- * Receive: stream straight to disk via File System Access (`showSaveFilePicker`) where
- * available (Chromium → unbounded size); otherwise buffer in RAM and hand back a Blob
- * download (Safari/iOS, Firefox → capped). The capability + size guard runs BEFORE accept,
- * so an oversize file on the Blob path is rejected without a single byte crossing.
+ * Receive — to DISK wherever possible, in this order (owner's rule, 2026-09-27; see planReceive):
+ *   1. OPFS (./opfs.ts): the site's private folder, written with no dialog at all, then handed to the
+ *      user as a download read from disk. Every current engine has it; bounded by the site's quota.
+ *   2. File System Access (`showSaveFilePicker`): disk, but through the save dialog — used only when
+ *      OPFS cannot take the file (quota), since on Android a dialog left open killed the connection.
+ *   3. RAM (a Blob) — capped at MAX_BYTES_BLOB, the last resort (a private window with no storage).
+ * The plan and its size guard run BEFORE accept, so a file no path can take is refused without a
+ * single byte crossing. A finished file is returned to the caller to hand off (ReceiveEvent `done`):
+ * whether to start the download now or wait for a tap is the controller's call.
  *
  * INVARIANT: nothing here runs unless the connection is AUTHENTICATED. Both directions are gated in
  * the core on `SessionController.established` — sendFiles always was, and handleIncomingOffer /
@@ -35,6 +40,7 @@
  */
 import { z } from 'zod';
 import { padBytesFor } from './padding';
+import { createIncoming, opfsRoom, opfsUsable } from './opfs';
 import { makeZip, predictLength } from 'client-zip';
 
 // ── tuning constants ────────────────────────────────────────────────────────
@@ -43,18 +49,17 @@ export const CHUNK_MIN = 16 * 1024; // 16 KiB
 /** Chunk-size ceiling: never send messages larger than this. */
 export const CHUNK_MAX = 256 * 1024; // 256 KiB
 /**
- * Blob-fallback caps (RAM-bound paths only). FSA streaming-to-disk is unbounded.
+ * The RAM-only receive path's cap: a Blob held whole in the tab until it is handed off. Reached only
+ * when neither disk path can take the file (see planReceive) — a private window without site storage,
+ * a browser with neither OPFS nor a save dialog. ONE cap for every device, by the owner's rule
+ * (2026-09-27): "a receive that can only go through RAM is capped at 200 MB" — a gigabyte of RAM was
+ * judged too much, on a tablet as much as anywhere, and the disk paths now carry the big files.
  *
- * MEASURED 2026-09-12 (`tests/e2e/limits.spec.ts`, on a Mac, with our own cap lifted so the ENGINE
- * is what fails): Chromium carries 1 GB and 2 GB but dies at 3 GB, and WebKit carries up to 1.5 GB
- * but dies at 1.75 GB. Both fail at the END — the chunks arrive, then assembling/handing over the
- * single Blob collapses (Chromium: `download.saveAs: canceled`; WebKit: progress freezes near 100%).
- * Neither raises an error the page could catch: the tab simply stops. So the desktop cap sits well
- * under both ceilings ON PURPOSE — raising it would trade a clear pre-accept refusal for a dead tab.
- * The mobile cap is still a judgement call: no real iOS device has been measured (TESTPLAN § B2).
+ * For scale, MEASURED 2026-09-12 (`tests/e2e/limits.spec.ts`, our cap lifted so the ENGINE is what
+ * fails): Chromium carried 2 GB in a Blob and died at 3 GB, WebKit carried 1.5 GB and died at 1.75 GB —
+ * both at the END, with no error the page could catch. 200 MB sits far below that on purpose.
  */
-export const MAX_BYTES_DESKTOP_BLOB = 1024 * 1024 * 1024; // ~1 GB
-export const MAX_BYTES_MOBILE_BLOB = 512 * 1024 * 1024; // ~0.5 GB
+export const MAX_BYTES_BLOB = 200 * 1024 * 1024;
 
 /** Final chunk size: the SCTP-negotiated max, clamped to [CHUNK_MIN, CHUNK_MAX]. */
 export function chunkSize(maxMessageSize: number): number {
@@ -106,24 +111,54 @@ function blobMaxOverride(): number | null {
   }
 }
 
-function isMobileUA(): boolean {
-  if (typeof navigator === 'undefined') return false;
-  if (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)) return true;
-  // iPadOS Safari requests desktop sites by default and sends a Mac's UA — no "iPad" anywhere — so it
-  // used to get the DESKTOP cap and hold a whole GiB in a tablet's RAM (measured on the iPad
-  // simulator, 2026-09-27). A "Mac" with a multi-touch screen is an iPad: no Mac has one.
-  return /Macintosh/.test(navigator.userAgent) && (navigator.maxTouchPoints ?? 0) > 1;
+/** Where a received file is written — see the header and planReceive. */
+export type ReceivePath = 'opfs' | 'fsa' | 'blob';
+/** What an incoming offer can be received through, decided BEFORE accept: a path and the most it
+ *  can hold, or a refusal whose text goes back to the sender. */
+export type ReceivePlan = { path: ReceivePath; maxBytes: number } | { refused: string };
+
+/**
+ * Pick the receive path for a file of `size` bytes: OPFS if the site's quota can hold it (disk, no
+ * dialog), else the save dialog if the browser has one (disk, through a dialog), else RAM up to
+ * MAX_BYTES_BLOB — else refuse, naming the largest thing that would have fitted. Never throws.
+ */
+export async function planReceive(size: number): Promise<ReceivePlan> {
+  const cap = blobMaxOverride() ?? MAX_BYTES_BLOB;
+  let room = 0;
+  if (!forceBlobFallback()) {
+    if (await opfsUsable()) {
+      room = await opfsRoom();
+      if (size <= room) return { path: 'opfs', maxBytes: room };
+    }
+    const fsa = fsaPlan();
+    if (fsa) return fsa;
+  }
+  if (size <= cap) return { path: 'blob', maxBytes: cap };
+  return { refused: tooBigReason(size, Math.max(room, cap)) };
 }
 
-/** True when we can stream the received file straight to disk (Chromium File System Access). */
-export function canStreamToDisk(): boolean {
-  return !forceBlobFallback() && typeof window !== 'undefined' && 'showSaveFilePicker' in window;
+function fsaPlan(): { path: ReceivePath; maxBytes: number } | null {
+  return typeof window !== 'undefined' && 'showSaveFilePicker' in window ? { path: 'fsa', maxBytes: Infinity } : null;
 }
 
-/** Largest file we'll accept given the receive path: Infinity when streaming, else a RAM cap. */
-export function receiveMaxBytes(canStream: boolean): number {
-  if (canStream) return Infinity;
-  return blobMaxOverride() ?? (isMobileUA() ? MAX_BYTES_MOBILE_BLOB : MAX_BYTES_DESKTOP_BLOB);
+/** Where a receive planned for OPFS goes if OPFS refuses the write after all (see openReceive). */
+function planWithoutOpfs(size: number): { path: ReceivePath; maxBytes: number } | null {
+  const fsa = fsaPlan();
+  if (fsa) return fsa;
+  const cap = blobMaxOverride() ?? MAX_BYTES_BLOB;
+  return size <= cap ? { path: 'blob', maxBytes: cap } : null;
+}
+
+/** The refusal the sender sees. Both sizes print to the same string just over a limit ("1.0 GB —
+ *  larger than the 1.0 GB"), which reads as nonsense — then they are given in bytes. */
+function tooBigReason(size: number, limit: number): string {
+  let a = formatBytes(size);
+  let b = formatBytes(limit);
+  if (a === b) {
+    a = `${size} bytes`;
+    b = `${limit} bytes`;
+  }
+  return `This file is ${a} — larger than the ${b} this browser can take right now. Free up disk space, or receive it in another browser or in a normal (not private) window.`;
 }
 
 export function formatBytes(n: number): string {
@@ -351,9 +386,20 @@ export function sendFiles(
 }
 
 // ── receiver ───────────────────────────────────────────────────────────────────
+/** A finished file still to be given to the user (OPFS / RAM paths), and how to let it go. */
+export interface Handoff {
+  file: Blob;
+  name: string;
+  /** The download has been started: let go of the file (OPFS: removed after the hold). */
+  release: () => void;
+  /** Nobody will save it: let go of it now (OPFS: removed at once). */
+  discard: () => void;
+}
+
 export type ReceiveEvent =
   | { t: 'progress'; transferredBytes: number }
-  | { t: 'done' }
+  /** `handoff` is null on the save-dialog path: the file is already where the user put it. */
+  | { t: 'done'; handoff: Handoff | null }
   | { t: 'cancelled' }
   | { t: 'error'; reason: string };
 
@@ -376,11 +422,13 @@ export interface ActiveReceive {
 
 interface ReceiveSink {
   write(chunk: ArrayBuffer): Promise<void>;
-  close(): Promise<void>;
+  /** Finish the file; returns what is still to be handed to the user (null: already saved). */
+  close(): Promise<Omit<Handoff, 'name'> | null>;
   abort(): Promise<void>;
 }
 
-function triggerDownload(blob: Blob, name: string): void {
+/** Hand a finished file to the browser as a download — no dialog on any engine we ship to. */
+export function triggerDownload(blob: Blob, name: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -392,14 +440,41 @@ function triggerDownload(blob: Blob, name: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-async function openSink(name: string, canStream: boolean, maxBytes: number): Promise<ReceiveSink> {
-  if (canStream) {
+async function openSink(name: string, plan: { path: ReceivePath; maxBytes: number }): Promise<ReceiveSink> {
+  if (plan.path === 'opfs') {
+    // Disk, no dialog: the site's private folder (./opfs.ts), then a download read from it.
+    const incoming = await createIncoming();
+    const { writable } = incoming;
+    return {
+      write: (chunk) => writable.write(chunk),
+      close: async () => {
+        await writable.close();
+        return {
+          file: await incoming.file(),
+          release: () => incoming.releaseLater(),
+          discard: () => void incoming.remove(),
+        };
+      },
+      abort: async () => {
+        try {
+          await writable.abort();
+        } catch {
+          /* already closed */
+        }
+        await incoming.remove(); // a failed receive leaves nothing on disk
+      },
+    };
+  }
+  if (plan.path === 'fsa') {
     // Must run inside the accept-click user gesture (showSaveFilePicker requires it).
     const handle = await window.showSaveFilePicker({ suggestedName: name });
     const writable = await handle.createWritable();
     return {
       write: (chunk) => writable.write(chunk),
-      close: () => writable.close(),
+      close: async () => {
+        await writable.close();
+        return null; // already where the user chose to put it
+      },
       abort: async () => {
         try {
           await writable.abort();
@@ -409,7 +484,8 @@ async function openSink(name: string, canStream: boolean, maxBytes: number): Pro
       },
     };
   }
-  // RAM-bound fallback: accumulate chunks, hand back a Blob download on eof.
+  // RAM-bound last resort: accumulate chunks, hand back one Blob on eof.
+  const { maxBytes } = plan;
   const parts: ArrayBuffer[] = [];
   let total = 0;
   return {
@@ -418,7 +494,11 @@ async function openSink(name: string, canStream: boolean, maxBytes: number): Pro
       if (total > maxBytes) throw new Error(`incoming data exceeds the ${formatBytes(maxBytes)} in-memory limit`);
       parts.push(chunk);
     },
-    close: async () => triggerDownload(new Blob(parts), name),
+    close: async () => {
+      const file = new Blob(parts);
+      parts.length = 0; // the Blob holds its own copy — do not keep two
+      return { file, release: () => {}, discard: () => {} };
+    },
     abort: async () => {
       parts.length = 0;
     },
@@ -426,18 +506,31 @@ async function openSink(name: string, canStream: boolean, maxBytes: number): Pro
 }
 
 /**
- * Open the receive sink (the FSA save picker runs here, in the caller's user gesture)
- * and return a live receive session. The caller stores the reference, then calls
+ * Open the receive sink for `plan` (on the save-dialog path the picker runs here, in the caller's
+ * user gesture) and return a live receive session. The caller stores the reference, then calls
  * `start()` to send `accept` — so a chunk can never arrive before we can route it.
  */
 export async function openReceive(
   wire: TransferWire,
   offer: { name: string; size: number; isZip: boolean },
-  canStream: boolean,
-  maxBytes: number,
+  plan: { path: ReceivePath; maxBytes: number },
   emit: (e: ReceiveEvent) => void,
 ): Promise<ActiveReceive> {
-  const sink = await openSink(offer.name, canStream, maxBytes);
+  let sink: ReceiveSink;
+  try {
+    sink = await openSink(offer.name, plan);
+  } catch (err) {
+    // Site storage passed the probe and still refused this write (quota taken meanwhile, storage
+    // cleared, a transient engine failure): take the next path, as planReceive would have.
+    const next = plan.path === 'opfs' ? planWithoutOpfs(offer.size) : null;
+    if (!next) {
+      if (plan.path === 'opfs') {
+        throw new Error(`site storage refused the file and it is too big to hold in memory (${errMsg(err)})`);
+      }
+      throw err;
+    }
+    sink = await openSink(offer.name, next);
+  }
   let received = 0;
   let ended = false;
   /** `eof` arrived: all the bytes are here and only the sink's close is left (see `fail`). */
@@ -462,10 +555,14 @@ export async function openReceive(
       // Confirm only what was promised: an eof before every declared byte is a broken transfer,
       // not a smaller file (padding past the declared size is already dropped, so "complete" is exact).
       if (received !== offer.size) throw new Error(`incomplete — ${received} of ${offer.size} bytes arrived`);
-      await sink.close();
+      const left = await sink.close();
       // The sender's "Delivered" waits for this (see the header).
       void wire.send(JSON.stringify({ t: 'received' })).catch(() => {});
-      finalize({ t: 'done' });
+      if (ended) {
+        left?.discard(); // failed in the same breath — nobody will hand this off
+        return;
+      }
+      finalize({ t: 'done', handoff: left ? { ...left, name: offer.name } : null });
     } catch (err) {
       await sink.abort().catch(() => {});
       sendCancel(); // or the sender would wait for a `received` that is never coming

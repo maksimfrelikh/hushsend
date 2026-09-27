@@ -41,7 +41,6 @@ function RestartView(): ReactElement {
   const t = useT();
   return (
     <FailureLayout
-      kicker={t('sasRestartEyebrow')}
       title={t('sasRestartTitle')}
       desc={t('sasRestartDesc')}
       descTestId="sas-restart"

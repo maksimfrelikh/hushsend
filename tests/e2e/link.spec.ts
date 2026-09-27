@@ -129,5 +129,5 @@ test('link negative: a dead link (nobody in the token room) fails at once as "ro
   const secret = randomBytes(16).toString('base64url');
   const receiver = await openJoiner(context, `#${token}.${secret}`);
   await expect(receiver.getByTestId('status')).toHaveText('failed', { timeout: 30_000 });
-  await expect(receiver.getByTestId('error')).toContainText('not found');
+  await expect(receiver.getByTestId('failure')).toHaveAttribute('data-reason', /not found/); // the copy says it; the raw reason is kept on the node
 });

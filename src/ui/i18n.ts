@@ -169,7 +169,6 @@ export const STR = {
   sasConfirm: { en: 'Confirm choice', ru: 'Подтвердить выбор' },
   sasNone: { en: 'None of these match — stop', ru: 'Ни одна не совпадает — остановить' },
   // --- SAS fail-closed (role could not be resolved — missing id; never a functional blind picker) ---
-  sasRestartEyebrow: { en: 'verification interrupted', ru: 'проверка прервана' },
   sasRestartTitle: {
     en: 'Can’t verify safely — restart',
     ru: 'Не удаётся проверить — начните заново',
@@ -189,6 +188,10 @@ export const STR = {
    *  system can produce, so it cannot share a label — nor the `unknown` copy, which blames the browser
    *  and on a mismatch is simply untrue. Both causes are named and the user is given something to do. */
   pathOk: { en: 'direct path confirmed', ru: 'прямой путь подтверждён' },
+  pathRelayed: { en: 'relayed through the server' },
+  pathRelayedHint: {
+    en: 'No direct route between the two devices worked, so Reliable mode sends the encrypted traffic through the relay server. The relay passes it on without being able to read it.',
+  },
   pathUnknown: { en: 'direct path not confirmed', ru: 'прямой путь не подтверждён' },
   pathUnknownHint: {
     en: 'Your files are still encrypted end-to-end and unreadable to anyone in between. What could not be confirmed here is WHICH route they took: one of the two browsers did not report enough to check. Safari never does.',
@@ -233,10 +236,13 @@ export const STR = {
   stoppedAt: { en: 'stopped at' },
   cancel: { en: 'Cancel', ru: 'Отмена' },
   newTransfer: { en: 'New transfer', ru: 'Новая передача' },
+  /** A received file that finished while the page was hidden waits for this tap (iOS drops a download
+   *  started from a hidden page). */
+  saveFile: { en: 'Save file' },
+  saveFileHint: { en: 'It arrived while this page was in the background. Tap to save it.' },
   closeChannel: { en: 'Close channel', ru: 'Закрыть канал' },
 
-  // --- failed (ONE screen, variants) ---
-  erMismatchEyebrow: { en: 'numbers didn’t match', ru: 'не совпало' },
+  // --- failed (ONE screen, variants; titles and descriptions only — nothing said twice) ---
   erMismatchTitle: {
     en: 'This channel may be compromised',
     ru: 'Канал может быть скомпрометирован',
@@ -245,16 +251,16 @@ export const STR = {
     en: 'The phrase you confirmed doesn’t match your peer’s. Someone may be intercepting — don’t send files.',
     ru: 'Подтверждённая фраза не совпала с фразой собеседника. Кто-то может перехватывать — не передавайте файлы.',
   },
-  exEyebrow: { en: 'error · room not found', ru: 'ошибка · комната не найдена' },
   exTitle: { en: 'Room not found or code expired', ru: 'Комната не найдена или код истёк' },
   exDesc: {
     en: 'No active room has this code, or it has already expired. Check the digits or start your own room.',
     ru: 'Нет активной комнаты с таким кодом, либо он уже истёк. Проверьте цифры или создайте свою комнату.',
   },
-  erGenericEyebrow: { en: 'connection failed', ru: 'соединение не удалось' },
   erGenericTitle: { en: 'Couldn’t connect', ru: 'Не удалось соединиться' },
+  // A signaling drop that is not a room answer (1006 above all) — no digits to check, a network to.
+  serverLostTitle: { en: 'Lost the connection to the server' },
+  serverLostDesc: { en: 'Check your internet connection and start again.' },
   // Max-privacy STRICT model: never relays — a direct failure is terminal (step 6d).
-  directFailEyebrow: { en: 'direct connection failed', ru: 'прямое соединение не удалось' },
   directFailTitle: { en: 'Couldn’t connect directly', ru: 'Не удалось соединиться напрямую' },
   directFailHint: { en: 'Switch to Reliable to allow relaying through a server.' },
   // Reliable mode: the relay we were promised was not there (see connectionSlice.relayUnavailable).
@@ -262,7 +268,6 @@ export const STR = {
     en: 'Reliable mode found no relay, so this attempt ran direct-only — the fallback you chose this mode for was not there. If it keeps happening the relay is down or misconfigured, not your network.',
     ru: 'Надёжный режим не получил реле, поэтому попытка шла только напрямую — запасного пути, ради которого вы выбрали этот режим, не было. Если это повторяется — дело в реле (не работает или настроено неверно), а не в вашей сети.',
   },
-  noShowEyebrow: { en: 'reconnect · nobody came', ru: 'переподключение · никто не пришёл' },
   noShowTitle: { en: 'The other device did not show up', ru: 'Другое устройство не появилось' },
   noShowDesc: {
     en: 'Make sure Reconnect was tapped on it too, and that it still lists this device. If it has forgotten this pairing (storage cleared), connect a new way — a fresh pairing will pin it again.',

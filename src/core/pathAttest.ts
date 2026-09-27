@@ -70,7 +70,13 @@ export function localCandidateAddresses(entries: readonly StatsEntry[], cap = 16
   return [...out];
 }
 
-export type PathVerdict = 'ok' | 'mismatch' | 'unknown';
+/**
+ * `relayed` is decided by the CALLER from the selected pair's candidate types, not by
+ * {@link pathVerdict}: through a TURN relay the address check passes honestly (the relayed peer names
+ * its relay address), so "ok" would say "direct path confirmed" about a relayed session. Reliable mode
+ * only — Max privacy refuses a relayed path at channel-open.
+ */
+export type PathVerdict = 'ok' | 'mismatch' | 'unknown' | 'relayed';
 
 /**
  * The verdict for one side: does the remote address we actually selected appear among the addresses

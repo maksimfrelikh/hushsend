@@ -563,10 +563,38 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
 - **Several files in one send travel as ONE store-mode zip, `hushsend-files.zip`** (`client-zip`
   `makeZip`, streamed; `predictLength` gives the exact size for the offer), so the receiver sees one
   offer and one progress bar. By design since `1082b7d`; documented 2026-09-27 (TESTPLAN A7).
-- Save-to-disk: **File System Access** (`showSaveFilePicker`) to stream to disk where
-  available (Chromium); fall back to in-memory **Blob** on iOS Safari / Firefox (RAM-bound).
-  Cap very large files on the Blob path — multi-GB streaming-to-disk is unreliable on iOS
-  (platform limit). The transfer itself works on all browsers.
+- **Receive to DISK wherever possible — owner's rule, 2026-09-27** ("write to disk whenever it is
+  possible; a dialog only if disk needs one; a RAM-only receive capped at 200 MB"). `planReceive` (in
+  `fileTransfer.ts`) decides per offer, BEFORE the offer reaches the screen, in this order:
+  1. **OPFS** (`transfer/opfs.ts`) — the site's private on-disk folder, written with NO dialog, then
+     handed over as an ordinary download read from disk. Used when a one-time write probe succeeds
+     (`opfsUsable`, memoized per session) and the site quota holds the file (`opfsRoom`, 64 MiB
+     headroom). Measured on the live origin: Chrome 154 / Safari 26.6 / Firefox 156 all have it, quotas
+     10 / 76.8 / 10 GiB on the Mac; 3 GiB of incompressible data went to disk (no WebKit process above
+     31 MiB, Firefox's parent flat at ~100 MiB). Playwright's WebKit 26.5 HAS the API and fails the
+     first write (`UnknownError`) — hence the probe, not a feature check.
+  2. **File System Access** (`showSaveFilePicker`) — disk through the save dialog; only when OPFS cannot
+     take the file (quota). The dialog is inside the accept gesture, as before.
+  3. **RAM (Blob)** — `MAX_BYTES_BLOB` = **200 MiB on every device** (the UA split 1 GiB desktop / 512
+     MiB mobile and `isMobileUA` are gone; iPad's 512 answer is moot now that it receives to disk).
+  Else the offer is refused before accept, naming the largest thing that would have fitted (in bytes
+  when both sizes would print the same). If a planned OPFS write still fails at accept, `openReceive`
+  falls back to the next path; `acceptIncoming` sends the sender the real reason (a dismissed dialog —
+  `AbortError` — stays "recipient cancelled"). OPFS housekeeping: each file lives under
+  `incoming/<time>-<random>` held by a Web Lock; a failed / cancelled / never-saved file is removed at
+  once, a delivered one after `OPFS_HOLD_MS` = 10 min (the download may still be reading it), and
+  `sweepIncoming` at startup removes what a closed tab left (never a file another tab holds).
+- **Hand-off and "Save file" (owner's decision, option A).** A finished receive is returned to the
+  controller (`ReceiveEvent` `done` with a `Handoff`), which starts the download at once — unless the
+  page is HIDDEN (`document.visibilityState`), because iOS drops a download a hidden page starts (the
+  F1 rehearsal lost a whole file silently). Then it holds the file (`pendingSave`, on disk on the OPFS
+  path) and `transfer.saveNeeded` shows **Save file** on the finished row (and in the connection-lost
+  screen's file box); the tap — a real gesture — hands it over (`saveReceived`). "New transfer"
+  (`resetTransfer`) and session end discard a file nobody saved. Tests: `transfer/opfs.test.ts` (in-memory
+  OPFS + Web Locks: removal, hold, sweep), `fileTransfer.test.ts` (`planReceive` order, the probe, the
+  one cap, the refusal text), `SessionController.handoff.test.ts` (visible / hidden / Save file / New
+  transfer / dispose); e2e `tests/e2e/receive-disk.spec.ts` (no dialog, bytes intact; hidden page →
+  Save file) and `connection-lost.spec.ts` / `mobile.spec.ts`, which now run on the real path.
 - **"Delivered" means the receiver confirmed (2026-09-27).** The receiver sends `{t:'received'}` after
   saving every DECLARED byte (an `eof` short of the declared size is an error + `cancel`); the sender's
   `done` waits for it (`confirming` phase, flipped BEFORE the eof send so a confirmation that overtakes a
@@ -1211,7 +1239,8 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   `link/qr` AND `room/SAS` `onPeerLeft` branches (`SessionController.sasPeerLeft.test.ts` covers the
   SAS branch + the room per-pair close + reconnect's own close and peer-left gate) — see
   **§ Signaling WS lifecycle**.
-- ✅ `src/core/` — transport (SignalingClient, PeerConnection), file transfer, SessionController
+- ✅ `src/core/` — transport (SignalingClient, PeerConnection), file transfer (+ `transfer/opfs.ts`, the
+  site-storage receive path), SessionController
   orchestration (incl. SAS + post-connect enrollment wiring + the link/qr key-confirmation-over-S
   path, step 5b; **per-pair signaling-socket close on `connected`** — 1:1 methods via
   `tryVerifyConfirmation` AND room/SAS pairs via `trySasSettle`, both through
@@ -1271,12 +1300,18 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   disclosure rows only in the non-ok states; the file zone + Choose files, the picked list, Send; ONE
   row per transfer with its progress; incoming Accept / Decline; delivered / declined / cancelled /
   error inside the same container, then **"New transfer"** [`new-transfer-btn`] which
-  `transferActions.reset()`s the per-transfer projection → a CLEAN ready-to-send per send, never
-  touching the connection or the history; the `interrupted` alert line while ICE is `disconnected`),
-  `FailedScreen` (ONE screen, variants by reason + method, incl. `lost` — an authenticated channel
-  died — which shows the last file's outcome, `LastTransfer` / `last-transfer`;
-  `FailureLayout` is shared with the SAS restart; the reconnect key-changed hard stop inverts the whole
-  viewport via `hs-app--inverted` set in `App.tsx`). The link fragment auto-join + scrub lives in
+  resets the per-transfer projection through `session.resetTransfer()` → a CLEAN ready-to-send per
+  send, never touching the connection or the history; **Save file** [`save-file-btn`] when a received
+  file finished while the page was hidden; the `interrupted` alert line while ICE is `disconnected`;
+  the muted `relayed` path row),
+  `FailedScreen` (ONE screen, variants by reason + method — mismatch, expired, `server` (a signaling
+  drop that is not a room answer, 1006 above all; it used to read "Room not found"), noShow, direct,
+  `lost` (an authenticated channel died — shows the last file's outcome, `LastTransfer` /
+  `last-transfer`, with Save file when one is held), generic. **Nothing is said twice** (owner,
+  2026-09-27): no eyebrows, a description only where it adds something, the raw reason shown only for
+  `generic` and `lost` and kept on the container as `data-reason` for tests; `FailureLayout`
+  (`data-testid="failure"`, `data-variant`) is shared with the SAS restart; the reconnect key-changed
+  hard stop inverts the whole viewport via `hs-app--inverted` set in `App.tsx`). The link fragment auto-join + scrub lives in
   `App.tsx` (`LinkFragmentJoin`), and so does the `pagehide` goodbye (`PageHideGoodbye`). Shared `ui.tsx` (Glyph, Space/Grow, Pill on the kit's `.pill`,
   TextLink, IconButton, AlertLine, Collapsible, Disclosure, MeetDots, CopyPill, SharePill, TopBar with
   the kit theme toggle, Wordmark, StatusBeacon, Screen, Kicker), `components/` (`WordPicker` — five
@@ -1391,6 +1426,12 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   the one both sides share. Not fixed (no GC / pin-merge yet).
   (Server cap/TTL/rate-limit for 4-digit rooms is **done — step 6a**; see Signaling server §
   *Managed-room hardening*.)
+- **A received file stays briefly in the site's private storage (OPFS path, 2026-09-27).** It has to:
+  the download reads it from there. A delivered file is removed `OPFS_HOLD_MS` (10 min) after the
+  download started; a failed, cancelled or never-saved one at once; one whose tab closed first stays
+  until hushsend is next opened (`sweepIncoming`). It is the same bytes the user was just given, in a
+  folder only this site can read — but it is a copy on disk that outlives the tab by up to that long,
+  where the RAM path left nothing. Stated in THREATMODEL.
 - **A lost channel ends the session — nothing resumes it (2026-09-27).** A drop the engine does not
   recover from by itself (Chrome goes `failed` ~10 s after `disconnected`) is terminal: there is no ICE
   restart (it would need the signaling socket, which is closed on connect by design) and no transfer
@@ -1424,7 +1465,13 @@ fingerprint binding stops it at the SAS / key-confirmation step.
 
 - **Verdicts.** `ok` (selected address attested), `unknown` (nothing to judge on — no selected
   address, or an engine that reports no usable candidates), `mismatch` (checked, and the address we
-  selected is in neither of the peer's). **All three are advisory: none tears anything down.** This
+  selected is in neither of the peer's), and since 2026-09-27 **`relayed`** — decided BEFORE the address
+  check from the selected pair's candidate types (`relax.selectedPairRelayed`: our local candidate or
+  the peer's remote one is `relay`). Through a TURN relay the address check passes honestly (the
+  relayed peer names its relay address), so `ok` used to say "direct path confirmed" about a relayed
+  session — proven on Chrome ↔ the Android emulator. Reliable mode only (Max privacy refuses a relayed
+  path at channel-open); shown as the muted row "relayed through the server". **All four are advisory:
+  none tears anything down.** This
   bullet used to end "`mismatch` → terminal, same teardown as an authenticity failure", which the code
   has never done — and two audits read past it because it was phrased as a specification. Corrected
   2026-09-13 (finding F4) together with the two call-site comments that claimed the attestation

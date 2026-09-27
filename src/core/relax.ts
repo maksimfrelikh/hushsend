@@ -153,13 +153,15 @@ export function isForbiddenRemoteCandidate(
 }
 
 /**
- * Pull the SELECTED candidate pair's remote candidate out of a `getStats()` report. Engines disagree
- * on how the selection is expressed, so the lookup degrades in order: the transport's
- * `selectedCandidatePairId` (the standard, Chromium), then a pair flagged `selected` (Firefox), then
- * a nominated succeeded pair, then any succeeded pair. Returns null when nothing is selected yet —
- * the caller must read that as "unknown", never as "safe".
+ * Find the SELECTED candidate pair in a `getStats()` report, with both of its candidates. Engines
+ * disagree on how the selection is expressed, so the lookup degrades in order: the transport's
+ * `selectedCandidatePairId` (the standard, Chromium), then a pair flagged `selected` (Firefox), then a
+ * nominated succeeded pair, then any succeeded pair. Null when nothing is selected yet — the caller must
+ * read that as "unknown", never as "safe".
  */
-export function selectedRemoteCandidate(entries: Iterable<StatsEntry>): RemoteCandidateInfo | null {
+function selectedCandidatePair(
+  entries: Iterable<StatsEntry>,
+): { local: StatsEntry | undefined; remote: StatsEntry | undefined } | null {
   const byId = new Map<string, StatsEntry>();
   const pairs: StatsEntry[] = [];
   const transports: StatsEntry[] = [];
@@ -183,8 +185,17 @@ export function selectedRemoteCandidate(entries: Iterable<StatsEntry>): RemoteCa
   pair ??= pairs.find((p) => p.nominated === true && str(p.state) === 'succeeded');
   pair ??= pairs.find((p) => str(p.state) === 'succeeded');
   if (!pair) return null;
+  const localId = str(pair.localCandidateId);
   const remoteId = str(pair.remoteCandidateId);
-  const remote = remoteId ? byId.get(remoteId) : undefined;
+  return {
+    local: localId ? byId.get(localId) : undefined,
+    remote: remoteId ? byId.get(remoteId) : undefined,
+  };
+}
+
+/** The selected pair's REMOTE candidate (see selectedCandidatePair), or null. */
+export function selectedRemoteCandidate(entries: Iterable<StatsEntry>): RemoteCandidateInfo | null {
+  const remote = selectedCandidatePair(entries)?.remote;
   if (!remote) return null;
   return {
     candidateType: str(remote.candidateType),
@@ -192,6 +203,22 @@ export function selectedRemoteCandidate(entries: Iterable<StatsEntry>): RemoteCa
     ip: str(remote.ip),
     port: num(remote.port),
   };
+}
+
+/**
+ * Does the selected pair go through a TURN relay — on EITHER side? True when our local candidate or
+ * the peer's remote one is `relay`; null when nothing is selected (or the report lacks the types).
+ * Only reachable in Reliable mode: Max privacy refuses a relayed path at channel-open. Path
+ * attestation used to label such a session "direct path confirmed" — the relay's address is one the
+ * relayed peer honestly names, so the address check passes (BACKLOG § UX bugs, confirmed 2026-09-27
+ * on Chrome ↔ the Android emulator).
+ */
+export function selectedPairRelayed(entries: Iterable<StatsEntry>): boolean | null {
+  const pair = selectedCandidatePair(entries);
+  if (!pair) return null;
+  const types = [str(pair.local?.candidateType), str(pair.remote?.candidateType)];
+  if (types.includes('relay')) return true;
+  return types.every((t) => t !== null) ? false : null;
 }
 
 /** What the Max-privacy channel-open gate concluded about the path ICE selected. */

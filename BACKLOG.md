@@ -302,6 +302,11 @@ the same pass as CLAUDE.md when items land.
   SAME fix as "link/qr lobby-race resistance" above. (See CLAUDE.md § link/qr method + § Signaling server.)
 
 ## Ops / housekeeping (small, no devices)
+- [ ] **Screenshot baselines for the 2026-09-28 screen changes — NOT recorded yet.** New scenes
+  `sas-reader-waiting`, `home-forget-confirm`, `failed-server`, `transfer-path-relayed`; changed ones:
+  every failure variant (no eyebrows, fewer reason lines — `failed-*`, `key-changed`, `sas-restart`).
+  Record on the deploy host in a `cp -a` copy under `/tmp` (NOT a symlinked `node_modules` — Vite then
+  refuses the webfonts), review the renders, commit, update README.
 - ✅ **The 12 connection-lost screenshot baselines are recorded — DONE 2026-09-27, on the deploy host.**
   `transfer-interrupted` (phone × 2 themes), `failed-lost` (full matrix, 6), `failed-lost-delivered`
   and `failed-lost-idle` (phone × 2 each). The committed baselines are the deploy host's renders — on
@@ -607,7 +612,12 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   the declared size is an error, and the receiver sends `cancel` so the sender stops waiting), and the
   sender reports done only on it; a loss while it waits ends "not delivered". The phase flips before the
   eof send, so a confirmation that overtakes a drain wait still counts. `fileTransfer.lost.test.ts`.
-- [ ] **Android Chrome: the transfer dies if the system save dialog stays open for more than ~10–20 s
+- ✅ **Android save dialog killing the transfer — SUPERSEDED 2026-09-28 (in code, not deployed; owner's
+  rule: "disk wherever possible, a dialog only if disk needs one").** Receives now go to site storage
+  (OPFS) with NO dialog while the connection is live; the save dialog is used only when OPFS cannot
+  hold the file (quota) — CLAUDE.md § File transfer. Needs the real Android phone to confirm (OPFS on
+  Chrome 149 for Android was not probed on a device). The report, for the record:
+  **Android Chrome: the transfer dies if the system save dialog stays open for more than ~10–20 s
   (found 2026-09-27, emulator, TESTPLAN § Result log third entry).** Chrome 149 on Android HAS
   `showSaveFilePicker`, so Accept opens Android's own save UI (DocumentsUI → Downloads → SAVE) inside
   the gesture — the FSA path, uncapped, not the 512 MiB Blob path the plan assumed. With the picker in
@@ -625,14 +635,21 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   afterwards is discarded instead of opening a writer to a dead peer. The underlying behaviour (the
   connection dying while the picker is up) and the 0-byte file are unchanged — the decision above
   still stands.
-- [ ] **A signaling drop during pairing reads as "Room not found or code expired" (found 2026-09-27,
+- ✅ **A signaling drop now reads "Lost the connection to the server" — DONE 2026-09-28 (in code, not
+  deployed).** FailedScreen's `expired` keeps 4009/4010/4002 and room answers; any other `signaling
+  closed` (1006 above all) is the new `server` variant. The report:
+  **A signaling drop during pairing reads as "Room not found or code expired" (found 2026-09-27,
   Android emulator).** `FailedScreen` puts any `signaling closed (code N)` into the `expired` variant
   (`/(not found|expired|4009|room full|signaling closed)/`), so a network drop (1006) while a LINK or
   WORDS join is pairing shows "Room not found or code expired — Check the digits or start your own
   room" to someone who typed no digits. Seen twice: the Android joiner of a Max-privacy link pair that
   could not connect, and the Android joiner after F8's airplane mode. Fix: keep `expired` for
   4009/4010/4002 and give 1006/other closes a "lost the connection to the server" variant.
-- [ ] **iOS (simulator): a Blob download that fires while the screen is locked is lost silently
+- ✅ **A file that completes while the page is hidden waits for "Save file" — DONE 2026-09-28 (in code,
+  not deployed; owner: option A).** The controller holds the finished file when `visibilityState` is
+  `hidden` and the finished row shows Save file; the tap hands it over. e2e `receive-disk.spec.ts`
+  (visibility faked); the real iPhone (F1) still has to confirm. The report:
+  **iOS (simulator): a Blob download that fires while the screen is locked is lost silently
   (found 2026-09-27, TESTPLAN F1 rehearsal).** 400 MB to the iPhone 17 simulator with the screen locked
   right after Accept: the transfer itself finished (sender "Delivered" after 28 s), but the hand-off to
   the download — iOS's "Do you want to download…" prompt — was never shown: after unlock no prompt was
@@ -676,7 +693,10 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   visibly with the switch-to-Reliable hint — which points at the wrong fix. The 2026-09-26 "Max
   privacy FAIL 2/2" was exactly this. README / the direct-fail hint should mention the permission on
   macOS 15+; optionally detect "only mDNS host + srflx that is a private address" and say so.
-- [ ] **Copy nits from the 2026-09-27 pass:** a refusal just over the cap reads "This file is 1.0 GB —
+- [ ] **Copy nits from the 2026-09-27 pass** — two fixed 2026-09-28 (in code): a refusal just over a
+  limit now prints both sizes in bytes when they would round alike, and the SAS hard-stop eyebrow
+  ("numbers didn't match") is gone with every eyebrow. Still open: the creator's 4010 wording and
+  F7's plan text, below. The original list: a refusal just over the cap reads "This file is 1.0 GB —
   larger than the 1.0 GB this browser can save" (same with 512 MB: both sizes round to the cap); the SAS hard-stop kicker says "numbers didn't match"
   (they are words); the CREATOR of an expired words/4-digit room sees "Room not found or code
   expired" (the joiner's wording) after its own 4010; TESTPLAN F7's "4002" is reachable only while the
@@ -688,7 +708,11 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   link must be opened in a fresh tab. Test-drivers hit this too: always load `/health` first.
   Also seen on iPadOS Safari (simulator, 2026-09-27): a link opened into the tab that shows hushsend
   did nothing, for the same reason.
-- [ ] **"direct path confirmed" labels a RELAYED Reliable session — CONFIRMED 2026-09-27.** `localCandidateAddresses`
+- ✅ **A relayed session is labelled "relayed through the server" — DONE 2026-09-28 (in code, not
+  deployed).** New verdict `relayed` from the selected pair's candidate types (`relax.selectedPairRelayed`,
+  unit-tested), decided before the address check; the muted row replaces the sr-only "direct path
+  confirmed". Phase C (cross-network, Reliable) is where a real relay shows it. The report:
+  **"direct path confirmed" labels a RELAYED Reliable session — CONFIRMED 2026-09-27.** `localCandidateAddresses`
   attests every local candidate including `relay`, so a peer relaying through coturn attests its
   relay address, the selected remote address matches, verdict `ok`, label "direct path confirmed"
   (`i18n` `pathOk`). First suspected on a Brave↔Brave Reliable session; **proven on Chrome 154 ↔ the
@@ -715,7 +739,10 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   detector, still fetched the 1 MB WASM. The docs claimed "native where available" (corrected in
   CLAUDE.md § QR and TESTPLAN). Decide: keep one decoder everywhere (simpler, current) or prefer the
   native one when present (no WASM fetch on Chromium/Android). Not a bug either way.
-- ✅ **iPad gets the MOBILE cap — DONE 2026-09-27 (in code, not deployed; owner: 512 MB, "a gigabyte of
+- ✅ **iPad — SUPERSEDED 2026-09-28 by the disk path:** every device, iPad included, now receives to
+  site storage (OPFS), and the RAM-only fallback is ONE 200 MiB cap for all (owner's rule for RAM), so
+  the iPad-specific 512 MB and the `isMobileUA` detection below were removed again. Kept for the record:
+- (history) **iPad gets the MOBILE cap — DONE 2026-09-27 (in code, not deployed; owner: 512 MB, "a gigabyte of
   RAM is too much"; no real iPad to measure).** `isMobileUA` also treats a Macintosh UA with
   `maxTouchPoints > 1` as a tablet (no Mac has a multi-touch screen); unit-tested both ways. The
   report: **iPad gets the DESKTOP receive cap — CONFIRMED 2026-09-27 (iPad (A16) simulator, iPadOS 27.0).**

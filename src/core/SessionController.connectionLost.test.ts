@@ -51,8 +51,7 @@ interface SCInternals {
     name: string;
     size: number;
     isZip: boolean;
-    canStream: boolean;
-    maxBytes: number;
+    plan: { path: 'opfs' | 'fsa' | 'blob'; maxBytes: number };
   } | null;
   onChannelClose(why?: string): void;
   onIceFailed(): void;
@@ -180,8 +179,7 @@ describe('SessionController — an authenticated channel dying', () => {
       name: 'a.bin',
       size: 10,
       isZip: false,
-      canStream: false,
-      maxBytes: 1 << 20,
+      plan: { path: 'blob', maxBytes: 1 << 20 },
     };
     internals.onChannelClose('data channel closed');
 
@@ -197,8 +195,7 @@ describe('SessionController — an authenticated channel dying', () => {
       name: 'a.bin',
       size: 10,
       isZip: false,
-      canStream: true,
-      maxBytes: Infinity,
+      plan: { path: 'fsa', maxBytes: Infinity },
     };
     let pick!: (r: unknown) => void;
     hoisted.openReceive.mockReturnValue(new Promise((resolve) => (pick = resolve)));
@@ -226,8 +223,7 @@ describe('SessionController — an authenticated channel dying', () => {
       name: 'a.bin',
       size: 10,
       isZip: false,
-      canStream: true,
-      maxBytes: Infinity,
+      plan: { path: 'fsa', maxBytes: Infinity },
     };
     let dismiss!: (e: unknown) => void;
     hoisted.openReceive.mockReturnValue(new Promise((_, reject) => (dismiss = reject)));

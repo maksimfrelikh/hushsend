@@ -366,6 +366,11 @@ export const SCENES: Scene[] = [
     setup: (page) => dispatch(page, ...sending, conn('interrupted', true)),
   },
   {
+    name: 'transfer-path-relayed',
+    matrix: 'phone',
+    setup: (page) => dispatch(page, ...connected, conn('pathSettled', { verdict: 'relayed' })),
+  },
+  {
     name: 'transfer-path-unknown',
     matrix: 'phone',
     setup: (page) => dispatch(page, ...connected, conn('pathSettled', { verdict: 'unknown' })),
@@ -456,7 +461,13 @@ export const SCENES: Scene[] = [
   {
     name: 'failed-generic',
     matrix: 'phone',
-    setup: (page) => dispatch(page, ...failed('link', 'signaling closed 1006')),
+    setup: (page) => dispatch(page, ...failed('room', 'SAS confirmation timed out')),
+  },
+  {
+    // A signaling drop that is not a room answer (the network or the server went away mid-pairing).
+    name: 'failed-server',
+    matrix: 'phone',
+    setup: (page) => dispatch(page, ...failed('link', 'signaling closed (code 1006)')),
   },
   {
     name: 'failed-words',

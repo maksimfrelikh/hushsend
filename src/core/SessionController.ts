@@ -74,9 +74,10 @@ import {
   sendFiles as startSend,
   openReceive,
   parseControl,
-  canStreamToDisk,
-  receiveMaxBytes,
-  formatBytes,
+  planReceive,
+  triggerDownload,
+  type Handoff,
+  type ReceivePath,
   type TransferWire,
   type ControlMessage,
   type SendEvent,
@@ -84,6 +85,7 @@ import {
   type ActiveSend,
   type ActiveReceive,
 } from './transfer/fileTransfer';
+import { sweepIncoming } from './transfer/opfs';
 
 const DEFAULT_SIGNALING_URL = 'ws://localhost:8080';
 
@@ -839,8 +841,16 @@ export class SessionController {
   /** Active inbound transfer, sinking chunks to disk/RAM. */
   private receiver: ActiveReceive | null = null;
   /** An inbound offer surfaced to the UI, awaiting the human's accept/reject. */
-  private pendingOffer: { name: string; size: number; isZip: boolean; canStream: boolean; maxBytes: number } | null =
-    null;
+  private pendingOffer: {
+    name: string;
+    size: number;
+    isZip: boolean;
+    plan: { path: ReceivePath; maxBytes: number };
+  } | null = null;
+  /** An offer whose receive path is still being planned (the storage estimate is async). */
+  private planningOffer = false;
+  /** A received file a HIDDEN page held back instead of downloading — see handOff. */
+  private pendingSave: Handoff | null = null;
 
   constructor(private readonly dispatch: AppDispatch) {
     this.signalingUrl = resolveSignalingUrl();
@@ -851,6 +861,9 @@ export class SessionController {
     // Once per session, independent of any pairing: ask the configured STUN servers what our public
     // address is and compare them (see crossCheckStun). Fire-and-forget; never gates anything.
     void this.crossCheckStun();
+    // Remove files an earlier visit left in the site's private storage (a tab that closed while it
+    // held one — see transfer/opfs.ts). Locked files of other open tabs are left alone.
+    void sweepIncoming();
   }
 
   /**
@@ -1968,9 +1981,7 @@ export class SessionController {
     if (!offer || this.receiver || !this.established) return;
     let recv: ActiveReceive | null = null;
     try {
-      recv = await openReceive(this.wire(), offer, offer.canStream, offer.maxBytes, (e) =>
-        this.onReceiveEvent(e),
-      );
+      recv = await openReceive(this.wire(), offer, offer.plan, (e) => this.onReceiveEvent(e));
       // The save picker stays up as long as the human keeps it up, and the session can end under it
       // — on Android a picker left open ~20 s took ICE down with it (BACKLOG § UX bugs). The offer is
       // gone then (onConnectionLost / dispose took it): drop what the picker opened, silently, so
@@ -1992,8 +2003,12 @@ export class SessionController {
       // to tell.
       if (!this.peer) return;
       this.pendingOffer = null;
-      void this.peer.send(JSON.stringify({ t: 'reject', reason: 'recipient cancelled' })).catch(() => {});
-      this.dispatch(transferActions.cancelled());
+      // A dismissed save dialog is the human saying no; anything else is the browser failing to store
+      // the file, and the sender deserves the real reason rather than "cancelled".
+      const dismissed = err instanceof DOMException && err.name === 'AbortError';
+      const reason = dismissed ? 'recipient cancelled' : errText(err);
+      void this.peer.send(JSON.stringify({ t: 'reject', reason })).catch(() => {});
+      this.dispatch(dismissed ? transferActions.cancelled() : transferActions.failed({ reason }));
     }
   }
 
@@ -2038,26 +2053,29 @@ export class SessionController {
     // teardownPeerOnly/resetPairingToLobby) and was then rendered under the verified badge of the
     // NEXT, honest pairing — attacker-chosen text inside a trusted frame, plus a silent send-DoS.
     if (!this.established) return;
-    if (this.sender || this.receiver || this.pendingOffer) return; // busy — ignore
-    const canStream = canStreamToDisk();
-    const maxBytes = receiveMaxBytes(canStream);
-    // Surface the offer for display either way; auto-reject oversize on the RAM-bound path.
-    this.dispatch(transferActions.offered({ direction: 'receive', fileName: offer.name, totalBytes: offer.size }));
-    if (offer.size > maxBytes) {
-      // The cap is derived from the receiving browser + UA (canStreamToDisk + isMobileUA), so the
-      // audit flagged echoing it back as a device-class oracle. That was only ever reachable BEFORE
-      // authentication, and the `established` gate at the top of this method closes it: a peer that
-      // gets here has already passed SAS / CPace / the link secret. For an authenticated peer the
-      // exact reason is what lets the SENDER act ("send it from a desktop Chrome instead"), so it
-      // stays — withholding it here would buy nothing and cost the one person who needs it.
-      const reason = `This file is ${formatBytes(offer.size)} — larger than the ${formatBytes(
-        maxBytes,
-      )} this browser can save. Open hushsend in Chrome on desktop to receive it.`;
-      void this.peer?.send(JSON.stringify({ t: 'reject', reason }));
-      this.dispatch(transferActions.rejected({ reason }));
-      return; // no bytes ever requested
-    }
-    this.pendingOffer = { ...offer, canStream, maxBytes };
+    if (this.sender || this.receiver || this.pendingOffer || this.planningOffer) return; // busy — ignore
+    // Plan the receive path BEFORE the offer reaches the screen (disk without a dialog, disk through
+    // the save dialog, or RAM — see planReceive): the storage estimate is async, a few ms, and an
+    // Accept tapped before it settled would have nothing to accept.
+    this.planningOffer = true;
+    const peer = this.peer;
+    void planReceive(offer.size).then((plan) => {
+      this.planningOffer = false;
+      if (!this.established || !peer || this.peer !== peer) return; // the session ended meanwhile
+      this.dispatch(transferActions.offered({ direction: 'receive', fileName: offer.name, totalBytes: offer.size }));
+      if ('refused' in plan) {
+        // The limit depends on the receiving browser (its storage quota, whether it has a save dialog),
+        // so the audit flagged echoing it back as a device-class oracle. That was only ever reachable
+        // BEFORE authentication, and the `established` gate above closes it: a peer that gets here
+        // has already passed SAS / CPace / the link secret. For an authenticated peer the exact reason
+        // is what lets the SENDER act, so it stays — withholding it would cost the one person who
+        // needs it.
+        void peer.send(JSON.stringify({ t: 'reject', reason: plan.refused })).catch(() => {});
+        this.dispatch(transferActions.rejected({ reason: plan.refused }));
+        return; // no bytes ever requested
+      }
+      this.pendingOffer = { ...offer, plan };
+    });
   }
 
   private onSendEvent(e: SendEvent): void {
@@ -2098,6 +2116,7 @@ export class SessionController {
       case 'done':
         this.dispatch(transferActions.completed());
         this.receiver = null;
+        if (e.handoff) this.handOff(e.handoff);
         break;
       case 'cancelled':
         this.dispatch(transferActions.cancelled());
@@ -2108,6 +2127,46 @@ export class SessionController {
         this.receiver = null;
         break;
     }
+  }
+
+  /**
+   * Give a finished file to the user — normally at once, as a download. But iOS drops a download a
+   * page starts while it is HIDDEN (the screen locked, another app in front): in the F1 rehearsal the
+   * transfer finished and the file simply vanished — no prompt, no file, no error. So a hidden page
+   * holds the file and asks for a tap instead (owner's decision, 2026-09-27, option A): "Save file"
+   * on the finished row. On the OPFS path the held file waits on disk, not in RAM.
+   */
+  private handOff(h: Handoff): void {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+      this.pendingSave?.discard();
+      this.pendingSave = h;
+      this.dispatch(transferActions.saveNeeded(true));
+      return;
+    }
+    triggerDownload(h.file, h.name);
+    h.release();
+  }
+
+  /** "Save file": hand over the file a hidden page held back. Runs in the tap's user gesture. */
+  saveReceived(): void {
+    const h = this.pendingSave;
+    if (!h) return;
+    this.pendingSave = null;
+    this.dispatch(transferActions.saveNeeded(false));
+    triggerDownload(h.file, h.name);
+    h.release();
+  }
+
+  /** "New transfer": clear the per-transfer projection, dropping a held-back file nobody saved. */
+  resetTransfer(): void {
+    this.dropPendingSave();
+    this.dispatch(transferActions.reset());
+  }
+
+  private dropPendingSave(): void {
+    const h = this.pendingSave;
+    this.pendingSave = null;
+    h?.discard(); // never saved: nothing is reading it, so it goes now
   }
 
   private onSignalingClose(code: number, reason: string): void {
@@ -3160,8 +3219,18 @@ export class SessionController {
       await new Promise((r) => setTimeout(r, 250));
     }
     if (!this.pathAttest || this.pathAttest.settled) return; // torn down while awaiting stats
+    // A RELAYED pair (Reliable mode) is its own verdict: the relayed peer honestly names its relay
+    // address, so the address check below would pass and the screen would say "direct path
+    // confirmed" about a session that runs through the server (BACKLOG § UX bugs, confirmed on Chrome
+    // ↔ the Android emulator).
+    const relayed = (await this.peer?.selectedPathRelayed()) === true;
+    if (!this.pathAttest || this.pathAttest.settled) return;
     // DEV knob stubs the VERDICT only — everything downstream of this line is production code.
-    const verdict = forcePathMismatchEnabled() ? 'mismatch' : pathVerdict(selected, pa.peerAddrs);
+    const verdict = forcePathMismatchEnabled()
+      ? 'mismatch'
+      : relayed
+        ? 'relayed'
+        : pathVerdict(selected, pa.peerAddrs);
     this.dispatch(devActions.setPath({ verdict, selected, peerAddrs: pa.peerAddrs ?? [] }));
     // The verdict goes through VERBATIM. It used to be collapsed to `ok` / not-`ok` here, which made
     // the one positive detection this system can produce render exactly like the everyday "this
@@ -3385,6 +3454,8 @@ export class SessionController {
     this.sender = null;
     this.receiver = null;
     this.pendingOffer = null;
+    this.planningOffer = false;
+    this.dropPendingSave();
     this.peer?.close();
     this.signaling?.close();
     this.peer = null;

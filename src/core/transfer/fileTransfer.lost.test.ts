@@ -46,22 +46,14 @@ function makeWire(opts: { hangAfter?: number } = {}): {
 }
 
 const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+/** Node has neither OPFS nor a save dialog: every receive here takes the RAM path. */
+const RAM = { path: 'blob' as const, maxBytes: 1 << 20 };
 const EOF = JSON.stringify({ t: 'eof' });
 const RECEIVED = JSON.stringify({ t: 'received' });
 
 async function until(cond: () => boolean): Promise<void> {
   for (let i = 0; i < 200 && !cond(); i++) await tick();
   expect(cond()).toBe(true);
-}
-
-/** Stand-in DOM for the Blob path's hand-off (an <a download> click). */
-function stubDownloadDom(): ReturnType<typeof vi.fn> {
-  const click = vi.fn();
-  vi.stubGlobal('document', {
-    createElement: () => ({ click, remove: () => {} }),
-    body: { appendChild: () => {} },
-  });
-  return click;
 }
 
 describe('a send whose channel dies', () => {
@@ -159,13 +151,11 @@ describe('"Delivered" waits for the receiver', () => {
   });
 
   it('the receiver confirms after saving, and never for a file that stopped short', async () => {
-    stubDownloadDom();
     const whole = makeWire();
     const rx = await openReceive(
       whole.wire,
       { name: 'f.bin', size: 100, isZip: false },
-      false,
-      1 << 20,
+      RAM,
       () => {},
     );
     rx.handleChunk(new ArrayBuffer(100));
@@ -177,8 +167,7 @@ describe('"Delivered" waits for the receiver', () => {
     const rx2 = await openReceive(
       short.wire,
       { name: 'f.bin', size: 100, isZip: false },
-      false,
-      1 << 20,
+      RAM,
       (e) => events.push(e),
     );
     rx2.handleChunk(new ArrayBuffer(60));
@@ -192,11 +181,10 @@ describe('"Delivered" waits for the receiver', () => {
 describe('a receive whose channel dies', () => {
   const offer = { name: 'f.bin', size: 100, isZip: false };
 
-  it('ends with the reason, keeps nothing and hands nothing to the browser', async () => {
-    const click = stubDownloadDom();
+  it('ends with the reason, keeps nothing and hands nothing on', async () => {
     const { wire, sent } = makeWire();
     const events: ReceiveEvent[] = [];
-    const rx = await openReceive(wire, offer, false, 1 << 20, (e) => events.push(e));
+    const rx = await openReceive(wire, offer, RAM, (e) => events.push(e));
     await rx.start();
     expect(sent).toEqual([JSON.stringify({ t: 'accept' })]);
 
@@ -211,38 +199,37 @@ describe('a receive whose channel dies', () => {
     await tick();
     await tick();
     expect(events.filter((e) => e.t === 'done')).toHaveLength(0);
-    expect(events.filter((e) => e.t === 'progress')).toHaveLength(1);
-    expect(click).not.toHaveBeenCalled();
+    expect(events.filter((e) => e.t === 'progress')).toHaveLength(1); // no file to hand to the user
     // And it tells nobody: there is no one left to tell.
     expect(sent).toHaveLength(1);
   });
 
   it('is a no-op once eof has arrived — every byte is here, so the save finishes', async () => {
-    const click = stubDownloadDom();
     const { wire } = makeWire();
     const events: ReceiveEvent[] = [];
-    const rx = await openReceive(wire, offer, false, 1 << 20, (e) => events.push(e));
+    const rx = await openReceive(wire, offer, RAM, (e) => events.push(e));
     await rx.start();
     rx.handleChunk(new ArrayBuffer(100));
     rx.handleControl({ t: 'eof' });
     rx.fail('connection lost'); // the channel died in the same breath as the last byte
     await until(() => events.some((e) => e.t === 'done'));
     expect(events.some((e) => e.t === 'error')).toBe(false);
-    expect(click).toHaveBeenCalledTimes(1);
+    // The whole file comes back for the controller to hand to the user (download now, or on a tap).
+    const done = events.find((e) => e.t === 'done') as Extract<ReceiveEvent, { t: 'done' }>;
+    expect(done.handoff?.file.size).toBe(100);
+    expect(done.handoff?.name).toBe('f.bin');
   });
 
   it('discard() drops the session silently — nothing emitted, nothing saved, nothing sent', async () => {
-    const click = stubDownloadDom();
     const { wire, sent } = makeWire();
     const events: ReceiveEvent[] = [];
-    const rx = await openReceive(wire, offer, false, 1 << 20, (e) => events.push(e));
+    const rx = await openReceive(wire, offer, RAM, (e) => events.push(e));
     rx.discard();
     rx.handleChunk(new ArrayBuffer(100));
     rx.handleControl({ t: 'eof' });
     await tick();
     await tick();
     expect(events).toEqual([]);
-    expect(click).not.toHaveBeenCalled();
     expect(sent).toEqual([]);
   });
 });

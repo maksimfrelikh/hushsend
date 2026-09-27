@@ -16,13 +16,17 @@ import { BASE, createLink, forwardConsole, fragmentOf } from './helpers';
  *   - a CRASHED tab says nothing at all, so the survivor learns only from ICE (`disconnected` →
  *     `failed`) — and meanwhile its screen must admit the connection is interrupted (F2).
  *
- * The file is 512 MB and SPARSE (no disk, no RAM in the runner): big enough that the tab goes with
- * the sender still pushing and its send buffer full — exactly where the old drain wait hung. Each tab
- * is its own browser context, so a crashed renderer cannot take the other tab with it.
+ * The file is 190 MiB and SPARSE (no disk, no RAM in the runner): big enough that the tab goes with
+ * the sender still pushing and its send buffer full — exactly where the old drain wait hung. It is
+ * received into site storage (OPFS, the real path), so a receiver that is cut off must also leave
+ * nothing behind there. Each tab is its own browser context, so a crashed renderer cannot take the
+ * other tab with it.
  */
 
 const TMP = join(process.cwd(), 'e2e-tmp-connection-lost');
-const SIZE = 512 * 1024 * 1024;
+// Under the 200 MiB RAM cap on purpose: an engine whose site storage cannot write (Playwright's
+// WebKit) receives through RAM, and it must still take the file. Plenty to be mid-flight at the close.
+const SIZE = 190 * 1024 * 1024;
 
 // Every context here holds a live WebRTC connection; close them per test (see ws-close.spec.ts).
 const openContexts: BrowserContext[] = [];
@@ -50,11 +54,12 @@ async function openTab(browser: Browser, label: string, fragment = ''): Promise<
   openContexts.push(context);
   const page = await context.newPage();
   forwardConsole(page, label);
-  await page.goto(`${BASE}/?forceBlob=1${fragment}`);
+  // No `forceBlob`: the receiver takes its real path — site storage (OPFS) on every engine here.
+  await page.goto(`${BASE}/${fragment}`);
   return page;
 }
 
-/** Pair two tabs over a one-time link and start the 512 MB send; returns once bytes are arriving. */
+/** Pair two tabs over a one-time link and start the 190 MiB send; returns once bytes are arriving. */
 async function midTransfer(browser: Browser): Promise<{ sender: Page; receiver: Page }> {
   const sender = await openTab(browser, 'sender');
   const link = await createLink(sender, 'link');
@@ -67,7 +72,7 @@ async function midTransfer(browser: Browser): Promise<{ sender: Page; receiver: 
   await expect(receiver.getByTestId('transfer-phase')).toContainText('offered');
   await receiver.getByTestId('accept-btn').click();
   await expect(sender.getByTestId('transfer-phase')).toContainText('transferring');
-  // "N / 536870912 bytes (p%)" with N > 0: the first chunks have landed, hundreds of MB are still to go.
+  // "N / <size> bytes (p%)" with N > 0: the first chunks have landed, hundreds of MB are still to go.
   await receiver.waitForFunction(() =>
     /^[1-9]\d* \//.test(
       document.querySelector('[data-testid="transfer-bytes"]')?.textContent?.trim() ?? '',
@@ -107,6 +112,19 @@ test('the sender closes its tab mid-transfer — the receiver says so, and saves
   await sender.close();
   await expectLost(receiver, /not received/, 30_000);
   expect(downloads, 'a partial file must not be handed to the browser as a download').toBe(0);
+  // …nor left in the site's private storage: a failed receive removes its file at once.
+  const left = await receiver.evaluate(async () => {
+    try {
+      const root = await navigator.storage.getDirectory(); // throws where site storage is unusable
+      const dir = await root.getDirectoryHandle('incoming');
+      let n = 0;
+      for await (const _ of (dir as unknown as { keys(): AsyncIterable<string> }).keys()) n++;
+      return n;
+    } catch {
+      return 0; // never created, or no usable site storage at all
+    }
+  });
+  expect(left, 'files left in site storage').toBe(0);
 });
 
 test('F2: the receiver goes SILENT mid-transfer — the sender shows the interruption, then ends as lost', async ({

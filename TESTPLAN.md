@@ -6,9 +6,9 @@ e2e across four engine projects, feature-detection review, self-hosted QR WASM);
 
 This used to open "the last open item before the security audit" — the audit has since run twice
 internally (2026-09-12 and 2026-09-13, BACKLOG § Security audit), so that ordering is gone: the
-device pass is now the last open item before a public launch, not before the audit. **Progress: 20 of
-the 46 A–F cases are closed (A4a, A6, A7, B1, B7, B9, D1–D5, E1–E5, F3, F5–F7 — see the four 2026-09-27
-entries in § Result log); the desktop halves of A1, A2, A3, A4, A5, A6a, B2, B3, B5, B6, B8, B10, C6,
+device pass is now the last open item before a public launch, not before the audit. **Progress: 19 of
+the 46 A–F cases are closed (A4a, A6, A7, B7, B9, D1–D5, E1–E5, F3, F5–F7 — see the four 2026-09-27
+entries in § Result log; B1 was unticked on 2026-09-28 because the receive path changed under it); the desktop halves of A1, A2, A3, A4, A5, A6a, B2, B3, B5, B6, B8, B10, C6,
 E7 and F8 ran on the REAL desktop engines (Chrome, Brave, Safari, Firefox) and wait for their handset
 half; the iOS-Simulator, iPad-Simulator and Android-Emulator rehearsals (third entry) covered A1, A3,
 A4, A5, B4 (paste fallback), B5, B6, B8, B10's caps, F1, F2 and F8 — rehearsals, not ticks; 2 are
@@ -16,6 +16,12 @@ still FAILED (A4b, and F2 on the emulator with real airplane mode) and are in BA
 and passes on the live build since the connection-lost fix; the rest need a handset, a radio or a
 camera.** The ticks in § 0.1 are PRECONDITIONS, not cases; do not read them as progress.
 
+> **2026-09-28: the owner's seven decisions are in code but NOT deployed** (`5863f0d` onwards — the
+> receiver's confirmation, the A4b stop, the forget confirmation, no device label, the disk-first
+> receive path, "Save file", the failure screens, the relayed verdict; the signaling server's
+> `3d96125`). § 0.1's deploy tick is for `153addd` and goes stale the moment they ship. Cases whose
+> expectations changed (B1, B2, B10, F1, F4) are reworded below; B1 was unticked.
+>
 > **2026-09-27, after the pass: the F2/F3 root cause is fixed and DEPLOYED** (the connection-lost
 > path — BACKLOG § UX bugs, first item; live since 19:58 UTC as `153addd`, § 0.1 re-ticked). **F3 passes
 > on the live build** (fourth 2026-09-27 entry). F2 stays unticked until re-run on a real phone.
@@ -122,8 +128,13 @@ Last run 2026-09-27 against the bundle fetched over HTTPS from the live host (`i
 
 ### 0.3 Reference numbers (from the code, for judging "expected")
 
-- Receive path: **FSA streaming (`showSaveFilePicker`) = unbounded**; otherwise **Blob in RAM**, capped
-  at **1 GiB desktop / 512 MiB mobile** (UA-based), and the cap is rejected **before** accept.
+- Receive path (since 2026-09-28 — owner's rule "disk wherever possible"; CLAUDE.md § File transfer):
+  **1. OPFS** — site storage, NO dialog, bounded by the site quota (measured 10 GiB Chrome / 76.8 GiB
+  Safari / 10 GiB Firefox on the Mac), handed over as a download at the end; **2. FSA** — the save
+  dialog, only when OPFS cannot hold the file; **3. Blob in RAM, 200 MiB on every device** — the
+  last resort (a private window without site storage). Whatever no path can take is refused
+  **before** accept. A file finishing while the page is hidden waits for **Save file**. (Until
+  2026-09-27: FSA first, else Blob capped 1 GiB desktop / 512 MiB mobile by UA.)
   **Measured engine ceilings** (2026-09-12, `limits.spec.ts` with the cap lifted, on a Mac):
   Chromium OK at 1 GB and 2 GB, **fails at 3 GB** (`download.saveAs: canceled`); WebKit OK to 1.5 GB,
   **fails at 1.75 GB** (freezes near 100%). Both die at the END — the chunks arrive, the single Blob
@@ -181,21 +192,21 @@ Last run 2026-09-27 against the bundle fetched over HTTPS from the live host (`i
 
 | Slot | Device | OS version | Browser + version | Engine | Driven by | Expected receive path | Expected QR decoder |
 |---|---|---|---|---|---|---|---|
-| MBP-A | MacBook | macOS 26 | Chrome 154 | Blink | Claude via **Playwright** driving the installed Chrome (`channel:'chrome'`, persistent profiles, since 2026-09-27) | FSA streaming (unbounded) | zxing ponyfill (never native — see B3) |
-| MBP-A | MacBook | | Brave 154 (shields up) | Blink | Claude (Claude-in-Chrome extension) | **Blob** — Brave ships no `showSaveFilePicker` | zxing ponyfill |
-| MBP-A | MacBook | macOS 26 | Safari 26.6 | **WebKit (the real one)** | Claude via **WebDriver** (`safaridriver`, since 2026-09-27 — see § 0.5) | Blob (1 GiB cap) | zxing ponyfill |
-| MBP-A | MacBook | macOS 26 | Firefox 156 | Gecko | Claude via **WebDriver** (`geckodriver`, since 2026-09-27) | Blob (1 GiB cap) | zxing ponyfill |
-| MBP-A | MacBook | macOS 26 | Claude's built-in Chromium 152 | Blink | Claude (built-in browser) — a SECOND profile next to Brave, so E-cases are honest | FSA present but its dialog cannot be shown in the pane → Blob when `showSaveFilePicker` is removed in-page | zxing ponyfill |
-| MBP-B | MacBook | | Chrome | Blink | Claude (Playwright) | FSA streaming | zxing ponyfill |
-| IPH | iPhone | | Safari (WebKit) | WebKit + phone limits | Claude via Safari Web Inspector (USB) | Blob (512 MiB cap) | zxing ponyfill |
-| AND-1 | Android | | Chrome | Blink | Claude via `chrome://inspect` (USB) | **FSA streaming through Android's system save dialog** — Chrome 149 on Android has `showSaveFilePicker` (measured on the emulator 2026-09-27; this cell used to say Blob, 512 MiB cap, which is now only the path where the method is absent) | zxing ponyfill (never native) |
-| SIM-iOS | iPhone 17 **simulator** (rehearsal only) | iOS 27.0 | Safari | WebKit, but the Mac's RAM and network | Claude via simulator taps + screenshots (safaridriver cannot reach it) | Blob (512 MiB cap) | zxing ponyfill |
-| SIM-iPad | iPad (A16) **simulator** (rehearsal only) | iPadOS 27.0 | Safari | WebKit | as SIM-iOS | **Blob, DESKTOP cap (1 GiB)** — iPadOS Safari sends a desktop UA (measured 2026-09-27; BACKLOG) | zxing ponyfill |
-| EMU-AND | Pixel 9 Pro **emulator** (rehearsal only) | Android 17 (user build) | Chrome 149 | Blink | Claude over CDP (`adb forward … localabstract:chrome_devtools_remote`) + `adb` for native UI | FSA via the system save dialog | zxing ponyfill |
-| AND-2 | Android | | Firefox | Gecko | Claude via `about:debugging` (USB) | Blob (512 MiB cap) | zxing ponyfill |
+| MBP-A | MacBook | macOS 26 | Chrome 154 | Blink | Claude via **Playwright** driving the installed Chrome (`channel:'chrome'`, persistent profiles, since 2026-09-27) | OPFS, no dialog (quota 10 GiB here); FSA dialog only past it | zxing ponyfill (never native — see B3) |
+| MBP-A | MacBook | | Brave 154 (shields up) | Blink | Claude (Claude-in-Chrome extension) | OPFS expected (Chromium; not probed) — Brave ships no `showSaveFilePicker`, so no dialog fallback | zxing ponyfill |
+| MBP-A | MacBook | macOS 26 | Safari 26.6 | **WebKit (the real one)** | Claude via **WebDriver** (`safaridriver`, since 2026-09-27 — see § 0.5) | OPFS (probed 2026-09-27: writes to disk, quota 76.8 GiB) | zxing ponyfill |
+| MBP-A | MacBook | macOS 26 | Firefox 156 | Gecko | Claude via **WebDriver** (`geckodriver`, since 2026-09-27) | OPFS (probed 2026-09-27: writes to disk, quota 10 GiB) | zxing ponyfill |
+| MBP-A | MacBook | macOS 26 | Claude's built-in Chromium 152 | Blink | Claude (built-in browser) — a SECOND profile next to Brave, so E-cases are honest | OPFS expected (no dialog needed; before 2026-09-28 its FSA dialog could not be shown in the pane) | zxing ponyfill |
+| MBP-B | MacBook | | Chrome | Blink | Claude (Playwright) | OPFS, no dialog | zxing ponyfill |
+| IPH | iPhone | | Safari (WebKit) | WebKit + phone limits | Claude via Safari Web Inspector (USB) | OPFS expected (not yet probed on a device); Save file if the screen was locked | zxing ponyfill |
+| AND-1 | Android | | Chrome | Blink | Claude via `chrome://inspect` (USB) | OPFS expected — no dialog while the connection is live; the save dialog only past the quota (Chrome 149 HAS `showSaveFilePicker`, and a dialog left open ~20 s killed the connection — why disk-without-dialog is now first) | zxing ponyfill (never native) |
+| SIM-iOS | iPhone 17 **simulator** (rehearsal only) | iOS 27.0 | Safari | WebKit, but the Mac's RAM and network | Claude via simulator taps + screenshots (safaridriver cannot reach it) | OPFS expected (not probed on the simulator) | zxing ponyfill |
+| SIM-iPad | iPad (A16) **simulator** (rehearsal only) | iPadOS 27.0 | Safari | WebKit | as SIM-iOS | OPFS expected; the UA no longer matters (it sent a desktop UA, which picked the 1 GiB cap until 2026-09-27) | zxing ponyfill |
+| EMU-AND | Pixel 9 Pro **emulator** (rehearsal only) | Android 17 (user build) | Chrome 149 | Blink | Claude over CDP (`adb forward … localabstract:chrome_devtools_remote`) + `adb` for native UI | OPFS expected — no dialog any more (it was FSA through the system save dialog) | zxing ponyfill |
+| AND-2 | Android | | Firefox | Gecko | Claude via `about:debugging` (USB) | OPFS expected | zxing ponyfill |
 
 Three engines, not four browsers: Blink (Chrome, Brave, Android Chrome), Gecko (Firefox ×2), WebKit
-(Safari ×2). Brave earns its row for hardening (B9), MBP-B for a second FSA endpoint (F4).
+(Safari ×2). Brave earns its row for hardening (B9), MBP-B for a second disk endpoint (F4).
 
 ### 0.5 How this pass is actually run — three tracks
 
@@ -325,8 +336,10 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
 > control, and in which direction. See BACKLOG § Security audit / Path attestation.
 
 > **The phone-shaped half is pre-covered too** by `tests/e2e/mobile.spec.ts` (WebKit + an iPhone
-> device descriptor): the 512 MB cap is genuinely selected by the phone UA and quoted in the refusal,
-> the Blob path completes, the layout holds at 390 px, and the QR paste fallback works. So on a real
+> device descriptor): the phone's real receive path completes (on that build site storage cannot
+> write, so it is the RAM fallback — the probe and the fall-back are what that proves), a forced RAM
+> receive over 200 MiB is refused before any byte, the layout holds at 390 px, and the QR paste
+> fallback works. So on a real
 > handset those are re-confirmations; what only the handset can answer is **memory pressure at the
 > cap, background-tab suspension (§ F1), camera permissions (B4) and cellular NAT (§ C)**.
 >
@@ -336,13 +349,19 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
 > are the ones that can only be answered here** — a headless box has no camera, and Playwright's
 > WebKit on Linux is not Safari on iOS.
 
-- [x] **B1 · FSA streaming (Chrome desktop)** — receive on MBP-A Chrome. Expected: a **save dialog
-      appears on accept** (inside the click gesture), bytes stream to disk, RAM does not grow with the
-      file (watch Activity Monitor on a ≈2 GB file).
-- [ ] **B2 · Blob fallback + cap** — receive on IPH Safari and on MBP-A Firefox. Expected: no save
-      dialog; the file lands via a download at the end. Then offer a file **over the cap** (>512 MiB to
-      IPH, >1 GiB to MBP-A Firefox): the receiver must **refuse before accepting**, with a clear
-      message naming the limit — never accept and then die of OOM mid-transfer.
+- [ ] **B1 · disk receive, no dialog (Chrome desktop)** — receive on MBP-A Chrome. Expected: **no save
+      dialog** on accept; the bytes stream into site storage (OPFS) and land via a download at the end;
+      RAM does not grow with the file (watch Activity Monitor on a ≈2 GB file). Then a file **larger
+      than the site quota** (10 GiB here): the save dialog appears instead (FSA, inside the gesture).
+      *(Reworded and UNTICKED 2026-09-28: the receive path changed — the 2026-09-27 tick proved the
+      FSA-dialog path, which is now only the fallback past the quota. Re-run on the live build.)*
+- [ ] **B2 · disk receive on the phone + the RAM fallback's cap** — receive on IPH Safari and on MBP-A
+      Firefox. Expected: no save dialog; the file goes to site storage and lands via a download at the
+      end — a file well past 200 MiB (say 1 GiB) must complete on the PHONE, which is what the disk
+      path is for. Then in a **private window** (where site storage may be unusable → the RAM path)
+      offer a file **over 200 MiB**: the receiver must **refuse before accepting**, naming the limit —
+      never accept and then die of OOM mid-transfer. *(Reworded 2026-09-28 for the disk-first path; the
+      old caps were 512 MiB phone / 1 GiB desktop.)*
 - [ ] **B3 · QR scan + self-hosted WASM** — scan on IPH Safari and AND-2 Firefox (the ponyfill path).
       Expected: scanning works, and in Network the WASM is fetched from
       `https://hushsend.frelikh.dev/assets/zxing_reader-*.wasm` with `Content-Type: application/wasm`.
@@ -425,10 +444,14 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
 
       | receive path | sizes to offer | expected |
       |---|---|---|
+      | *(2026-09-28: the paths changed — rows kept for the record of the 2026-09-27 run; the NEW rows below are what to walk next)* | | |
       | FSA streaming (Chrome desktop) | 1, 2, 3 GiB, **4 GiB + 1 B** (the 32-bit edge), **5 GiB** | completes, every byte verified, receiver memory flat |
       | Blob, desktop cap 1 GiB (Safari, Firefox, Brave, Chrome without FSA) | 1 GiB + 1 B, 5 GiB, then **exactly 1 GiB** | the first two refused BEFORE accept, naming the limit; 1 GiB completes AND the download lands on disk intact |
       | Blob, mobile cap 512 MiB (iOS Safari, Android Firefox; Android Chrome only where `showSaveFilePicker` is absent — Chrome 149 has it, so its default path is FSA, see AND-1) | 512 MiB + 1 B, 5 GiB, then **exactly 512 MiB** | the same; on a real handset this is also B2's memory-pressure datum |
       | every engine as SENDER | 5 GiB into an FSA receiver | completes; sender memory does not grow with the file |
+      | **NEW · OPFS (every engine, the default)** | 1, 2, 3 GiB, 4 GiB + 1 B, 5 GiB — up to the site quota | completes with NO dialog, every byte verified, receiver memory flat, the download lands intact |
+      | **NEW · past the quota** (Chrome: > 10 GiB here) | quota + 1 GiB | Chrome/Android: the save dialog appears (FSA); Safari/Firefox: refused before accept, naming the room |
+      | **NEW · RAM fallback 200 MiB** (a private window without usable site storage) | 200 MiB + 1 B, then exactly 200 MiB | the first refused before accept; 200 MiB completes |
 
       **Build the files so they cost the page nothing and still prove every byte:** 1 MiB blocks, each
       a unique 16-byte header plus one shared body, assembled from Blob parts that REFERENCE that body.
@@ -555,13 +578,16 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
 - [ ] **F1 · phone screen lock / app switch mid-transfer** — start a ≈200 MB transfer to IPH, then lock
       the screen / switch apps for ~30 s and come back. Expected: either it keeps going or it fails
       visibly with a recoverable state — **iOS suspends background tabs**, so record exactly what
-      happens; this is the single most likely real-world surprise.
+      happens; this is the single most likely real-world surprise. **Since 2026-09-28:** if the file
+      completed while the screen was locked, the finished row must show **Save file** (the download was
+      held, not lost — the simulator rehearsal lost it silently); tap it and check the file.
 - [ ] **F2 · network drop** — mid-transfer, disable Wi-Fi on one side for ~20 s and re-enable.
       Expected: a visible failure or a recovery, never a frozen progress bar that claims to be alive.
 - [x] **F3 · tab close** — close the receiver's tab mid-transfer. Expected: the sender notices and shows
       a failure.
-- [ ] **F4 · large transfer** — ≈2 GB MBP-A Chrome → MBP-B Chrome (FSA both ways). Expected: it
-      completes, memory stays flat, and the signaling socket is long gone by then (A6).
+- [ ] **F4 · large transfer** — ≈2 GB MBP-A Chrome → MBP-B Chrome (disk both ways — site storage, no
+      dialog, since 2026-09-28). Expected: it completes, memory stays flat, and the signaling socket is
+      long gone by then (A6).
 - [x] **F5 · code expiry** — create a words session and leave it untouched past its TTL, then try to
       join. Expected: the code is freed — the waiting side is closed out (4010) and a later join gets
       `room not found` (4009), with a readable message rather than a raw code.

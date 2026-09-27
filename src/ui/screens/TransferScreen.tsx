@@ -1,11 +1,11 @@
 import { useRef, useState, type DragEvent, type ReactElement } from 'react';
 import { useSession } from '../SessionProvider';
-import { useAppDispatch, useAppSelector } from '../../store/hooks';
+import { useAppSelector } from '../../store/hooks';
 import { formatBytes } from '../../core/transfer/fileTransfer';
 import { useT } from '../prefs';
 import type { StrKey } from '../i18n';
 import type { ConnectionMethod } from '../../store/connectionSlice';
-import { transferActions, type TransferState } from '../../store/transferSlice';
+import { type TransferState } from '../../store/transferSlice';
 import {
   Screen,
   Space,
@@ -30,7 +30,6 @@ import {
 export function TransferScreen(): ReactElement {
   const session = useSession();
   const t = useT();
-  const dispatch = useAppDispatch();
   const method = useAppSelector((s) => s.connection.method);
   const reconnectOutcome = useAppSelector((s) => s.dev.reconnect.outcome);
   const pathCheck = useAppSelector((s) => s.connection.pathCheck);
@@ -43,9 +42,10 @@ export function TransferScreen(): ReactElement {
 
   // Reset ONLY the per-transfer projection (progress / file name / phase) back to idle — a clean
   // ready-to-send for the next send. Does NOT touch the connection (the channel stays open) and does
-  // NOT clear the session-only history (those records persist).
+  // NOT clear the session-only history (those records persist). Through the core, so a received file
+  // still waiting for "Save file" is let go of too.
   const newTransfer = (): void => {
-    dispatch(transferActions.reset());
+    session.resetTransfer();
   };
 
   return (
@@ -74,6 +74,19 @@ export function TransferScreen(): ReactElement {
               instead of letting it pose as a working transfer (TESTPLAN F2). It either clears by
               itself or the core ends the session as lost. */}
           {interrupted && <AlertLine testId="interrupted">{t('interrupted')}</AlertLine>}
+          {/* Reliable mode fell back to the relay: say so, quietly — it is the mode working as chosen,
+              not an alarm, and it is NOT "direct path confirmed" (which is what `ok` used to claim). */}
+          {pathCheck === 'relayed' && (
+            <Disclosure
+              title={t('pathRelayed')}
+              tone="muted"
+              testId="path-state"
+              panelTestId="path-hint"
+              attrs={{ 'data-path-verdict': 'relayed' }}
+            >
+              {t('pathRelayedHint')}
+            </Disclosure>
+          )}
           {pathCheck === 'unknown' && (
             <Disclosure
               title={t('pathUnknown')}
@@ -327,9 +340,33 @@ function TransferPanel({
       {!incoming && inFlight && (
         <TextLink onClick={() => session.cancelTransfer()}>{t('cancel')}</TextLink>
       )}
+      {done && transfer.saveNeeded && (
+        // The file arrived while the page was hidden, so the browser was never asked to save it (iOS
+        // drops a download started then) — the tap does it now, in a real user gesture.
+        <>
+          <p className="hs-p hs-p--muted" data-testid="save-hint">
+            {t('saveFileHint')}
+          </p>
+          <Space h={12} />
+          <Pill
+            variant="primary"
+            block
+            testId="save-file-btn"
+            onClick={() => session.saveReceived()}
+          >
+            {t('saveFile')}
+          </Pill>
+          <Space h={4} />
+        </>
+      )}
       {(done || ended) && (
         <>
-          <Pill variant="primary" block testId="new-transfer-btn" onClick={onNewTransfer}>
+          <Pill
+            variant={done && transfer.saveNeeded ? 'secondary' : 'primary'}
+            block
+            testId="new-transfer-btn"
+            onClick={onNewTransfer}
+          >
             {t('newTransfer')}
           </Pill>
           <Space h={4} />

@@ -5,6 +5,7 @@ import {
   isForbiddenRemoteCandidate,
   isRelayCandidate,
   relayCandidateEndpoint,
+  selectedPairRelayed,
   selectedRemoteCandidate,
   shouldDropCandidate,
   stripRelayCandidates,
@@ -109,6 +110,41 @@ describe('isForbiddenRemoteCandidate (the path we actually got)', () => {
     expect(isForbiddenRemoteCandidate(true, { candidateType: 'srflx', address: '203.0.113.7', port: 51556 }, DROPPED)).toBe(false);
     expect(isForbiddenRemoteCandidate(false, { candidateType: 'relay', address: '198.51.100.9', port: 60000 }, DROPPED)).toBe(false);
     expect(isForbiddenRemoteCandidate(true, null, DROPPED)).toBe(false);
+  });
+});
+
+describe('selectedPairRelayed — is the path relayed on EITHER side (Reliable mode)', () => {
+  const cand = (id: string, type: 'local-candidate' | 'remote-candidate', candidateType?: string): StatsEntry => ({
+    id,
+    type,
+    ...(candidateType ? { candidateType } : {}),
+    address: '198.51.100.9',
+    port: 3478,
+  });
+  const pair = (local: string, remote: string): StatsEntry[] => [
+    { id: 'T1', type: 'transport', selectedCandidatePairId: 'P1' },
+    { id: 'P1', type: 'candidate-pair', state: 'succeeded', localCandidateId: local, remoteCandidateId: remote },
+  ];
+
+  it('OUR relay counts — the peer then sees a relay address it can honestly name, and "ok" was a lie', () => {
+    const e = [...pair('L', 'R'), cand('L', 'local-candidate', 'relay'), cand('R', 'remote-candidate', 'srflx')];
+    expect(selectedPairRelayed(e)).toBe(true);
+  });
+
+  it("the PEER's relay counts too", () => {
+    const e = [...pair('L', 'R'), cand('L', 'local-candidate', 'host'), cand('R', 'remote-candidate', 'relay')];
+    expect(selectedPairRelayed(e)).toBe(true);
+  });
+
+  it('host / srflx / prflx on both sides is direct', () => {
+    const e = [...pair('L', 'R'), cand('L', 'local-candidate', 'srflx'), cand('R', 'remote-candidate', 'prflx')];
+    expect(selectedPairRelayed(e)).toBe(false);
+  });
+
+  it('nothing selected, or a side whose type is not reported, is unknown — never "direct"', () => {
+    expect(selectedPairRelayed([])).toBeNull();
+    const e = [...pair('L', 'R'), cand('L', 'local-candidate'), cand('R', 'remote-candidate', 'host')];
+    expect(selectedPairRelayed(e)).toBeNull();
   });
 });
 

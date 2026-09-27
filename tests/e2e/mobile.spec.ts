@@ -8,11 +8,11 @@ import { createLink, fragmentOf, joinQrByPaste } from './helpers';
  * The PHONE profile (step 6e, the closest thing to a handset without one): WebKit driven with an
  * iPhone device descriptor — iOS User-Agent, phone viewport, touch.
  *
- * What this genuinely covers: the receive ceiling is picked from the User-Agent, so a phone profile
- * is what selects MAX_BYTES_MOBILE_BLOB (512 MB) over the desktop gigabyte — and that decision had
- * NO end-to-end coverage at all. It also covers the Blob receive path taken for real (WebKit has no
- * showSaveFilePicker, so nothing needs forcing here), the layout at 390 px, and the QR paste
- * fallback a phone without a usable camera falls back to.
+ * What this genuinely covers: the phone's real receive path (site storage — OPFS — on this engine,
+ * the RAM fallback where a build lacks it) end to end, the RAM fallback's 200 MB cap (the owner's rule
+ * since 2026-09-27: one cap for every device, the disk paths carry the big files — so the User-Agent
+ * no longer decides anything), the layout at 390 px, and the QR paste fallback a phone without a
+ * usable camera falls back to.
  *
  * What it does NOT cover, and must not be read as covering: real iOS memory pressure, background-tab
  * suspension mid-transfer, camera permissions, or cellular NAT. Playwright's WebKit is WebKitGTK on
@@ -24,20 +24,24 @@ import { createLink, fragmentOf, joinQrByPaste } from './helpers';
  */
 
 const TMP = join(process.cwd(), 'e2e-tmp-mobile');
-/** Just over MAX_BYTES_MOBILE_BLOB (512 MB) and well under the desktop gigabyte: only a phone refuses it. */
-const OVER_MOBILE_CAP = 520 * 1024 * 1024;
+/** Just over MAX_BYTES_BLOB (200 MB): what the RAM-only path must refuse before any byte. */
+const OVER_RAM_CAP = 210 * 1024 * 1024;
 
 function sha256(buf: Buffer): string {
   return createHash('sha256').update(buf).digest('hex');
 }
 
-/** Pair two tabs of this (phone) profile over the link method and return both pages. */
-async function connectPair(context: BrowserContext): Promise<{ sender: Page; receiver: Page }> {
+/** Pair two tabs of this (phone) profile over the link method and return both pages. `receiverQuery`
+ *  (e.g. `?forceBlob=1`, DEV-only) steers the receiver onto a specific path. */
+async function connectPair(
+  context: BrowserContext,
+  receiverQuery = '',
+): Promise<{ sender: Page; receiver: Page }> {
   const sender = await context.newPage();
   await sender.goto('/');
   const link = await createLink(sender, 'link');
   const receiver = await context.newPage();
-  await receiver.goto(`/${fragmentOf(link)}`);
+  await receiver.goto(`/${receiverQuery}${fragmentOf(link)}`);
   await expect(sender.getByTestId('status')).toHaveText('connected', { timeout: 90_000 });
   await expect(receiver.getByTestId('status')).toHaveText('connected', { timeout: 90_000 });
   return { sender, receiver };
@@ -48,23 +52,20 @@ test.beforeAll(() => {
   mkdirSync(TMP, { recursive: true });
 });
 
-test('phone · the UA picks the 512 MB ceiling, and an oversize file is refused before any byte', async ({
-  context,
-}) => {
+test('phone · the RAM-only path refuses a file over 200 MB before any byte', async ({ context }) => {
   // A SPARSE file: the receiver refuses on the offer's declared size, so not one byte is ever read
-  // from it. Writing 520 MB of real data would only slow the test down to prove the same thing.
-  const big = join(TMP, 'over-mobile-cap.bin');
+  // from it. Writing 210 MB of real data would only slow the test down to prove the same thing.
+  const big = join(TMP, 'over-ram-cap.bin');
   writeFileSync(big, '');
-  truncateSync(big, OVER_MOBILE_CAP);
+  truncateSync(big, OVER_RAM_CAP);
 
-  const { sender, receiver } = await connectPair(context);
+  const { sender, receiver } = await connectPair(context, '?forceBlob=1');
   await sender.getByTestId('file-input').setInputFiles(big);
   await sender.getByTestId('send-btn').click();
 
-  // Refused, and the reason must quote the PHONE cap — 1.0 GB here would mean the desktop ceiling
-  // was applied to a phone, which is the whole failure this test exists to catch.
+  // Refused, and the reason quotes the RAM cap.
   await expect(receiver.getByTestId('transfer-phase')).toContainText('rejected', { timeout: 30_000 });
-  await expect(receiver.getByTestId('transfer-reason')).toContainText('512 MB');
+  await expect(receiver.getByTestId('transfer-reason')).toContainText('200 MB');
   await expect(receiver.getByTestId('accept-btn')).toHaveCount(0);
 
   // And the sender never started sending: no bytes counter, same reason shown.
@@ -72,7 +73,7 @@ test('phone · the UA picks the 512 MB ceiling, and an oversize file is refused 
   await expect(sender.getByTestId('transfer-bytes')).toHaveCount(0);
 });
 
-test('phone · a normal transfer completes over the Blob path (no FSA on this engine)', async ({ context }) => {
+test('phone · a normal transfer completes over the phone\'s real receive path', async ({ context }) => {
   const src = join(TMP, 'note.bin');
   const payload = randomBytes(2 * 1024 * 1024);
   writeFileSync(src, payload);

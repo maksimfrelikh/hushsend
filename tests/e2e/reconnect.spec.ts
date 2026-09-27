@@ -177,7 +177,7 @@ test('key-changed hard-stop: a peer presenting a different key under the same pa
   // toast). The other side goes down on the torn-down channel. No side reaches `connected`.
   await expect(a.getByTestId('status')).toHaveText('failed', { timeout: RECONNECT_ASSERT_TIMEOUT_MS });
   await expect(a.getByTestId('key-changed')).toBeVisible();
-  await expect(a.getByTestId('error')).toContainText('key changed');
+  await expect(a.getByTestId('key-changed')).toHaveAttribute('data-reason', /key changed/);
   await expect(b.getByTestId('status')).toHaveText('failed', { timeout: RECONNECT_ASSERT_TIMEOUT_MS });
 
   // No DataChannel transfer happened on EITHER side — not just "the banner is shown". The transfer
@@ -342,6 +342,6 @@ test('the other device never taps → a bounded wait ends in a clear "did not sh
   await expect(a.getByTestId('reconnect-waiting')).toBeVisible({ timeout: 30_000 });
   // B never taps.
   await expect(a.getByTestId('status')).toHaveText('failed', { timeout: 30_000 });
-  await expect(a.getByTestId('error')).toContainText('did not show up');
+  await expect(a.getByTestId('failure')).toHaveAttribute('data-reason', /did not show up/);
   await expect(b.getByTestId('status')).toHaveText('idle'); // B was never touched
 });

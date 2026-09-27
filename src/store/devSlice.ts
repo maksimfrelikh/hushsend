@@ -40,7 +40,7 @@ export interface DevState {
    *  ICE selected is one the peer named, `unknown` = this engine could not say (allowed, not a
    *  failure), `mismatch` = something is on the path (the session is torn down). Non-secret: both
    *  values are addresses the two peers already know about each other. */
-  pathVerdict: 'ok' | 'unknown' | 'mismatch' | null;
+  pathVerdict: 'ok' | 'unknown' | 'mismatch' | 'relayed' | null;
   /** Cross-check of what several STUN servers say our public address is (see core/stunCheck.ts).
    *  `unknown` while fewer than two answer — which is every deployment with a single STUN operator,
    *  i.e. today's. Advisory like the path verdict: it is shown, it gates nothing. */
@@ -85,7 +85,7 @@ const slice = createSlice({
     },
     setPath(
       state,
-      action: PayloadAction<{ verdict: 'ok' | 'unknown' | 'mismatch'; selected: string | null; peerAddrs: string[] }>,
+      action: PayloadAction<{ verdict: 'ok' | 'unknown' | 'mismatch' | 'relayed'; selected: string | null; peerAddrs: string[] }>,
     ) {
       state.pathVerdict = action.payload.verdict;
       state.pathSelected = action.payload.selected;

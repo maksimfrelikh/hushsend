@@ -197,6 +197,15 @@ The identity key falls back to a raw seed in IndexedDB on engines without WebCry
 Safari/Firefox); the path check runs once at channel-open and is not re-run on mid-session
 re-nomination. All in `BACKLOG.md`.
 
+**New 2026-09-27: a received file is briefly on disk in the site's private storage.** Big files are
+now received into the browser's origin-private file system (OPFS) instead of RAM, and handed to the
+user as a download read from there. That copy is removed at once when a receive fails, is cancelled or
+is never saved, and 10 minutes after the download starts when it is delivered; if the tab closes
+first it stays until hushsend is next opened, which removes it. Only this site can read that folder,
+and it holds the same bytes the user was just handed — but it is a copy on disk that can outlive the
+tab, where the old in-memory path left nothing behind. Someone who seizes the device inside that
+window finds the file in the browser profile as well as in Downloads.
+
 **Closed 2026-09-18, then removed 2026-09-25:** the `pairingId` disclosure that used to sit here. A
 code-guesser winning the 4-digit reconnect race was handed a stable per-pair identifier before any
 authentication — never an auth break, but a link between two anonymous rendezvous and one

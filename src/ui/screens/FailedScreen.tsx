@@ -3,15 +3,21 @@ import { useSession } from '../SessionProvider';
 import { useAppSelector } from '../../store/hooks';
 import { formatBytes } from '../../core/transfer/fileTransfer';
 import { useT } from '../prefs';
-import { Screen, Space, Pill, TextLink, Kicker, Glyph } from '../ui';
+import { Screen, Space, Pill, TextLink, Glyph } from '../ui';
 
 /**
  * ONE terminal failure screen with variants, classified from the error text and the method:
- * compromised (SAS / key-confirmation mismatch), room not found, nobody came (reconnect), direct
- * path failed (Max privacy, ± the missing-relay hint in Reliable), connection lost (an AUTHENTICATED
- * channel died — with the last file's outcome), generic, and the words method, which additionally
- * offers fresh words. There is no "Try again". Each surfaces the raw reason as a mono line and one
- * exit.
+ * compromised (SAS / key-confirmation mismatch), room not found or code expired, lost the connection
+ * to the server (a signaling drop that is not a room answer), nobody came (reconnect), direct path
+ * failed (Max privacy, ± the missing-relay hint in Reliable), connection lost (an AUTHENTICATED channel
+ * died — with the last file's outcome), generic, and the words method, which additionally offers fresh
+ * words. There is no "Try again".
+ *
+ * NOTHING IS SAID TWICE (owner's rule, 2026-09-27): a title, and a description only where it tells the
+ * user something the title does not. The mono eyebrows that paraphrased every title are gone, and the
+ * raw reason is shown only where it is the one specific fact on the screen (the generic variant, and
+ * the connection-lost variant's signal) — everywhere else it only repeated the copy. It stays on the
+ * container as `data-reason` for tooling and tests.
  *
  * The reconnect KEY-CHANGED case is the hard stop: it inverts the WHOLE viewport (danger = inversion,
  * never red — App.tsx adds `hs-app--inverted`), and the only action is "Don't connect". No bytes ever
@@ -32,16 +38,12 @@ export function FailedScreen(): ReactElement {
   if (reconnectOutcome === 'key-changed') {
     return (
       <Screen center>
-        <div className="hs-failed" data-testid="key-changed">
+        <div className="hs-failed" data-testid="key-changed" data-reason={error}>
           <Glyph name="warn" size={48} className="hs-failed__glyph" />
           <Space h={24} />
           <h2 className="hs-h2">{t('kcTitle')}</h2>
           <Space h={14} />
           <p className="hs-p hs-p--narrow">{t('kcDesc')}</p>
-          <Space h={16} />
-          <span className="hs-reason" data-testid="error">
-            {error}
-          </span>
           <Space h={36} />
           <div className="hs-failed__actions">
             <Pill variant="primary" block testId="reset-btn" onClick={() => session.dispose()}>
@@ -55,7 +57,12 @@ export function FailedScreen(): ReactElement {
 
   const lower = error.toLowerCase();
   const isMismatch = /(match|man-in-the-middle|tamper|mismatch|compromis)/.test(lower);
-  const isExpired = /(not found|expired|4009|room full|signaling closed)/.test(lower);
+  // A room answer: gone (4009 / a dead token), expired (4010), full (4002).
+  const isExpired = /(not found|expired|4009|4010|4002|room full)/.test(lower);
+  // Any OTHER signaling close — 1006 above all: the network or the server went away while pairing.
+  // It used to fall into `expired` ("Room not found or code expired — Check the digits") and told a
+  // person who typed no digits to check them (BACKLOG § UX bugs, the Android emulator).
+  const isServerLost = /signaling closed/.test(lower);
   // Max-privacy STRICT model: a direct ICE failure is terminal (Max-privacy never relays). Surface a
   // hint to switch to Reliable. Keyed off the stable reason DIRECT_FAIL_REASON sets in the core.
   const isDirectFail = /connect directly|max privacy/.test(lower);
@@ -74,32 +81,34 @@ export function FailedScreen(): ReactElement {
         ? 'noShow'
         : isExpired
           ? 'expired'
-          : isDirectFail
-            ? 'direct'
-            : 'generic';
+          : isServerLost
+            ? 'server'
+            : isDirectFail
+              ? 'direct'
+              : 'generic';
   const copy = {
-    mismatch: {
-      kicker: t('erMismatchEyebrow'),
-      title: t('erMismatchTitle'),
-      desc: t('erMismatchDesc'),
-    },
-    noShow: { kicker: t('noShowEyebrow'), title: t('noShowTitle'), desc: t('noShowDesc') },
-    expired: { kicker: t('exEyebrow'), title: t('exTitle'), desc: t('exDesc') },
-    direct: {
-      kicker: t('directFailEyebrow'),
-      title: t('directFailTitle'),
-      desc: t('directFailHint'),
-    },
-    // Title, the file, the signal — nothing else. An eyebrow or a description would only say "lost"
-    // again, and could not honestly say WHOSE side dropped (it may well be this one).
-    lost: { kicker: '', title: t('lostTitle'), desc: '' },
-    generic: { kicker: t('erGenericEyebrow'), title: t('erGenericTitle'), desc: '' },
+    mismatch: { title: t('erMismatchTitle'), desc: t('erMismatchDesc') },
+    noShow: { title: t('noShowTitle'), desc: t('noShowDesc') },
+    expired: { title: t('exTitle'), desc: t('exDesc') },
+    server: { title: t('serverLostTitle'), desc: t('serverLostDesc') },
+    direct: { title: t('directFailTitle'), desc: t('directFailHint') },
+    // Title, the file, the signal. A description could not honestly say WHOSE side dropped.
+    lost: { title: t('lostTitle'), desc: '' },
+    generic: { title: t('erGenericTitle'), desc: '' },
   }[variant];
+  // The mono line only where it is the one specific fact: the generic variant's raw reason, and the
+  // lost variant's signal (its title already says "lost"). Elsewhere it only repeated the copy.
+  const reason =
+    variant === 'lost'
+      ? error.replace(/^connection lost:\s*/i, '')
+      : variant === 'generic'
+        ? error
+        : undefined;
 
   return (
     <FailureLayout
       variant={variant}
-      kicker={copy.kicker}
+      rawReason={error}
       title={copy.title}
       desc={copy.desc}
       descTestId={variant === 'direct' ? 'direct-fail-hint' : undefined}
@@ -115,8 +124,7 @@ export function FailedScreen(): ReactElement {
           </p>
         ) : null
       }
-      // The lost variant's title already says "lost"; its mono line keeps only which signal said so.
-      reason={variant === 'lost' ? error.replace(/^connection lost:\s*/i, '') : error}
+      reason={reason}
       actions={
         // Fresh words fix a CODE problem (wrong, spent, expired). A lost connection is not one — the
         // words did their job — so it gets the plain exit.
@@ -152,8 +160,9 @@ export function FailedScreen(): ReactElement {
  * offered on this channel.
  */
 function LastTransfer(): ReactElement | null {
+  const session = useSession();
   const t = useT();
-  const { phase, direction, fileName, totalBytes, transferredBytes } = useAppSelector(
+  const { phase, direction, fileName, totalBytes, transferredBytes, saveNeeded } = useAppSelector(
     (s) => s.transfer,
   );
   if (phase === 'idle' || !fileName) return null;
@@ -171,29 +180,48 @@ function LastTransfer(): ReactElement | null {
       ? formatBytes(totalBytes)
       : `${t('stoppedAt')} ${formatBytes(transferredBytes)}`;
   return (
-    <div
-      className={`hs-box hs-failed__transfer${done ? '' : ' hs-box--ended'}`}
-      data-testid="last-transfer"
-      data-outcome={phase}
-    >
-      <div className="hs-box__head">
-        <span className="hs-box__label">{outcome}</span>
-        <span className="hs-box__aside">{aside}</span>
+    <>
+      <div
+        className={`hs-box hs-failed__transfer${done ? '' : ' hs-box--ended'}`}
+        data-testid="last-transfer"
+        data-outcome={phase}
+      >
+        <div className="hs-box__head">
+          <span className="hs-box__label">{outcome}</span>
+          <span className="hs-box__aside">{aside}</span>
+        </div>
+        <div className="hs-file">
+          <span className="hs-file__name">{fileName}</span>
+          {done && <Glyph name="check" size={20} />}
+        </div>
       </div>
-      <div className="hs-file">
-        <span className="hs-file__name">{fileName}</span>
-        {done && <Glyph name="check" size={20} />}
-      </div>
-    </div>
+      {done && saveNeeded && (
+        // Received while the page was hidden and not saved yet — the file is still here to save,
+        // connection or not.
+        <>
+          <Space h={12} />
+          <div className="hs-failed__actions">
+            <Pill
+              variant="primary"
+              block
+              testId="save-file-btn"
+              onClick={() => session.saveReceived()}
+            >
+              {t('saveFile')}
+            </Pill>
+          </div>
+        </>
+      )}
+    </>
   );
 }
 
 /** The failure composition shared by every variant (and by the SAS fail-closed restart): glyph,
- *  optional mono kicker, title, optional description(s), the raw reason, the actions column.
+ *  title, optional description(s), the raw reason where it says something new, the actions column.
  *  `variant` is exposed as `data-variant` for tooling and tests. */
 export function FailureLayout({
   variant,
-  kicker,
+  rawReason,
   title,
   desc,
   descTestId,
@@ -202,7 +230,9 @@ export function FailureLayout({
   actions,
 }: {
   variant?: string;
-  kicker?: string;
+  /** The full failure reason, kept on the container for tooling and tests even where the screen
+   *  does not show it (see FailedScreen: nothing is said twice). */
+  rawReason?: string;
   title: string;
   desc?: string;
   descTestId?: string;
@@ -212,15 +242,14 @@ export function FailureLayout({
 }): ReactElement {
   return (
     <Screen center>
-      <div className="hs-failed" data-testid="failure" data-variant={variant}>
+      <div
+        className="hs-failed"
+        data-testid="failure"
+        data-variant={variant}
+        data-reason={rawReason}
+      >
         <Glyph name="warn" size={40} className="hs-failed__glyph" />
         <Space h={24} />
-        {kicker && (
-          <>
-            <Kicker>{kicker}</Kicker>
-            <Space h={10} />
-          </>
-        )}
         <h2 className="hs-h2">{title}</h2>
         {desc && (
           <>
