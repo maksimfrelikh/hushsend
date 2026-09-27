@@ -302,15 +302,15 @@ the same pass as CLAUDE.md when items land.
   SAME fix as "link/qr lobby-race resistance" above. (See CLAUDE.md § link/qr method + § Signaling server.)
 
 ## Ops / housekeeping (small, no devices)
-- [ ] **Record the 12 new screenshot baselines on the deploy host (added 2026-09-27, NOT recorded).**
-  `visual/scenes.ts` gained `transfer-interrupted` (phone × 2 themes), `failed-lost` (full matrix, 6),
-  `failed-lost-delivered` and `failed-lost-idle` (phone × 2 each) with the connection-lost fix. The
-  committed baselines are the deploy host's renders — on the Mac every existing scene differs from
-  them, on the untouched commit too (`failed-direct` / `transfer-error`: 8 of 8, 2026-09-27) — so
-  these were reviewed from Mac renders but deliberately NOT committed. Until they are recorded there,
-  `npm run visual` reports those 12 as missing. On the host, after pulling:
-  `npx playwright test -c visual/playwright.config.ts -g "transfer-interrupted|failed-lost" --update-snapshots`,
-  then commit `visual/baseline/{transfer-interrupted,failed-lost}*.png` and update README § Status.
+- ✅ **The 12 connection-lost screenshot baselines are recorded — DONE 2026-09-27, on the deploy host.**
+  `transfer-interrupted` (phone × 2 themes), `failed-lost` (full matrix, 6), `failed-lost-delivered`
+  and `failed-lost-idle` (phone × 2 each). The committed baselines are the deploy host's renders — on
+  the Mac every scene differs from them by 1–2 % of pixels, on the untouched `93de6f5` too — so they
+  were recorded there, in a throwaway `cp -a` copy under `/tmp` at `defe379` (the dev clone and the web
+  root untouched), and the whole gate then passed there: **159 / 159**. Two traps for next time: a
+  `node_modules` SYMLINK instead of a copy makes Vite refuse the webfonts (`server.fs.allow`), so every
+  scene "fails" and new baselines come out in a fallback font; and `--update-snapshots=missing` reports
+  each baseline it writes as a failure — the run after it is the check.
 - ✅ **The visual gate's run artifacts are no longer tracked — DONE 2026-09-27.**
   `visual/.report/index.html` and `visual/.results/.last-run.json` had been committed with `783c0a6` /
   `efe8b29`, so every `npm run visual` left the tree dirty; they are `git rm --cached` now and both

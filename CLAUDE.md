@@ -600,8 +600,8 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
     closes mid-transfer → the sender ends "not delivered"; the sender closes → the receiver ends "not
     received" with no download; Chromium only — the receiver's renderer crashed via CDP `Page.crash` →
     the sender shows `interrupted`, then ends lost). Screens: `visual/scenes.ts` `transfer-interrupted`,
-    `failed-lost`, `failed-lost-delivered`, `failed-lost-idle` (axe-checked; screenshot baselines still to be recorded on
-    the deploy host — BACKLOG § Ops).
+    `failed-lost`, `failed-lost-delivered`, `failed-lost-idle` (axe-checked; screenshot baselines recorded on the deploy host,
+    2026-09-27).
 
 ## Privacy mode + ICE (Max-privacy / Reliable — step 6d, DONE)
 *(Separate privacy lever — server learns no session duration: for the 1:1 methods the client closes its
