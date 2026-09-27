@@ -204,7 +204,9 @@ the same pass as CLAUDE.md when items land.
   - **Remaining (real devices, post-deploy):** what only hardware shows — QR scan + camera permissions
     on actual iOS Safari, the FSA→Blob cap on real hardware, everything cross-network (TESTPLAN § C),
     and iOS background-tab suspension mid-transfer (§ F1). Engine-level transport interop is now
-    pre-covered headlessly (above).
+    pre-covered headlessly (above). The pass itself is tracked case by case in TESTPLAN.md — 19 of 46
+    closed as of 2026-09-27, with iPhone/iPad-simulator and Android-emulator rehearsals of the handset
+    cases the same evening (its § Result log); the findings are in § UX bugs below.
 - ✅ **Deployment behind nginx (6f) — LIVE at hushsend.frelikh.dev (see DEPLOY.md § 0 — the
   as-realized source of truth).** First bring-up 2026-06-20 on a VPS (`frelikhmax.fvds.ru`); **the live
   instance MOVED to the owner's home server 2026-08-16** and that is what runs today (re-verified on the
@@ -557,9 +559,53 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   `disconnected`→`failed` 14–36 s after connect left BOTH sides on `connected` ("Sending 0 %" /
   "Receiving 0 %") for >60 s; (c) F8 (2026-09-27 afternoon) — when the SENDER of a link gives up on key
   confirmation after 120 s, the silent receiver, which had already verified the sender's tag, keeps
-  showing "Secure channel open" to a peer that is gone.** One fix covers all of them: handle `connectionstatechange`
+  showing "Secure channel open" to a peer that is gone.** **And in three more on the Android emulator
+  (2026-09-27 evening): (d) F2 with REAL airplane mode for 20 s mid-transfer — both peer connections went
+  `disconnected` ~10 s into the cut and `failed` 10 s later; after the network returned nothing
+  recovered and nothing failed: the receiver sat on "Receiving 3 407 872 B" and the sender on "Sending
+  4 194 304 B" for 150 s+; (e) the Android save-dialog death (next item) — a 0-byte file, the receiver on
+  "Receiving 0 %", the sender on "offered"; (f) every stalled bulk transfer through the emulator's
+  network (a harness limit, but the app's reaction is the same: both sides keep "transferring").**
+  One fix covers all of them: handle `connectionstatechange`
   `failed`/`disconnected` and the DataChannel `close` in the `established` phase — fail the in-flight
   transfer visibly and end the session (a "peer left" terminal state), instead of nothing.
+- [ ] **Android Chrome: the transfer dies if the system save dialog stays open for more than ~10–20 s
+  (found 2026-09-27, emulator, TESTPLAN § Result log third entry).** Chrome 149 on Android HAS
+  `showSaveFilePicker`, so Accept opens Android's own save UI (DocumentsUI → Downloads → SAVE) inside
+  the gesture — the FSA path, uncapped, not the 512 MiB Blob path the plan assumed. With the picker in
+  front for 40 s or more (four runs — my automation was slow to press SAVE) both peers' ICE went
+  `disconnected` within ~10–20 s of it opening and `failed` 10 s later; a SAVE after that created a
+  0-byte file (twice) and both screens froze (previous item). With the picker dismissed within ~11–12 s
+  (two runs) the connection survived and the 5 MB file saved byte-identical.
+  The page's own JS kept running while the picker was up (a 200 ms heartbeat never paused more than
+  1.1 s), so the mechanism is not a frozen page — not established; a real phone may differ. A person
+  browsing folders in that dialog can easily take 20 s. Options, owner's call: prefer the Blob path on
+  mobile UAs, or survive/resume after the picker (needs the peer-gone fix above at the least).
+  Cancelling the picker is handled well: the receiver ends "Transfer ended · cancelled".
+- [ ] **A signaling drop during pairing reads as "Room not found or code expired" (found 2026-09-27,
+  Android emulator).** `FailedScreen` puts any `signaling closed (code N)` into the `expired` variant
+  (`/(not found|expired|4009|room full|signaling closed)/`), so a network drop (1006) while a LINK or
+  WORDS join is pairing shows "Room not found or code expired — Check the digits or start your own
+  room" to someone who typed no digits. Seen twice: the Android joiner of a Max-privacy link pair that
+  could not connect, and the Android joiner after F8's airplane mode. Fix: keep `expired` for
+  4009/4010/4002 and give 1006/other closes a "lost the connection to the server" variant.
+- [ ] **iOS (simulator): a Blob download that fires while the screen is locked is lost silently
+  (found 2026-09-27, TESTPLAN F1 rehearsal).** 400 MB to the iPhone 17 simulator with the screen locked
+  right after Accept: the transfer itself finished (sender "Delivered" after 28 s), but the hand-off to
+  the download — iOS's "Do you want to download…" prompt — was never shown: after unlock no prompt was
+  pending, no file was in Files, no error was shown. The same transfer unlocked (control) prompted and
+  saved a byte-identical file. On a real iPhone this is the likeliest shape of F1; the receiver should
+  re-offer the save (a "Save file" button on the finished row) when the page was hidden at the
+  hand-off. Needs the real-phone run to confirm.
+- [ ] **The lobby no longer shows the device label (found 2026-09-27).** Since the 2026-09-26 redesign a
+  roster row is the readable id + join time; `peer.device` (`Desktop`/`Mobile`, still sent and
+  capped by the server) is not rendered, while TESTPLAN D1 expects "a sane device label". Decide:
+  render it again, or drop it from the protocol and the plan.
+- [ ] **"Forget pinned devices" acts on one tap, with no confirmation (noted 2026-09-27).** `onForgetAll`
+  calls `resetIdentity` directly — the identity key is regenerated and every pin is gone, so every
+  paired device has to pair afresh. On the iPhone simulator the keystore was found in exactly that state
+  (new identity, 0 pins) after a tap sequence of mine near the bottom of the home screen — the likely
+  cause, not verified. A confirm step (or an undo) is cheap for an irreversible action.
 - [ ] **The SAS reader cannot stop after confirming early (found 2026-09-27, A4b).** The reader taps
   "They read it back — connect" before the picker has answered and lands on "Verifying…"
   (`confirming`) with no control at all — no abort, no Back. `SessionController` accepts a reject
@@ -584,12 +630,17 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   fragment differs, so the browser does a same-document navigation and `App.tsx` reads
   `location.hash` at load only. Either listen to `hashchange` (join if idle) or document that the
   link must be opened in a fresh tab. Test-drivers hit this too: always load `/health` first.
-- [ ] **"direct path confirmed" can label a RELAYED Reliable session — to confirm.** `localCandidateAddresses`
+  Also seen on iPadOS Safari (simulator, 2026-09-27): a link opened into the tab that shows hushsend
+  did nothing, for the same reason.
+- [ ] **"direct path confirmed" labels a RELAYED Reliable session — CONFIRMED 2026-09-27.** `localCandidateAddresses`
   attests every local candidate including `relay`, so a peer relaying through coturn attests its
   relay address, the selected remote address matches, verdict `ok`, label "direct path confirmed"
-  (`i18n` `pathOk`). Seen on a Brave↔Brave Reliable session whose Max-privacy twin cannot connect
-  directly, i.e. most likely relayed — not yet proven with `webrtc-internals`. If confirmed: exclude
-  relay candidates from the attested set or reword the label.
+  (`i18n` `pathOk`). First suspected on a Brave↔Brave Reliable session; **proven on Chrome 154 ↔ the
+  Android emulator's Chrome 149 in Reliable: `getStats()` on both sides selected `relay udp
+  94.46.199.61` ↔ `relay udp 94.46.199.61` (coturn), and both pages rendered verdict `ok`.** Since the
+  2026-09-26 redesign the `ok` state has no visible row — the text is sr-only — so a relayed session
+  looks exactly like a verified direct one, and a screen reader says "direct path confirmed". Fix:
+  exclude relay candidates from the attested set, or give a relayed path its own verdict/label.
 - ✅ **Multi-file sends are one `hushsend-files.zip` (stored) — DOCUMENTED 2026-09-27.** Owner's decision:
   keep the behaviour (design since `1082b7d`), describe it. TESTPLAN A7 was reworded and re-ticked (three
   members unzip byte-identical), CLAUDE.md § File transfer and README now say so.
@@ -608,10 +659,14 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   detector, still fetched the 1 MB WASM. The docs claimed "native where available" (corrected in
   CLAUDE.md § QR and TESTPLAN). Decide: keep one decoder everywhere (simpler, current) or prefer the
   native one when present (no WASM fetch on Chromium/Android). Not a bug either way.
-- [ ] **iPad may get the DESKTOP receive cap — to check.** `isMobileUA` looks for
-  `Android|iPhone|iPad|iPod|Mobile`; iPadOS Safari requests desktop sites by default and then sends a
-  Macintosh UA without those words, which would select the 1 GiB desktop cap on a tablet. Not observed
-  yet; one iPad-simulator run of TESTPLAN B10 answers it.
+- [ ] **iPad gets the DESKTOP receive cap — CONFIRMED 2026-09-27 (iPad (A16) simulator, iPadOS 27.0).**
+  `isMobileUA` looks for `Android|iPhone|iPad|iPod|Mobile`; iPadOS Safari requests desktop sites by
+  default and sends a UA without those words. Measured: a 1 GiB + 1 B offer was refused naming "the
+  1.0 GB this browser can save" (an iPhone names 512 MB), a 512 MiB + 1 B offer was OFFERED (Accept
+  shown), and the iPad's coarse label in `peer-joined` was `Desktop` (same regex family in
+  `coarseDeviceLabel`). So a tablet holds up to 1 GiB in RAM on the Blob path. Whether that is safe on a
+  real iPad (6–16 GB RAM, but per-tab limits) is a real-device question; the detection itself can use
+  `navigator.maxTouchPoints > 1` on a Macintosh UA.
 
 - ✅ **Mixed-privacy room never connects (early offer dropped) — DONE.** When the two sides used
   DIFFERENT privacy modes, a **Reliable-mode answerer** is still fetching coturn creds (`ensureTurnReady`)

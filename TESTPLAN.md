@@ -6,13 +6,14 @@ e2e across four engine projects, feature-detection review, self-hosted QR WASM);
 
 This used to open "the last open item before the security audit" — the audit has since run twice
 internally (2026-09-12 and 2026-09-13, BACKLOG § Security audit), so that ordering is gone: the
-device pass is now the last open item before a public launch, not before the audit. **Progress: 17 of
-the 46 A–F cases are closed (A4a, A6, A7, B7, B9, D1–D5, E1–E3, E5, F5–F7 — see the two 2026-09-27
-entries in § Result log); the desktop halves of A1, A2, A3, A4, A5, A6a, B2, B3, B5, B6, B8, B10, C6
-and F8 ran on the REAL desktop engines (Chrome, Brave, Safari, Firefox) and wait for their handset half,
-and the iOS-Simulator rehearsal of A1, A5 and B10's 512 MiB rung passed; 2 FAILED (A4b, F3) and are in
-BACKLOG; the rest need a handset, a radio or a camera.** The ticks in § 0.1 are PRECONDITIONS, not
-cases; do not read them as progress.
+device pass is now the last open item before a public launch, not before the audit. **Progress: 19 of
+the 46 A–F cases are closed (A4a, A6, A7, B1, B7, B9, D1–D5, E1–E5, F5–F7 — see the three 2026-09-27
+entries in § Result log); the desktop halves of A1, A2, A3, A4, A5, A6a, B2, B3, B5, B6, B8, B10, C6,
+E7 and F8 ran on the REAL desktop engines (Chrome, Brave, Safari, Firefox) and wait for their handset
+half; the iOS-Simulator, iPad-Simulator and Android-Emulator rehearsals (third entry) covered A1, A3,
+A4, A5, B4 (paste fallback), B5, B6, B8, B10's caps, F1, F2 and F8 — rehearsals, not ticks; 3 FAILED
+(A4b, F3, and F2 on the emulator with real airplane mode) and are in BACKLOG; the rest need a handset,
+a radio or a camera.** The ticks in § 0.1 are PRECONDITIONS, not cases; do not read them as progress.
 
 - **Target:** the live deploy — `https://hushsend.frelikh.dev` (production build).
 - **Scope closes:** BACKLOG § Step 6 / 6e "Remaining (real devices, post-deploy)" and DEPLOY.md § 0
@@ -177,8 +178,10 @@ Last run 2026-09-27 against the bundle fetched over HTTPS from the live host (`i
 | MBP-A | MacBook | macOS 26 | Claude's built-in Chromium 152 | Blink | Claude (built-in browser) — a SECOND profile next to Brave, so E-cases are honest | FSA present but its dialog cannot be shown in the pane → Blob when `showSaveFilePicker` is removed in-page | zxing ponyfill |
 | MBP-B | MacBook | | Chrome | Blink | Claude (Playwright) | FSA streaming | zxing ponyfill |
 | IPH | iPhone | | Safari (WebKit) | WebKit + phone limits | Claude via Safari Web Inspector (USB) | Blob (512 MiB cap) | zxing ponyfill |
-| AND-1 | Android | | Chrome | Blink | Claude via `chrome://inspect` (USB) | Blob (512 MiB cap) | zxing ponyfill (never native) |
+| AND-1 | Android | | Chrome | Blink | Claude via `chrome://inspect` (USB) | **FSA streaming through Android's system save dialog** — Chrome 149 on Android has `showSaveFilePicker` (measured on the emulator 2026-09-27; this cell used to say Blob, 512 MiB cap, which is now only the path where the method is absent) | zxing ponyfill (never native) |
 | SIM-iOS | iPhone 17 **simulator** (rehearsal only) | iOS 27.0 | Safari | WebKit, but the Mac's RAM and network | Claude via simulator taps + screenshots (safaridriver cannot reach it) | Blob (512 MiB cap) | zxing ponyfill |
+| SIM-iPad | iPad (A16) **simulator** (rehearsal only) | iPadOS 27.0 | Safari | WebKit | as SIM-iOS | **Blob, DESKTOP cap (1 GiB)** — iPadOS Safari sends a desktop UA (measured 2026-09-27; BACKLOG) | zxing ponyfill |
+| EMU-AND | Pixel 9 Pro **emulator** (rehearsal only) | Android 17 (user build) | Chrome 149 | Blink | Claude over CDP (`adb forward … localabstract:chrome_devtools_remote`) + `adb` for native UI | FSA via the system save dialog | zxing ponyfill |
 | AND-2 | Android | | Firefox | Gecko | Claude via `about:debugging` (USB) | Blob (512 MiB cap) | zxing ponyfill |
 
 Three engines, not four browsers: Blink (Chrome, Brave, Android Chrome), Gecko (Firefox ×2), WebKit
@@ -323,7 +326,7 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
 > are the ones that can only be answered here** — a headless box has no camera, and Playwright's
 > WebKit on Linux is not Safari on iOS.
 
-- [ ] **B1 · FSA streaming (Chrome desktop)** — receive on MBP-A Chrome. Expected: a **save dialog
+- [x] **B1 · FSA streaming (Chrome desktop)** — receive on MBP-A Chrome. Expected: a **save dialog
       appears on accept** (inside the click gesture), bytes stream to disk, RAM does not grow with the
       file (watch Activity Monitor on a ≈2 GB file).
 - [ ] **B2 · Blob fallback + cap** — receive on IPH Safari and on MBP-A Firefox. Expected: no save
@@ -414,7 +417,7 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       |---|---|---|
       | FSA streaming (Chrome desktop) | 1, 2, 3 GiB, **4 GiB + 1 B** (the 32-bit edge), **5 GiB** | completes, every byte verified, receiver memory flat |
       | Blob, desktop cap 1 GiB (Safari, Firefox, Brave, Chrome without FSA) | 1 GiB + 1 B, 5 GiB, then **exactly 1 GiB** | the first two refused BEFORE accept, naming the limit; 1 GiB completes AND the download lands on disk intact |
-      | Blob, mobile cap 512 MiB (iOS Safari, Android Chrome / Firefox) | 512 MiB + 1 B, 5 GiB, then **exactly 512 MiB** | the same; on a real handset this is also B2's memory-pressure datum |
+      | Blob, mobile cap 512 MiB (iOS Safari, Android Firefox; Android Chrome only where `showSaveFilePicker` is absent — Chrome 149 has it, so its default path is FSA, see AND-1) | 512 MiB + 1 B, 5 GiB, then **exactly 512 MiB** | the same; on a real handset this is also B2's memory-pressure datum |
       | every engine as SENDER | 5 GiB into an FSA receiver | completes; sender memory does not grow with the file |
 
       **Build the files so they cost the page nothing and still prove every byte:** 1 MiB blocks, each
@@ -476,7 +479,11 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
 ## Phase D — room lobby (mesh) · entirely T1
 
 - [x] **D1 · roster** — MBP-A creates a room; IPH, AND-1, AND-2 join. Expected: every member sees the
-      others with a sane device label and join order; leaving a device removes its row.
+      others with a sane device label and join order; leaving a device removes its row. *(Since the
+      2026-09-26 redesign a row shows the readable id and the join time only — the coarse device label
+      still travels in `peer-joined` (iPad: `Desktop`, Android: `Mobile`, measured 2026-09-27) but is not
+      rendered. The 2026-09-27 tick read "label" as the id. Whether the label should come back is in
+      BACKLOG.)*
 - [x] **D2 · joiner ↔ joiner** — IPH connects to AND-1 (neither is the creator). Expected: it pairs and
       completes SAS normally. The TRANSPORT role (who offers) still comes from the id order, which is
       why this case exists; the SAS reader/picker split no longer does (see A4), so check here too
@@ -504,7 +511,7 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       once more tapping both within a second of each other. Expected: `connected` every time. (Under
       the old by-code design "both press Start" opened two rooms that never met; that is the bug this
       case now proves gone.)
-- [ ] **E4 · nobody came** — tap Reconnect on MBP-A only. Expected: the wait screen, then after
+- [x] **E4 · nobody came** — tap Reconnect on MBP-A only. Expected: the wait screen, then after
       **10 minutes** a clear "The other device did not show up" failure — never a silent spinner.
       Meanwhile in devtools → WS: the socket is re-taken every ~2 minutes (a fresh room, same token
       within the 10-minute bucket; a new token at a bucket boundary). Also try: MBP-A on Reconnect
@@ -845,6 +852,139 @@ refusal reads "This file is 1.0 GB — larger than the 1.0 GB this browser can s
 - Tooling, not app: safaridriver cannot open a session on the iOS 27 simulator ("Could not find any
   session hosts", and its Safari → Advanced has no Remote Automation switch), so the simulator is driven
   by taps and screenshots with the evidence taken on the desktop side of the pair.
+
+### 2026-09-27 (evening) · iPhone + iPad simulators, Android emulator, B1/E4/E7 on desktop · Chrome 154 ↔ iPhone 17 sim (iOS 27.0) ↔ iPad (A16) sim (iPadOS 27.0) ↔ Pixel 9 Pro emulator (Android 17, Chrome 149)
+
+Setup: production bundle `index-BBI2zUuS.js` (`efe8b29`, unchanged; checked over HTTPS and on the host);
+`/health` ok, nginx / signaling / coturn `active`, 0 established signaling sockets. SSH worked at 18:20
+and returned `No route to host` from 19:45, so there is no server-side evidence after that. Harness as in
+the afternoon (`claude/tools/webdriver/` on the Mac) plus three engines in the Playwright driver:
+`android` (Chrome in the emulator over CDP through `adb forward … localabstract:chrome_devtools_remote`),
+`none` (plain `adb`), and `chrome-direct` (desktop Chrome with mDNS host-candidate obfuscation off, so
+the emulator can reach it). One simulator or emulator at a time (8 GiB RAM); the owner closed Music and
+Safari when the simulator's input lagged by seconds; the Wi-Fi was off for a moment at the start and the
+reconnect attempt that ran into it is discarded. **Everything on a simulated device is a REHEARSAL**
+(§ 0.5 — the Mac's RAM, CPU and network, no camera) and ticks no handset half; B1 and E4 are desktop
+cases and are ticked.
+
+**iPhone 17 simulator (iOS 27.0, Safari) ↔ Chrome A**, Max privacy, host↔host UDP:
+- Link pairing (twice, once through the paste field) · PASS — "one-time secret verified", no SAS, Chrome's
+  socket closed after connect.
+- A5 · simulator → Chrome A · 5 000 000 B picked in Files · PASS — received into OPFS (dialog stubbed),
+  every block verified, SHA-256 `89391b9f…` = expected, sender "Delivered". The afternoon ran only the
+  other direction.
+- A3 · Chrome A creates, the simulator enters the five words · PASS on the third try — "code words
+  verified", no SAS, the touch listbox offered completions ("lever" → "levers"), only the rendezvous word
+  reached the server. The first two tries expired while typing under memory pressure outlasted the words
+  room's 180 s TTL: the creator got 4010 and "Room not found or code expired" + "New words" — the TTL
+  doing its job.
+- A4 · 3 rooms, Chrome A creates · PASS — exactly one reader each time; Chrome A read in rooms 1–2 and
+  was the blind picker in room 3; the real phrase always among the picker's 3; all "SAS confirmed".
+- D1 · the simulator's lobby row for Chrome reads "<readable id> joined HH:MM" — no device label is
+  rendered any more (case text annotated, BACKLOG).
+- E1/E2 · PASS — after a fresh link pairing each lists the other once; Chrome taps Reconnect, the
+  simulator taps its row → connected 5.1 s after Chrome's tap, "verified via pinned key", no SAS; socket
+  `room=<22 chars>&codeType=token&device=Desktop`, no `create=1`, closed after connect; then 1 000 000 B
+  Chrome → simulator over that channel, saved in Files, SHA-256 `93a9b27b…` = expected. Before this, the
+  simulator's keystore was found empty (a new identity, 0 pins) — likely a stray tap of mine on "Forget
+  pinned devices", which acts without confirmation (BACKLOG); not verified.
+- B4 (no camera) · PASS — "Scan a QR code" in the simulator: the viewfinder stays empty and the
+  paste-the-link field is there; a pasted link joined. The real Deny/Allow camera prompt stays open.
+- B5 · PASS — Share opens the iOS share sheet (Reminders / Safari / More; Copy / Add to Reading List /
+  Open in Safari); the app's Copy link put the full 75-character link on the pasteboard (`simctl pbpaste`).
+- B6/B8 · 402 pt, the app's light and dark themes (the toggle persists across reload) · PASS — "What your
+  network can still see" is closed by default, opens on tap, and all four paragraphs fit with no clipping
+  or horizontal scroll in both themes; the word slots are legible in both, the 4-digit hero checked in
+  light. With the OS set to dark the app stays light — by design (`data-theme="light"` in `index.html`).
+- F1 · 400 MB Chrome → simulator, screen LOCKED right after Accept · the transfer finished (sender
+  "Delivered" after 28 s; 11 s unlocked), but **after unlock no download prompt was pending, no file was in
+  Files, no error was shown** — the Blob hand-off was lost. Control run unlocked: prompt, saved, SHA-256
+  `b7353bc3…` = expected. → BACKLOG. The real-phone F1 stays open.
+
+**iPad (A16) simulator (iPadOS 27.0)** — B10 / the BACKLOG question · **the DESKTOP cap**: a 1 GiB + 1 B
+offer was refused naming "the 1.0 GB this browser can save", a 512 MiB + 1 B offer was offered (Accept
+shown, declined), and the iPad's coarse label in `peer-joined` was `Desktop`. A link opened into the
+iPad's existing hushsend tab did nothing (the hash-only bug, BACKLOG).
+
+**Pixel 9 Pro emulator (Android 17 user build, Chrome 149.0.7827.5, UA `Linux; Android 10; K … Mobile`)**,
+behind QEMU's SLIRP NAT (guest 10.0.2.15):
+- A1 · Max privacy · the creator failed visibly with "Couldn't connect directly — Switch to Reliable"
+  (expected here: the guest cannot resolve the Mac's mDNS host candidates); the Android joiner showed
+  "Room not found or code expired … signaling closed (code 1006)" — the wrong copy (BACKLOG).
+- A1 · Reliable · PASS — connected (19 s on the slow guest), no SAS, fragment scrubbed, both sockets closed
+  after connect; `getStats()` on both sides selected `relay udp 94.46.199.61` ↔ `relay udp 94.46.199.61`
+  while both pages' path verdict was `ok` ("direct path confirmed") — **the BACKLOG suspicion, confirmed**.
+  Android's `peer-joined` label: `Mobile`.
+- A3 · Reliable · PASS — the Android page (touch mode) entered the five words; connected 13.3 s after
+  Connect, "code words verified", no SAS, `room=<word>&codeType=word`, sockets closed after connect.
+- A4 · Reliable · 3 rooms · PASS — creator picker / reader / picker, exactly one reader each time, the real
+  phrase always among the picker's 3, all "SAS confirmed".
+- A5 · Chrome A → Android · PASS, with a finding — **Chrome 149 on Android has `showSaveFilePicker`**:
+  Accept opens Android's own save UI (DocumentsUI → Downloads → SAVE) inside the gesture, i.e. the FSA
+  path, not the Blob path § 0.4 expected (corrected). With SAVE pressed within ~12 s: 5 000 000 B saved,
+  SHA-256 `89391b9f…` = expected. Every run where the dialog stayed up 40 s or more lost the connection
+  (BACKLOG, with the numbers). Cancelling the dialog ends the receiver cleanly ("Transfer ended ·
+  cancelled").
+- A5 · Android → Chrome A · 5 000 000 B, twice · PASS — monotonic, every block verified, 0.4 MB/s through
+  the relay.
+- B5 · PASS — Share opens Android's system share sheet ("Sharing link", the link, copy, Send to devices,
+  QR Code); BACK closes it.
+- B10 caps · PASS — by default (FSA present) 512 MiB + 1 B and 5 GiB are both OFFERED (uncapped). With
+  `showSaveFilePicker` removed in-page (the Blob path) both are refused before accept, naming 512 MB — the
+  UA selects the mobile cap. 64 MiB on that Blob path over the relay: delivered, every block verified
+  in-page; the app triggered the download (Playwright saw the event for the blob URL), but Chrome under
+  CDP automation canceled it, so its landing in Downloads is NOT verified.
+- B10 512 MiB · **not completed** — on the FSA path (SAVE after 11 s; a 200 ms heartbeat in the page never
+  paused more than 1.1 s) over a direct path (Chrome with mDNS obfuscation off, the emulator throttled to
+  16 Mbit/s) it reached 49 MB at ~0.5 MB/s, then the connection failed. Transfers INTO the emulator beyond
+  a few MB died this way — unthrottled after ~1.3–1.8 MB, on the direct SLIRP path and on the relay alike;
+  throttled, a 64 MiB relay run survived at 0.4 MB/s (~25 min for 512 MiB). An emulator networking limit:
+  the phone-sized receive stays open for a real phone. Every stall left both screens on "transferring"
+  (BACKLOG, peer-gone).
+- F2 · real airplane mode for 20 s, 9.6 s into a 30 MB Android → Chrome send · **FAIL** — both peer
+  connections `disconnected` ~10 s into the cut and `failed` 10 s later; after the network returned: no
+  recovery and no visible failure — both sides on "transferring" (3 407 872 / 4 194 304 B) for 150 s+.
+  Same root as F3 (BACKLOG).
+- F8 · real airplane mode the moment the Android joiner's socket had its `welcome` · PASS by the transport
+  path — the creator failed **22 s** after the cut with "Couldn't connect — channel closed during pairing"
+  (ICE failed first, so the 120 s confirm deadline was not needed); the joiner, back online, showed the
+  1006 "Room not found" copy again.
+
+**Desktop:**
+- B1 · T2 · Chrome B → Chrome A (MBP-A), 2 GiB, Max privacy · **PASS** — Accept (a real click) opened
+  Chrome's native save dialog inside the gesture; the owner clicked Save; ~51 MB/s (24 % → 100 % in 32 s);
+  the saved file is 2 147 483 648 B with SHA-256 `0df1e700…` = expected. Receiver RAM flat: Chrome A's
+  process tree 270–407 MiB, largest process ≤ 214 MiB (sampled every 5 s). The dialog defaulted to
+  `~/Documents`, not Downloads. The test file went to the Trash afterwards.
+- E4 · T1 · Chrome B on Reconnect for Chrome A, which never taps it · **PASS** — the rendezvous re-taken
+  at 120 s (same token), a NEW token at 123.8 s (the 20:50:00 bucket boundary), again at 243.8 / 363.8 /
+  483.9 s; "The other device did not show up" + the pair-afresh copy at exactly 600.0 s. Meanwhile Chrome A
+  did a plain room join (4711 → 4009 "room not found", readable copy) and sat 60 s in a lobby of its own,
+  which stayed empty: nothing met, no hang.
+- E7 · T1 rehearsal — a separate profile's PAGE clock shifted by an init script (`skew-init.js`), not a
+  device clock · **+4 min · PASS** — both tapped Reconnect at 20:56:44, 6.5 min into the unskewed side's
+  bucket, when the skewed side was already in the next one; they met at 21:00:00–21:00:03, the unskewed
+  side's boundary, "verified via pinned key" — the stated "at worst after a delay of up to the skew"
+  (3 min 16 s here). **+15 min** · they never met: the skewed side took the next bucket's token at 262.5 s (its own
+  21:20 boundary = real 21:05), the unskewed side at 560.8 s (real 21:10), so the two never held the same
+  token, and BOTH ended "The other device did not show up" at 600.1 s. A skew larger than one bucket is
+  not absorbed by the wait — the stated limit, now measured. The real-device clock half stays open.
+- B10 desktop Blob cap on **Brave 154** (the retry — its extension had timed out in the afternoon), Chrome B → Brave,
+  Max privacy, host↔host · **PASS** — Brave has no `showSaveFilePicker`; 1 GiB + 1 B and 5 GiB were refused
+  BEFORE accept in 0.5 / 0.7 s naming "the 1.0 GB this browser can save"; exactly 1 GiB was delivered in
+  ~21 s (~51 MB/s), "Received", and the file in `~/Downloads` is 1 073 741 824 B with SHA-256 `edef0d81…`
+  = expected (created 21:12:38, right after the transfer). It was NOT visible in Downloads at 21:13–21:14
+  and was at 21:16, after the owner was asked to look at Brave — most likely held by Brave's download UI
+  until confirmed (not observed by me). This completes the Blob row of the ladder for every desktop
+  engine named in it. Test file moved to the Trash.
+
+Tooling notes (not app): the iPhone simulator's input lagged by seconds under memory pressure, and on a
+freshly booted iPad simulator wallpaper/Siri indexing pinned the CPU for minutes (`kernel_task` 188 %).
+The emulator's first Chrome launch after boot was killed by Play Services ("forcing restart due to module
+googlecertificates"). Chrome's first-run was skipped with `am set-debug-app --persistent
+com.android.chrome` + `/data/local/tmp/chrome-command-line` (both reverted afterwards). Playwright calls
+into the Android page hung for the full 170 s while DocumentsUI was in front, so native UI is driven with
+`adb shell input tap` (web content appears in `uiautomator dump` with its bounds).
 
 **When the pass is done:** fold the results into `BACKLOG.md` § Step 6 / **6e** (and its
 "Remaining (real devices, post-deploy)" line) and `CLAUDE.md` § Current state / Build order in the
