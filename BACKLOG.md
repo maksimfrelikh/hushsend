@@ -583,9 +583,10 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   code, not deployed): when the file would fit but for the held copies (`opfsHeldBytes`), the refusal
   reads "This file is 5.0 GB, and this browser's storage is still holding the last file it received —
   that copy is cleared within 10 minutes of its download. Try again in a few minutes, or receive it in
-  another browser." (unit-tested; live since the `7e71275` deploy). (a) — DONE 2026-09-28 (in code, not
-  deployed; owner: "someone receiving several files with the site open will not leave the downloads
-  unanswered"): a new receive that needs the room drops this tab's delivered copies held ≥ 2 minutes
+  another browser." (unit-tested; live since the `7e71275` deploy). (a) — DONE 2026-09-28, LIVE since
+  ~18:00 UTC (`1f2abab`) and verified there (TESTPLAN, the evening entry: 6 GiB, then 5 GiB at 21 s →
+  refused in the new words, at 125 s → accepted, the old copy gone; owner: "someone receiving several
+  files with the site open will not leave the downloads unanswered"): a new receive that needs the room drops this tab's delivered copies held ≥ 2 minutes
   (`evictHeld`, `OPFS_EVICT_AFTER_MS`) and plans again by reservation; only a copy younger than that
   still refuses, now "try again in a couple of minutes". Safari hits it only past ~38 GB (its quota is
   76.8 GiB); desktop Chrome never (it streams).
