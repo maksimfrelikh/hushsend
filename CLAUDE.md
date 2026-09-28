@@ -602,7 +602,10 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
   4. **RAM (Blob)** — `MAX_BYTES_BLOB` = **200 MiB on every device** (the UA split 1 GiB desktop / 512
      MiB mobile and `isMobileUA` are gone; iPad's 512 answer is moot now that it receives to disk).
   Else the offer is refused before accept, naming the largest thing that would have fitted (in bytes
-  when both sizes would print the same; never an estimate a failed reservation just disproved). If
+  when both sizes would print the same; never an estimate a failed reservation just disproved — and
+  when the file would fit but for the copies of files just received (`opfsHeldBytes`), the refusal says
+  so and to try again in a few minutes, instead of "free up disk space"; measured on Firefox's 10 GiB
+  quota: 6 GiB received, a 5 GiB offer 4 s later). If
   the planned path still fails to open at accept (worker gone, reservation refused), `openReceive`
   takes the next path (`nextPlan`); `acceptIncoming` sends the sender the real reason (a dismissed
   dialog — `AbortError` — stays "recipient cancelled"); a QuotaExceededError reads "not enough space in

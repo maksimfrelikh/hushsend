@@ -120,6 +120,35 @@ export async function opfsCanHold(size: number): Promise<boolean> {
   }
 }
 
+/**
+ * Bytes the incoming folder holds right now: delivered copies still in their hold (OPFS_HOLD_MS) and
+ * receives in flight in other tabs. A plan that cannot fit a file uses it to say WHY — the copy of the
+ * last file, not a full disk (TESTPLAN 2026-09-28: 6 GiB then 5 GiB on Firefox's 10 GiB quota). 0 when
+ * it cannot tell. Never throws.
+ */
+export async function opfsHeldBytes(): Promise<number> {
+  if (!opfsSupported()) return 0;
+  try {
+    const dir = await incomingDir(false);
+    if (!dir) return 0;
+    let total = 0;
+    const names: string[] = [];
+    for await (const name of (dir as unknown as { keys(): AsyncIterable<string> }).keys())
+      names.push(name);
+    for (const name of names) {
+      if (name.startsWith('.')) continue; // a write probe or a reservation probe, gone in a moment
+      try {
+        total += (await (await dir.getFileHandle(name)).getFile()).size;
+      } catch {
+        /* removed meanwhile, or not a file */
+      }
+    }
+    return total;
+  } catch {
+    return 0;
+  }
+}
+
 /** Bytes this site may still store, minus the margin; 0 when the browser will not say. */
 export async function opfsRoom(): Promise<number> {
   try {

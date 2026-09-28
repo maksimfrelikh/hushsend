@@ -54,7 +54,7 @@
  */
 import { z } from 'zod';
 import { padBytesFor } from './padding';
-import { createIncoming, opfsCanHold, opfsRoom, opfsUsable, OPFS_HOLD_MS } from './opfs';
+import { createIncoming, opfsCanHold, opfsHeldBytes, opfsRoom, opfsUsable, OPFS_HOLD_MS } from './opfs';
 import { openStreamSink, prepareDownloadWorker, streamDownloadSupported } from './streamDownload';
 import { makeZip, predictLength } from 'client-zip';
 
@@ -161,6 +161,7 @@ export type ReceivePlan = { path: ReceivePath; maxBytes: number } | { refused: s
 export async function planReceive(size: number): Promise<ReceivePlan> {
   const cap = blobMaxOverride() ?? MAX_BYTES_BLOB;
   let room = 0;
+  let held = 0;
   if (!forceBlobFallback()) {
     if (!forceNoStream() && streamDownloadSupported() && (await prepareDownloadWorker())) {
       return { path: 'stream', maxBytes: Infinity };
@@ -169,12 +170,17 @@ export async function planReceive(size: number): Promise<ReceivePlan> {
       const estimate = await opfsRoom();
       if (size <= estimate && (await opfsCanHold(size))) return { path: 'opfs', maxBytes: estimate };
       // Name the estimate in a refusal only when a failed reservation did not just prove it wrong.
-      if (size > estimate) room = estimate;
+      if (size > estimate) {
+        room = estimate;
+        held = await opfsHeldBytes();
+      }
     }
     const fsa = fsaPlan();
     if (fsa) return fsa;
   }
   if (size <= cap) return { path: 'blob', maxBytes: cap };
+  // It would fit but for the copies of files received a moment ago: say so, not "free up disk space".
+  if (held > 0 && size <= room + held) return { refused: heldReason(size) };
   return { refused: tooBigReason(size, Math.max(room, cap)) };
 }
 
@@ -204,6 +210,12 @@ async function nextPlan(failed: ReceivePath, size: number): Promise<{ path: Rece
     return size <= cap ? { path: 'blob', maxBytes: cap } : null;
   }
   return null;
+}
+
+/** The refusal when site storage is full of the files just received (their copies are held for
+ *  OPFS_HOLD_MS while the downloads read them): the answer is to wait, not to free disk space. */
+function heldReason(size: number): string {
+  return `This file is ${formatBytes(size)}, and this browser's storage is still holding the last file it received — that copy is cleared within ${Math.round(OPFS_HOLD_MS / 60_000)} minutes of its download. Try again in a few minutes, or receive it in another browser.`;
 }
 
 /** The refusal the sender sees. Both sizes print to the same string just over a limit ("1.0 GB —

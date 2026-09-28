@@ -35,10 +35,15 @@ afterEach(() => {
 
 /** Just enough of an OPFS folder for the write probe (opfsUsable) and the reservation (opfsCanHold):
  *  `holds` is what the storage can REALLY take, whatever the estimate says. */
-function writableDir(holds: number): unknown {
+function writableDir(holds: number, held = 0): unknown {
   const dir = {
+    // The incoming folder's contents: one delivered copy still in its hold, if any.
+    async *keys() {
+      if (held) yield '1700000000000-deadbeefdeadbeef';
+    },
     getDirectoryHandle: async () => dir,
     getFileHandle: async () => ({
+      getFile: async () => ({ size: held }),
       createWritable: async () => ({
         write: async () => {},
         close: async () => {},
@@ -59,6 +64,8 @@ function browser(opts: {
   opfs?: boolean;
   room?: number;
   holds?: number;
+  /** Bytes of just-received files still held in site storage. */
+  held?: number;
   estimateFails?: boolean;
   dialog?: boolean;
   ua?: string;
@@ -68,7 +75,7 @@ function browser(opts: {
   vi.stubGlobal('navigator', {
     userAgent: ua,
     storage: {
-      ...(opfs ? { getDirectory: async () => writableDir(holds) } : {}),
+      ...(opfs ? { getDirectory: async () => writableDir(holds, opts.held ?? 0) } : {}),
       estimate: async () => {
         if (estimateFails) throw new Error('no estimate');
         return { quota: room + 64 * 1024 * 1024, usage: 0 }; // opfsRoom keeps 64 MiB of headroom
@@ -111,6 +118,19 @@ describe('which path a file is received through', () => {
     expect(r.refused).toMatch(/larger than the 200 MB/);
     browser({ opfs: true, room: 10 * GiB, holds: 430 * 1024 * 1024, dialog: false });
     expect(await planReceive(300 * 1024 * 1024)).toEqual({ path: 'opfs', maxBytes: 10 * GiB });
+  });
+
+  it('storage full of the file just received says so — wait a few minutes, not "free up disk space"', async () => {
+    // Firefox's 10 GiB quota with 6 GiB still held from the last receive (measured on the live build):
+    // a 5 GiB offer would fit but for that copy.
+    browser({ opfs: true, room: 4 * GiB, held: 6 * GiB, dialog: false });
+    const r = (await planReceive(5 * GiB)) as { refused: string };
+    expect(r.refused).toMatch(/still holding the last file it received/);
+    expect(r.refused).toMatch(/within 10 minutes/);
+    expect(r.refused).not.toMatch(/Free up disk space/);
+    // Past what even an emptied store could take, the plain reason stands.
+    browser({ opfs: true, room: 4 * GiB, held: 6 * GiB, dialog: false });
+    expect(((await planReceive(20 * GiB)) as { refused: string }).refused).toMatch(/larger than the 4\.0 GB/);
   });
 
   it('OPFS first — disk with no dialog — whenever the site quota can hold the file', async () => {

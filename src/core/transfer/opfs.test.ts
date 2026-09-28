@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { OPFS_HOLD_MS, createIncoming, opfsCanHold, opfsSupported, sweepIncoming } from './opfs';
+import {
+  OPFS_HOLD_MS,
+  createIncoming,
+  opfsCanHold,
+  opfsHeldBytes,
+  opfsSupported,
+  sweepIncoming,
+} from './opfs';
 
 /**
  * The site-storage receive path's housekeeping (transfer/opfs.ts): what is written comes back as a
@@ -167,6 +174,22 @@ describe('receiving into site storage (OPFS)', () => {
     const ok = await createIncoming(300 * 1024 * 1024);
     expect((await incoming()).entries.size).toBe(1);
     await ok.remove();
+  });
+
+  it('counts the bytes still held — delivered copies and live receives, never the probe files', async () => {
+    expect(await opfsHeldBytes()).toBe(0);
+    const a = await createIncoming();
+    await a.writable.write(new Uint8Array(3));
+    await a.writable.close();
+    const b = await createIncoming();
+    await b.writable.write(new Uint8Array(5));
+    await b.writable.close();
+    const dir = await incoming();
+    await dir.getFileHandle('.reserve-0000', { create: true }); // a reservation probe mid-flight
+    expect(await opfsHeldBytes()).toBe(8);
+    await a.remove();
+    expect(await opfsHeldBytes()).toBe(5);
+    await b.remove();
   });
 
   it('a sweep with nothing there, or no site storage at all, is a quiet no-op', async () => {

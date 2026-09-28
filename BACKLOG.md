@@ -579,11 +579,14 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   quota (Firefox: 10 GiB), so after a 6 GiB receive a 5 GiB offer 4 s later was refused: "This file is
   5.0 GB — larger than the 3.9 GB this browser can take right now. Free up disk space, or receive it in
   another browser…" — with 267 GB free on the Mac. Correct by the rules, misleading in the words, and it
-  blocks back-to-back big receives on Firefox for up to 10 minutes. **Owner's call:** (a) when a new
-  receive needs the room, drop held copies whose download started ≥ ~2 minutes ago (by then it has
-  almost surely finished — the risk is a download still waiting on a browser prompt); (b) say what is
-  actually happening ("the previous file is still being handed over — try again in a few minutes");
-  (c) both. Safari hits it only past ~38 GB (its quota is 76.8 GiB); desktop Chrome never (it streams).
+  blocks back-to-back big receives on Firefox for up to 10 minutes. (b) the words — DONE 2026-09-28 (in
+  code, not deployed): when the file would fit but for the held copies (`opfsHeldBytes`), the refusal
+  reads "This file is 5.0 GB, and this browser's storage is still holding the last file it received —
+  that copy is cleared within 10 minutes of its download. Try again in a few minutes, or receive it in
+  another browser." (unit-tested). **Still the owner's call — (a):** when a new receive needs the room,
+  drop held copies whose download started ≥ ~2 minutes ago (by then it has almost surely finished; the
+  risk is a download still waiting on a browser prompt — Safari's "allow downloads?" is exactly that).
+  Safari hits it only past ~38 GB (its quota is 76.8 GiB); desktop Chrome never (it streams).
 - ✅ **Straight into Downloads on desktop Chromium, with flow control — DONE 2026-09-28, LIVE since
   06:32 UTC (`c5a51c4`) and verified there (TESTPLAN, the last 2026-09-28 entry: B1, the stream and
   site-storage ladders to 5 GiB, a cancelled and a paused download, Chrome incognito, Firefox private)
