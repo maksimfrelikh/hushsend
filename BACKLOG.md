@@ -573,9 +573,22 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
 
 ## UX bugs — found in the manual test pass (Phase 1)
 
-- ✅ **Straight into Downloads on desktop Chromium, with flow control — DONE 2026-09-28 (in code, NOT
-  deployed; owner: "where it can be done without RAM, save straight into Downloads with no copy in
-  site storage").** A download worker (`public/dl/sw.js`, scope `/dl/`, registered per offer and
+- [ ] **Firefox (any site-storage browser): a second big file right after the first is refused with
+  "Free up disk space" while the disk is nearly empty — found 2026-09-28 on the live build.** The
+  delivered file's copy stays in site storage for `OPFS_HOLD_MS` (10 min) and counts against the site's
+  quota (Firefox: 10 GiB), so after a 6 GiB receive a 5 GiB offer 4 s later was refused: "This file is
+  5.0 GB — larger than the 3.9 GB this browser can take right now. Free up disk space, or receive it in
+  another browser…" — with 267 GB free on the Mac. Correct by the rules, misleading in the words, and it
+  blocks back-to-back big receives on Firefox for up to 10 minutes. **Owner's call:** (a) when a new
+  receive needs the room, drop held copies whose download started ≥ ~2 minutes ago (by then it has
+  almost surely finished — the risk is a download still waiting on a browser prompt); (b) say what is
+  actually happening ("the previous file is still being handed over — try again in a few minutes");
+  (c) both. Safari hits it only past ~38 GB (its quota is 76.8 GiB); desktop Chrome never (it streams).
+- ✅ **Straight into Downloads on desktop Chromium, with flow control — DONE 2026-09-28, LIVE since
+  06:32 UTC (`c5a51c4`) and verified there (TESTPLAN, the last 2026-09-28 entry: B1, the stream and
+  site-storage ladders to 5 GiB, a cancelled and a paused download, Chrome incognito, Firefox private)
+  (owner: "where it can be done without RAM, save straight into Downloads with no copy in site
+  storage").** A download worker (`public/dl/sw.js`, scope `/dl/`, registered per offer and
   unregistered after) streams the file into the browser's download manager as it arrives: no copy, no
   RAM, no dialog, no quota. Desktop Chromium only — measured on the real engines: Chrome 154 wrote
   1 GiB through it intact and flat, and an aborted stream or a worker killed mid-download ends the
@@ -590,8 +603,9 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   Chromium on a handset (then it could stream too), Firefox on a later version (re-run the two failure
   probes before enabling it), and a paused download on the live build (TESTPLAN B10).
 - ✅ **Chrome incognito: a file past ~430 MiB was accepted to site storage and died mid-transfer —
-  FIXED 2026-09-28 (in code, NOT deployed), found the same day on the live build (TESTPLAN § Result
-  log, B2's private-window rung).** In an incognito (off-the-record) context
+  FIXED 2026-09-28, LIVE since 06:32 UTC (`c5a51c4`); found and re-checked the same day on the live
+  build (TESTPLAN § Result log, B2's private-window rung: incognito Chrome now streams 1 GiB straight
+  into Downloads, nothing in site storage).** In an incognito (off-the-record) context
   `navigator.storage.estimate()` reports the normal profile's quota (10 GiB on this Mac — Chrome does
   not let a site tell incognito apart by its quota) while site storage holds only ~430 MiB and looks
   RAM-backed. `planReceive` trusted the estimate, so a 600 MiB offer was accepted on the OPFS path and

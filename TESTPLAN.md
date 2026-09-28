@@ -6,10 +6,11 @@ e2e across four engine projects, feature-detection review, self-hosted QR WASM);
 
 This used to open "the last open item before the security audit" — the audit has since run twice
 internally (2026-09-12 and 2026-09-13, BACKLOG § Security audit), so that ordering is gone: the
-device pass is now the last open item before a public launch, not before the audit. **Progress: 20 of
-the 47 A–F cases are closed (A4a, A4b, A6, A7, B7, B9, D1–D5, E1–E5, F3, F5–F7 — see § Result log:
-the four 2026-09-27 entries and the 2026-09-28 one, where A4b closed on the live build; B1 closed there
-too and was unticked again the same day, because desktop Chrome's receive path changed once more); the
+device pass is now the last open item before a public launch, not before the audit. **Progress: 21 of
+the 47 A–F cases are closed (A4a, A4b, A6, A7, B1, B7, B9, D1–D5, E1–E5, F3, F5–F7 — see § Result log:
+the four 2026-09-27 entries and the 2026-09-28 ones, where A4b closed on the live build and B1 closed
+twice — on the site-storage path in the morning, and again on the straight-to-Downloads path after
+`c5a51c4` went live); the
 desktop halves of A1, A2, A3, A4, A5, A6a, B2, B3, B5, B6, B8, B10, C6, E7 and F8 ran on the REAL
 desktop engines (Chrome, Brave, Safari, Firefox) and wait for their handset half — B2's and B10's under
 the receive paths replaced on 2026-09-28, so those desktop halves are due again; the iOS-Simulator,
@@ -28,10 +29,11 @@ progress.
 > expectations changed (B1, B2, B10, F1, F4) are reworded below; B1 was unticked for the change and
 > closed again on the live build.
 >
-> **2026-09-28, later: in code, NOT deployed** — desktop Chromium now receives STRAIGHT INTO DOWNLOADS
-> through a download worker (no copy in site storage, no RAM, no dialog); site storage is reserved
-> before accept (the incognito quota lie); flow control (a paused download pauses the sender). B1, B2,
-> B10 and F4 are reworded for it and B1 is unticked again; § 0.1's deploy tick goes stale when it ships.
+> **2026-09-28, later: LIVE since 06:32 UTC (`c5a51c4`)** — desktop Chromium now receives STRAIGHT INTO
+> DOWNLOADS through a download worker (no copy in site storage, no RAM, no dialog); site storage is
+> reserved before accept (the incognito quota lie); flow control (a paused download pauses the sender).
+> B1, B2, B10 and F4 were reworded for it; B1 then passed on the live build again the same morning, and
+> the desktop halves of B2 and B10 were re-run there (§ Result log, the last 2026-09-28 entry).
 >
 > **2026-09-27, after the pass: the F2/F3 root cause is fixed and DEPLOYED** (the connection-lost
 > path — BACKLOG § UX bugs, first item; live since 19:58 UTC as `153addd`, § 0.1 re-ticked). **F3 passes
@@ -98,16 +100,19 @@ Last run 2026-09-27 against the bundle fetched over HTTPS from the live host (`i
 ### 0.1 Preconditions
 
 - [x] Frontend redeployed from current `main` (`bash ~/projects/hushsend/deploy/deploy-frontend.sh`)
-      — re-done 2026-09-28 04:32 UTC by the owner (commit `90fdc15`; its app code is `673509d`'s, the
-      owner's seven decisions); `/var/www/hushsend/dist` is byte-identical to a clean local build of
-      `90fdc15` (41 files, equal sha256 manifests) and the public URL serves `index-9nSghGio.js`. The
-      signaling server's running copy (`/var/www/hush-signaling-server`) is at `3d96125` (no device
-      label in the roster), relaunched 04:32:44 UTC: `/health` ok, the `[config]` line normal, TURN
-      configured — checked 2026-09-28. **Re-run it if `main` has moved since**, and re-tick. It had gone stale
+      — re-done 2026-09-28 06:32 UTC by the owner (commit `c5a51c4`: straight into Downloads on
+      desktop Chromium, flow control, the site-storage reservation); `/var/www/hushsend/dist` is
+      byte-identical to a clean local build of `c5a51c4` (42 files — `dl/sw.js`, the download worker,
+      is the new one — equal sha256 manifests), the public URL serves `index-B-Rj0zzX.js`, `dl/sw.js`
+      is served as `application/javascript`, and a `/dl/<id>` no worker answers falls back to the app
+      page with `X-Frame-Options: DENY` (so a hidden iframe can never render it). The signaling
+      server's running copy (`/var/www/hush-signaling-server`) is unchanged at `3d96125` (relaunched
+      04:32:44 UTC), `/health` ok — checked 2026-09-28. **Re-run it if `main` has moved since**, and
+      re-tick. It had gone stale
       once already (ticked 2026-09-12, `main` moved, nobody re-ticked) — this tick is only worth the
       date next to it.
 - [x] **Verify the new bundle is live:** `grep -r 'stun.l.google' /var/www/hushsend/dist` returns
-      nothing — re-confirmed 2026-09-28 for `index-9nSghGio.js` (the pre-2026-09-12 bundle matched; this was the BACKLOG
+      nothing — re-confirmed 2026-09-28 for `index-B-Rj0zzX.js` (the pre-2026-09-12 bundle matched; this was the BACKLOG
       "verify after redeploy" item). The only STUN in the served bundle is
       `stun:turn.hushsend.frelikh.dev:3478`, i.e. our own — which is also the whole of BACKLOG's
       "separate the STUN server" item: one operator still holds app, signaling and STUN.
@@ -361,7 +366,7 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
 > are the ones that can only be answered here** — a headless box has no camera, and Playwright's
 > WebKit on Linux is not Safari on iOS.
 
-- [ ] **B1 · straight into Downloads, no dialog (Chrome desktop)** — receive on MBP-A Chrome.
+- [x] **B1 · straight into Downloads, no dialog (Chrome desktop)** — receive on MBP-A Chrome.
       Expected: **no save dialog**; the download starts at Accept and the browser writes the file as it
       arrives (the download worker, `dl/sw.js`) — **nothing in site storage**, RAM flat on a ≈2 GB file,
       the saved file intact. Cancel one in Chrome's downloads list mid-transfer: both sides end
@@ -370,7 +375,7 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       RAM stays flat. *(Reworded twice on 2026-09-28: the morning's tick proved the site-storage path
       — a disk file, no dialog, the dialog only past the quota, all PASS on the live build (§ Result
       log) — which desktop Chrome no longer takes; Firefox and Safari do, so those checks moved to
-      B2/B10. Unticked until the stream path is live and re-run.)*
+      B2/B10. PASS on the live `c5a51c4` the same day — § Result log.)*
 - [ ] **B2 · disk receive on the phone + the RAM fallback's cap** — receive on IPH Safari and on MBP-A
       Firefox (both keep site storage — neither may stream, see CLAUDE.md § File transfer). Expected:
       no save dialog; the file goes to site storage and lands via a download at the end — a file well
@@ -477,6 +482,7 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       | **NEW · OPFS (Firefox, Safari, mobile — the default there)** | 1, 2, 3 GiB, 4 GiB + 1 B, 5 GiB — up to the site quota | completes with NO dialog, every byte verified, receiver memory flat, the download lands intact |
       | **NEW · past the quota** (Chrome: > 10 GiB here) | quota + 1 GiB | Chrome/Android: the save dialog appears (FSA); Safari/Firefox: refused before accept, naming the room |
       | **NEW · RAM fallback 200 MiB** (a private window without usable site storage) | 200 MiB + 1 B, then exactly 200 MiB | the first refused before accept; 200 MiB completes |
+      | *(2026-09-28, the live `c5a51c4`: the stream rungs PASS on Chrome, the site-storage rungs PASS on Firefox with the over-quota refusal, the RAM rung PASS on Firefox private; Safari done at 1 GiB, 2–5 GiB to re-run with downloads allowed — § Result log)* | | |
 
       **Build the files so they cost the page nothing and still prove every byte:** 1 MiB blocks, each
       a unique 16-byte header plus one shared body, assembled from Blob parts that REFERENCE that body.
@@ -1136,6 +1142,51 @@ Not ticks — measurements that decided the design (CLAUDE.md § File transfer),
 - Suites on this code: unit 313/313, integration 26 + 2 skipped (turn-relay: no coturn on the Mac, as
   before), e2e 143 passed / 14 skipped / 2 failed (the two WebKit path-attestation cases, as before),
   axe 112/112.
+
+### 2026-09-28 (after `c5a51c4` went live) · the stream path and the ladders on the live build · Chrome 154 ↔ Firefox 156 ↔ Safari 26.6 (the Mac)
+
+Setup: `c5a51c4` live since 06:32 UTC (§ 0.1). Real browsers on the Mac: Chrome through Playwright
+(persistent profiles chromeA → chromeB; incognito = an off-the-record context), Firefox and Safari
+through WebDriver (Firefox private = `browser.privatebrowsing.autostart`); chromeA sends every file
+(1 MiB structured blocks, every byte checked by the saved file's SHA-256). Memory = RSS of the
+receiving browser's whole process tree every 2 s. The Mac was under heavy memory pressure (swap
+3.5 of 5 GB), so absolute numbers run high; what matters is that none grows with the file.
+- B1 · T1 · Chrome · **PASS** (ticked) — the download worker is registered only when the file is offered
+  (none before) and the stream frame appears at Accept; 2 GiB arrived in 49 s, 0 save dialogs, 0
+  hand-offs, nothing in site storage, the saved file intact, the sender "Delivered", the receiver's
+  tree 441–819 MiB. Cancelled in `chrome://downloads` 3 s in: receiver "error · the browser stopped the
+  download (cancelled, or the disk is full)", sender "cancelled · stopped at 137 MB", no file kept.
+  Paused there 3 s in: the sender did not move a byte for 15 s and sat 15.3 MiB (the window) ahead of the
+  receiver, tree flat (538–872 MiB); resumed, both "done", the file intact. 75 s after the last
+  download the worker was gone again.
+- B2's private rung · Chrome incognito · PASS — 1 GiB through the stream path (the worker at the offer,
+  the frame at Accept), nothing in site storage, the file intact (the quota it reports is still the
+  fake 10 GiB — no longer read on this path). The morning's FAIL is fixed.
+- B2's desktop half · Firefox · PASS — 1 GiB through site storage (no worker: Firefox never streams),
+  46 MB/s, the copy held in site storage, the saved file intact. Firefox private · PASS — no site
+  storage (`getDirectory()` → SecurityError); 250 MiB refused in ~1 s, before accept ("This file is 250
+  MB — larger than the 200 MB this browser can take right now…"), 200 MiB + 1 B refused in bytes
+  ("209715201 bytes — larger than the 209715200 bytes"), exactly 200 MiB received through RAM, intact.
+- B2's desktop half · Safari · PASS for 1 GiB — site storage (quota 78 643 MiB, no worker), 32.5 MB/s;
+  the WebDriver window counts as hidden, so the app held the file and showed "It arrived while this
+  page was in the background. Tap to save it."; the tap handed it over, the site-storage copy verified
+  and the file Safari saved to ~/Downloads intact.
+- B10 · stream rungs · Chrome · **PASS** — 1, 2, 3 GiB, 4 GiB + 1 B, 5 GiB: 46.6 / 50.2 / 51.4 / 45.0 /
+  49.5 MB/s, progress monotonic, 0 hand-offs, nothing in site storage, every saved file intact; the
+  receiver's tree 322–725 MiB over the whole ladder (largest process ≤ 341 MiB).
+- B10 · site-storage rungs · Firefox · **PASS** — 1, 2, 3 GiB, 4 GiB + 1 B, 5 GiB: 54.4 / 60.0 / 61.7 /
+  52.8 / 58.8 MB/s, each held for "Save file" (background window), tapped, every saved file intact;
+  tree 123–631 MiB. 11 GiB (past the 10 GiB quota): refused before accept in 3 s — "larger than the 9.9
+  GB this browser can take right now". **Found:** a second big file right after the first — 6 GiB
+  received, then 5 GiB offered 4 s later — was refused "larger than the 3.9 GB … Free up disk space"
+  with 267 GB free: the first file's held copy fills the quota for up to 10 minutes (BACKLOG § UX bugs).
+- B10 · site-storage rungs · Safari · 2 GiB NOT completed — the transfer reached site storage, "Save
+  file" was tapped, and then Safari asked whether to allow the download (confirmed by the owner, who saw
+  it); that prompt blocks WebDriver, so the run stopped there. Not a product failure (no crash report,
+  nothing in WebKit's log); re-run 2–5 GiB with downloads allowed for the site.
+- Harness, not product: Chrome 154 crashed (browser process, SIGSEGV) on the first download in a
+  Playwright profile relaunched after an intercepted download — a plain 5-byte blob download crashed
+  it too, and with the profile's `History` moved aside it did not. Recorded for the harness.
 
 **When the pass is done:** fold the results into `BACKLOG.md` § Step 6 / **6e** (and its
 "Remaining (real devices, post-deploy)" line) and `CLAUDE.md` § Current state / Build order in the
