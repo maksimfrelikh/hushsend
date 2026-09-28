@@ -1187,6 +1187,12 @@ receiving browser's whole process tree every 2 s. The Mac was under heavy memory
 - Harness, not product: Chrome 154 crashed (browser process, SIGSEGV) on the first download in a
   Playwright profile relaunched after an intercepted download — a plain 5-byte blob download crashed
   it too, and with the profile's `History` moved aside it did not. Recorded for the harness.
+- F4 · attempted with the deploy host as the second machine (headless Chromium 149 on Linux, the live
+  site reached through its own nginx, the Mac's Chrome with real host IPs) · **not a result** — the two
+  never finished pairing, in Max privacy nor in Reliable ("Agreeing on keys…" on both, no page error):
+  the host firewalls every inbound port but 80/443/22/3478 and the relay range, and from inside the LAN
+  it cannot reach its own public address (where its TURN listens). An environment limit, not a product
+  one; F4 still needs a second real machine (or the phone).
 
 **When the pass is done:** fold the results into `BACKLOG.md` § Step 6 / **6e** (and its
 "Remaining (real devices, post-deploy)" line) and `CLAUDE.md` § Current state / Build order in the
