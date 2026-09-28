@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
+  OPFS_EVICT_AFTER_MS,
   OPFS_HOLD_MS,
   createIncoming,
+  evictHeld,
   opfsCanHold,
   opfsHeldBytes,
   opfsSupported,
@@ -142,6 +144,24 @@ describe('receiving into site storage (OPFS)', () => {
     expect((await incoming()).entries.size).toBe(1);
     await vi.advanceTimersByTimeAsync(1);
     expect((await incoming()).entries.size).toBe(0);
+  });
+
+  it('a copy held two minutes gives way to a new receive; a younger one stays (owner, 2026-09-28)', async () => {
+    vi.useFakeTimers();
+    const old = await createIncoming();
+    await old.writable.close();
+    old.releaseLater();
+    await vi.advanceTimersByTimeAsync(OPFS_EVICT_AFTER_MS - 1000);
+    const young = await createIncoming();
+    await young.writable.close();
+    young.releaseLater();
+    expect(await evictHeld()).toBe(0); // the first is 1 s short of two minutes
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(await evictHeld()).toBe(1); // now it goes — the young one stays
+    expect((await incoming()).entries.size).toBe(1);
+    await vi.advanceTimersByTimeAsync(OPFS_HOLD_MS); // the young one's own hold still ends it
+    expect((await incoming()).entries.size).toBe(0);
+    expect(await evictHeld(0)).toBe(0); // nothing left to drop
   });
 
   it('the sweep at start removes leftovers but not a file another open tab is receiving into', async () => {

@@ -573,7 +573,7 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
 
 ## UX bugs — found in the manual test pass (Phase 1)
 
-- [ ] **Firefox (any site-storage browser): a second big file right after the first is refused with
+- ✅ **Firefox (any site-storage browser): a second big file right after the first is refused with
   "Free up disk space" while the disk is nearly empty — found 2026-09-28 on the live build.** The
   delivered file's copy stays in site storage for `OPFS_HOLD_MS` (10 min) and counts against the site's
   quota (Firefox: 10 GiB), so after a 6 GiB receive a 5 GiB offer 4 s later was refused: "This file is
@@ -583,10 +583,12 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   code, not deployed): when the file would fit but for the held copies (`opfsHeldBytes`), the refusal
   reads "This file is 5.0 GB, and this browser's storage is still holding the last file it received —
   that copy is cleared within 10 minutes of its download. Try again in a few minutes, or receive it in
-  another browser." (unit-tested). **Still the owner's call — (a):** when a new receive needs the room,
-  drop held copies whose download started ≥ ~2 minutes ago (by then it has almost surely finished; the
-  risk is a download still waiting on a browser prompt — Safari's "allow downloads?" is exactly that).
-  Safari hits it only past ~38 GB (its quota is 76.8 GiB); desktop Chrome never (it streams).
+  another browser." (unit-tested; live since the `7e71275` deploy). (a) — DONE 2026-09-28 (in code, not
+  deployed; owner: "someone receiving several files with the site open will not leave the downloads
+  unanswered"): a new receive that needs the room drops this tab's delivered copies held ≥ 2 minutes
+  (`evictHeld`, `OPFS_EVICT_AFTER_MS`) and plans again by reservation; only a copy younger than that
+  still refuses, now "try again in a couple of minutes". Safari hits it only past ~38 GB (its quota is
+  76.8 GiB); desktop Chrome never (it streams).
 - ✅ **Straight into Downloads on desktop Chromium, with flow control — DONE 2026-09-28, LIVE since
   06:32 UTC (`c5a51c4`) and verified there (TESTPLAN, the last 2026-09-28 entry: B1, the stream and
   site-storage ladders to 5 GiB, a cancelled and a paused download, Chrome incognito, Firefox private)

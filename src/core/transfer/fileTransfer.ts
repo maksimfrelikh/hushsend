@@ -30,7 +30,8 @@
  *      browser's download manager as it arrives — no copy, no RAM, no dialog. Desktop Chromium and
  *      desktop Firefox (measured); not WebKit, whose download never receives a byte.
  *   2. OPFS (./opfs.ts): the site's private folder, written with no dialog, then handed to the user as
- *      a download read from disk, the copy removed after OPFS_HOLD_MS. Its space is RESERVED before
+ *      a download read from disk, the copy removed after OPFS_HOLD_MS (or after OPFS_EVICT_AFTER_MS
+ *      when a new receive needs its room). Its space is RESERVED before
  *      accept: incognito Chrome reports a quota its storage cannot hold. Safari, mobile browsers, and
  *      the fallback everywhere else.
  *   3. File System Access (`showSaveFilePicker`): disk, but through the save dialog — used only when
@@ -54,7 +55,7 @@
  */
 import { z } from 'zod';
 import { padBytesFor } from './padding';
-import { createIncoming, opfsCanHold, opfsHeldBytes, opfsRoom, opfsUsable, OPFS_HOLD_MS } from './opfs';
+import { createIncoming, evictHeld, opfsCanHold, opfsHeldBytes, opfsRoom, opfsUsable, OPFS_HOLD_MS } from './opfs';
 import { openStreamSink, prepareDownloadWorker, streamDownloadSupported } from './streamDownload';
 import { makeZip, predictLength } from 'client-zip';
 
@@ -167,8 +168,15 @@ export async function planReceive(size: number): Promise<ReceivePlan> {
       return { path: 'stream', maxBytes: Infinity };
     }
     if (await opfsUsable()) {
-      const estimate = await opfsRoom();
-      if (size <= estimate && (await opfsCanHold(size))) return { path: 'opfs', maxBytes: estimate };
+      let estimate = await opfsRoom();
+      let fits = size <= estimate && (await opfsCanHold(size));
+      if (!fits && (await evictHeld()) > 0) {
+        // Copies of files received minutes ago made the room (owner's decision). Safari reports freed
+        // space late, so the reservation alone decides now.
+        estimate = await opfsRoom();
+        fits = await opfsCanHold(size);
+      }
+      if (fits) return { path: 'opfs', maxBytes: Math.max(estimate, size) };
       // Name the estimate in a refusal only when a failed reservation did not just prove it wrong.
       if (size > estimate) {
         room = estimate;
@@ -212,10 +220,10 @@ async function nextPlan(failed: ReceivePath, size: number): Promise<{ path: Rece
   return null;
 }
 
-/** The refusal when site storage is full of the files just received (their copies are held for
- *  OPFS_HOLD_MS while the downloads read them): the answer is to wait, not to free disk space. */
+/** The refusal when site storage is full of files received moments ago (a copy younger than
+ *  OPFS_EVICT_AFTER_MS is kept while its download may still be reading it): wait, not free disk space. */
 function heldReason(size: number): string {
-  return `This file is ${formatBytes(size)}, and this browser's storage is still holding the last file it received — that copy is cleared within ${Math.round(OPFS_HOLD_MS / 60_000)} minutes of its download. Try again in a few minutes, or receive it in another browser.`;
+  return `This file is ${formatBytes(size)}, and this browser's storage is still holding the last file it received while its download finishes. Try again in a couple of minutes, or receive it in another browser.`;
 }
 
 /** The refusal the sender sees. Both sizes print to the same string just over a limit ("1.0 GB —

@@ -200,7 +200,8 @@ re-nomination. All in `BACKLOG.md`.
 **New 2026-09-27: a received file is briefly on disk in the site's private storage.** Big files are
 now received into the browser's origin-private file system (OPFS) instead of RAM, and handed to the
 user as a download read from there. That copy is removed at once when a receive fails, is cancelled or
-is never saved, and 10 minutes after the download starts when it is delivered; if the tab closes
+is never saved, and 10 minutes after the download starts when it is delivered (sooner — from 2 minutes —
+when a new big file needs its room); if the tab closes
 first it stays until hushsend is next opened, which removes it. Only this site can read that folder,
 and it holds the same bytes the user was just handed — but it is a copy on disk that can outlive the
 tab, where the old in-memory path left nothing behind. Someone who seizes the device inside that

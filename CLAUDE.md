@@ -604,8 +604,12 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
   Else the offer is refused before accept, naming the largest thing that would have fitted (in bytes
   when both sizes would print the same; never an estimate a failed reservation just disproved — and
   when the file would fit but for the copies of files just received (`opfsHeldBytes`), the refusal says
-  so and to try again in a few minutes, instead of "free up disk space"; measured on Firefox's 10 GiB
-  quota: 6 GiB received, a 5 GiB offer 4 s later). If
+  so and to try again in a couple of minutes, instead of "free up disk space"; measured on Firefox's 10
+  GiB quota: 6 GiB received, a 5 GiB offer 4 s later). A new receive that needs the room first drops this
+  tab's delivered copies whose hold began ≥ `OPFS_EVICT_AFTER_MS` (2 min) ago (`evictHeld`, owner's
+  decision 2026-09-28: someone receiving several files with the site open has let the earlier downloads
+  through by then; the accepted risk is a download still waiting on a browser prompt), then re-checks
+  with the reservation alone (Safari reports freed space late). If
   the planned path still fails to open at accept (worker gone, reservation refused), `openReceive`
   takes the next path (`nextPlan`); `acceptIncoming` sends the sender the real reason (a dismissed
   dialog — `AbortError` — stays "recipient cancelled"); a QuotaExceededError reads "not enough space in

@@ -29,6 +29,11 @@ const LOCK_PREFIX = 'hushsend-incoming:';
 /** How long a delivered file stays in site storage after the download was started, so the browser
  *  can finish reading it (deleting the source mid-read fails the download). */
 export const OPFS_HOLD_MS = 10 * 60_000;
+/** A delivered copy older than this is dropped early when a NEW receive needs its room (owner's
+ *  decision, 2026-09-28: someone receiving several files with the site open will have let the earlier
+ *  downloads through by then). The risk accepted: a download still waiting on the browser's own "allow
+ *  downloads?" prompt after this long loses its source. */
+export const OPFS_EVICT_AFTER_MS = 2 * 60_000;
 /** Headroom left in the site's quota: the keystore lives in the same storage. */
 const QUOTA_MARGIN = 64 * 1024 * 1024;
 /** Without Web Locks a sweep cannot tell a live receive from a leftover, so it only removes files at
@@ -166,7 +171,8 @@ export interface IncomingFile {
   file(): Promise<File>;
   /** Delete it now: a failed / cancelled receive, or a delivered file nobody saved. */
   remove(): Promise<void>;
-  /** Delete it after OPFS_HOLD_MS: the download was started and is reading it. */
+  /** Delete it after OPFS_HOLD_MS: the download was started and is reading it (or sooner, after
+   *  OPFS_EVICT_AFTER_MS, if a new receive needs the room — see evictHeld). */
   releaseLater(): void;
 }
 
@@ -182,6 +188,21 @@ async function incomingDir(create: boolean): Promise<FileSystemDirectoryHandle |
   } catch {
     return null;
   }
+}
+
+/** This tab's delivered copies in their hold: when the hold began, and how to end it now. */
+const holding = new Set<{ since: number; drop: () => Promise<void> }>();
+
+/**
+ * Drop this tab's delivered copies whose hold began at least `minAgeMs` ago, to make room for a new
+ * receive (see OPFS_EVICT_AFTER_MS). Copies other tabs hold are theirs (their Web Locks). Returns how
+ * many were dropped.
+ */
+export async function evictHeld(minAgeMs = OPFS_EVICT_AFTER_MS): Promise<number> {
+  const now = Date.now();
+  const old = [...holding].filter((h) => now - h.since >= minAgeMs);
+  for (const h of old) await h.drop();
+  return old.length;
 }
 
 /** Hold `name`'s lock until the returned function is called. Resolves once the lock is held. */
@@ -232,10 +253,12 @@ export async function createIncoming(size?: number): Promise<IncomingFile> {
   }
   let gone = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let held: { since: number; drop: () => Promise<void> } | null = null;
   const remove = async (): Promise<void> => {
     if (gone) return;
     gone = true;
     if (timer != null) clearTimeout(timer);
+    if (held) holding.delete(held);
     await dir.removeEntry(name).catch(() => {});
     unlock();
   };
@@ -246,6 +269,8 @@ export async function createIncoming(size?: number): Promise<IncomingFile> {
     releaseLater: () => {
       if (gone || timer != null) return;
       timer = setTimeout(() => void remove(), OPFS_HOLD_MS);
+      held = { since: Date.now(), drop: remove };
+      holding.add(held);
     },
   };
 }

@@ -9,6 +9,18 @@ vi.mock('./streamDownload', () => ({
   },
 }));
 
+// What the stubbed site storage holds right now — read at call time, so an eviction can change it.
+const store = vi.hoisted(() => ({
+  room: 0,
+  holds: 0,
+  held: 0,
+  evict: async (): Promise<number> => 0,
+}));
+vi.mock('./opfs', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./opfs')>()),
+  evictHeld: () => store.evict(),
+}));
+
 import { CHUNK_MAX, CHUNK_MIN, MAX_BYTES_BLOB, chunkSize, formatBytes, planReceive } from './fileTransfer';
 
 /**
@@ -28,6 +40,7 @@ const GiB = 1024 ** 3;
 beforeEach(() => {
   stream.supported = false;
   stream.worker = true;
+  store.evict = async () => 0; // no copy old enough to drop
 });
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -35,21 +48,22 @@ afterEach(() => {
 
 /** Just enough of an OPFS folder for the write probe (opfsUsable) and the reservation (opfsCanHold):
  *  `holds` is what the storage can REALLY take, whatever the estimate says. */
-function writableDir(holds: number, held = 0): unknown {
+function writableDir(): unknown {
   const dir = {
     // The incoming folder's contents: one delivered copy still in its hold, if any.
     async *keys() {
-      if (held) yield '1700000000000-deadbeefdeadbeef';
+      if (store.held) yield '1700000000000-deadbeefdeadbeef';
     },
     getDirectoryHandle: async () => dir,
     getFileHandle: async () => ({
-      getFile: async () => ({ size: held }),
+      getFile: async () => ({ size: store.held }),
       createWritable: async () => ({
         write: async () => {},
         close: async () => {},
         abort: async () => {},
         truncate: async (n: number) => {
-          if (n > holds) throw new DOMException('would exceed its storage quota', 'QuotaExceededError');
+          if (n > store.holds)
+            throw new DOMException('would exceed its storage quota', 'QuotaExceededError');
         },
       }),
     }),
@@ -71,14 +85,16 @@ function browser(opts: {
   ua?: string;
 }) {
   const { opfs = false, room = 0, estimateFails = false, dialog = false, ua = MAC } = opts;
-  const holds = opts.holds ?? room;
+  store.room = room;
+  store.holds = opts.holds ?? room;
+  store.held = opts.held ?? 0;
   vi.stubGlobal('navigator', {
     userAgent: ua,
     storage: {
-      ...(opfs ? { getDirectory: async () => writableDir(holds, opts.held ?? 0) } : {}),
+      ...(opfs ? { getDirectory: async () => writableDir() } : {}),
       estimate: async () => {
         if (estimateFails) throw new Error('no estimate');
-        return { quota: room + 64 * 1024 * 1024, usage: 0 }; // opfsRoom keeps 64 MiB of headroom
+        return { quota: store.room + 64 * 1024 * 1024, usage: 0 }; // opfsRoom keeps 64 MiB of headroom
       },
     },
   });
@@ -126,11 +142,23 @@ describe('which path a file is received through', () => {
     browser({ opfs: true, room: 4 * GiB, held: 6 * GiB, dialog: false });
     const r = (await planReceive(5 * GiB)) as { refused: string };
     expect(r.refused).toMatch(/still holding the last file it received/);
-    expect(r.refused).toMatch(/within 10 minutes/);
+    expect(r.refused).toMatch(/couple of minutes/);
     expect(r.refused).not.toMatch(/Free up disk space/);
     // Past what even an emptied store could take, the plain reason stands.
     browser({ opfs: true, room: 4 * GiB, held: 6 * GiB, dialog: false });
     expect(((await planReceive(20 * GiB)) as { refused: string }).refused).toMatch(/larger than the 4\.0 GB/);
+  });
+
+  it('a copy held for two minutes gives way to the next big file (owner, 2026-09-28)', async () => {
+    // The same 6 GiB copy, now old enough to drop: it goes, and the 5 GiB file takes its room.
+    browser({ opfs: true, room: 4 * GiB, held: 6 * GiB, dialog: false });
+    store.evict = async () => {
+      store.room += store.held;
+      store.holds += store.held;
+      store.held = 0;
+      return 1;
+    };
+    expect(await planReceive(5 * GiB)).toEqual({ path: 'opfs', maxBytes: 10 * GiB });
   });
 
   it('OPFS first — disk with no dialog — whenever the site quota can hold the file', async () => {
