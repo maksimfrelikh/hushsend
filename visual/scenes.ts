@@ -86,6 +86,15 @@ const sending: Action[] = [
   tr('progress', { transferredBytes: Math.round(SIZE * 0.26) }),
 ];
 
+/** A held screen (screens/pacing.ts) lasts 400 ms — a race for a screenshot. The DEV-only knob keeps
+ *  the hold up for the rest of the scene; set it before the dispatch that starts the hold. */
+async function holdForever(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    (window as unknown as { __HUSHSEND_SCREEN_HOLD_MS__: number }).__HUSHSEND_SCREEN_HOLD_MS__ =
+      1e9;
+  });
+}
+
 /** Pin two devices so the home shows its Reconnect section, then reload onto the seeded state. */
 async function seedDevices(page: Page): Promise<void> {
   await page.evaluate(async () => {
@@ -167,6 +176,29 @@ export const SCENES: Scene[] = [
     name: 'share',
     matrix: 'full',
     setup: (page) => dispatch(page, ...awaiting('link', 'k7Qm2vXa9LpR4nTdE0wYc3', [LINK])),
+  },
+  {
+    // "Create link" tapped: `creating`, the method picker held with its rows quiet.
+    name: 'method-held',
+    matrix: 'phone',
+    setup: async (page) => {
+      await page.getByTestId('invite-btn').click();
+      await holdForever(page);
+      await dispatch(page, conn('createStarted', { method: 'link' }));
+      await expect(page.locator('section.hs-screen[inert]')).toBeAttached();
+    },
+  },
+  {
+    // The other device opened the link: `pairing`, the Share screen held with its controls quiet.
+    name: 'share-held',
+    matrix: 'phone',
+    setup: async (page) => {
+      await dispatch(page, ...awaiting('link', 'k7Qm2vXa9LpR4nTdE0wYc3', [LINK]));
+      await expect(page.getByTestId('qr-svg')).toBeVisible();
+      await holdForever(page);
+      await dispatch(page, conn('pairingStarted', { peerId: 'brave-otter' }));
+      await expect(page.locator('section.hs-screen[inert]')).toBeAttached();
+    },
   },
   {
     name: 'scan',
@@ -273,14 +305,17 @@ export const SCENES: Scene[] = [
       ),
   },
   {
+    // The Connecting screen appears only once a stage outlasts the hold (screens/pacing.ts).
     name: 'connecting',
     matrix: 'phone',
-    setup: (page) =>
-      dispatch(
+    setup: async (page) => {
+      await dispatch(
         page,
         ...awaiting('words', 'bathrobe', WORDS),
         conn('pairingStarted', { peerId: 'brave-otter' }),
-      ),
+      );
+      await expect(page.getByTestId('connecting')).toBeVisible();
+    },
   },
   {
     name: 'reconnect-wait',
@@ -292,7 +327,24 @@ export const SCENES: Scene[] = [
     // The reader confirmed before the picker answered: "Verifying…" with the Stop pill (A4b).
     name: 'sas-reader-waiting',
     matrix: 'phone',
-    setup: (page) => dispatch(page, ...roomSas('reader'), conn('confirmStarted')),
+    setup: async (page) => {
+      await dispatch(page, ...roomSas('reader'), conn('confirmStarted'));
+      await expect(page.getByTestId('sas-waiting-abort')).toBeVisible();
+    },
+  },
+  {
+    // The picker picked and confirmed; the FSM is `confirming`, the screen held: the chosen card
+    // keeps its inversion, every control goes quiet.
+    name: 'sas-picker-held',
+    matrix: 'phone',
+    init: seedRandom,
+    setup: async (page) => {
+      await dispatch(page, ...roomSas('picker'));
+      await page.getByTestId('sas-option-1').click();
+      await holdForever(page);
+      await dispatch(page, conn('confirmStarted'));
+      await expect(page.locator('section.hs-screen[inert]')).toBeAttached();
+    },
   },
   {
     name: 'sas-picker',

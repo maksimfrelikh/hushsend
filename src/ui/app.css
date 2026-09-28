@@ -260,6 +260,21 @@
   border-color: var(--line-2);
   cursor: not-allowed;
 }
+/* held screen (screens/pacing.ts): the connection has moved on and the screen stays up a moment so
+   nothing flashes — every control on it takes the disabled look above at once: the tap registered,
+   something is happening. `inert` (set by <Screen>) is what actually stops input; this is only the
+   look. What the person CHOSE keeps its state — the pressed SAS card stays inverted, the checked
+   mode stays large: "not now", not "undone". The colour fade (dur-fast) carries the change, so a
+   hold of a few frames barely shows. :is() takes its most specific argument, so these beat every
+   rest, hover and primary state. */
+.hs-screen[inert] :is(.hs-pill, .hs-row, .hs-card:not([aria-pressed='true']), .hs-input) {
+  background: transparent;
+  color: var(--faint);
+  border-color: var(--line-2);
+}
+.hs-screen[inert] :is(.hs-tlink, .hs-iconbtn, .hs-mode__radio, .hs-fold__summary, .hs-row__desc) {
+  color: var(--faint);
+}
 .hs-pill-row {
   display: flex;
   gap: 10px;
@@ -345,6 +360,9 @@
   color: var(--fg);
   font-family: var(--font-mono);
   font-size: var(--t-body);
+  transition:
+    color var(--dur-fast) var(--ease-soft),
+    border-color var(--dur-fast) var(--ease-soft);
 }
 .hs-input::placeholder {
   color: var(--faint);
@@ -457,7 +475,10 @@
   background: var(--hs-wash);
   color: var(--fg);
   text-align: left;
-  transition: border-color var(--dur-fast) var(--ease-soft);
+  transition:
+    background var(--dur-fast) var(--ease-soft),
+    color var(--dur-fast) var(--ease-soft),
+    border-color var(--dur-fast) var(--ease-soft);
 }
 @media (hover: hover) {
   .hs-row:hover {

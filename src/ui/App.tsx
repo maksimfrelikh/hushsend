@@ -5,6 +5,7 @@ import { parseLink } from '../core/link/link';
 import { SessionProvider, useSession } from './SessionProvider';
 import { PrefsProvider, usePrefs } from './prefs';
 import { ScreenRouter } from './screens';
+import { usePacedScreen } from './screens/usePacedScreen';
 import { TopBar, StatusBeacon } from './ui';
 import { Diagnostics } from './components/Diagnostics';
 import { historyActions } from '../store/historySlice';
@@ -28,16 +29,20 @@ export function App(): ReactElement {
 }
 
 /** Header + the single column. The reconnect key-changed hard stop inverts the WHOLE viewport
- *  (danger = inversion, never red): the shell carries that class so header and main both swap. */
+ *  (danger = inversion, never red): the shell carries that class so header and main both swap. It
+ *  follows the SHOWN screen (screens/pacing.ts), so the viewport turns with the hard-stop screen
+ *  itself, not up to half a second before it while the Connecting screen finishes. */
 function Shell(): ReactElement {
-  const status = useAppSelector((s) => s.connection.status);
+  const paced = usePacedScreen();
+  const shown = paced.pace.shown;
   const reconnectOutcome = useAppSelector((s) => s.dev.reconnect.outcome);
-  const inverted = status === 'failed' && reconnectOutcome === 'key-changed';
+  const inverted =
+    shown.kind === 'screen' && shown.status === 'failed' && reconnectOutcome === 'key-changed';
   return (
     <div className={`hs-app${inverted ? ' hs-app--inverted' : ''}`}>
       <TopBar />
       <main className="hs-main wrap">
-        <ScreenRouter />
+        <ScreenRouter paced={paced} />
       </main>
       <Diagnostics />
       <StatusBeacon />

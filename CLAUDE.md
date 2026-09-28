@@ -939,6 +939,23 @@ travels live in the kit's own `CLAUDE.md`; its `README.md` is the consumer contr
   code input, the five word fields, phrase cards, the file zone); `--line-2` where a label identifies it
   (pills, method / device / peer rows). Focus is the kit's 2px ring; on fields it sits ON the edge
   (offset −1) so the field reads as one thicker line.
+- **Screen pacing (owner, 2026-09-28 — do not relitigate):** the four pre-connection states never flash
+  a screen. `screens/pacing.ts` (pure, unit-tested) + `usePacedScreen` (in the `Shell`, so the
+  key-changed inversion follows the SHOWN screen): when the FSM leaves a screen for `creating` /
+  `joining` / `pairing` / `confirming`, that screen is HELD `HOLD_MS` (400) — `<Screen>` gets `inert`
+  from the `ScreenBusy` context and every control on it takes the disabled-pill look (app.css "held
+  screen"; the pressed SAS card and the checked mode keep their state) — the owner's marker that the
+  tap registered and something is happening; if the FSM settles within the hold, the next screen
+  replaces it directly. Only a stage that outlasts the hold brings up `ConnectingScreen`, whose stage
+  titles stay (owner) but paced: each title ≥ `TITLE_MIN_MS` (500), the screen leaves only after its
+  title had that long, a stage over within `STAGE_SETTLE_MS` (150) never gets its title. A hold before
+  the app's first frame (a link opened straight into `joining`) is an empty column, not the unseen
+  Home. Measured on the live build before the change (2026-09-28, real Chrome, a MutationObserver
+  recorder on both sides): a direct pair ran through every stage in 30–215 ms — it now goes QR →
+  Transfer with no Connecting screen — and a relayed one in 0.3–1.5 s. Only the DISPLAY lags: the FSM,
+  the store and `data-testid="status"` are untouched, and `connected` is shown only while the status
+  is `connected`. Visual scenes that end in a stage wait for the Connecting screen; the held looks are
+  the `method-held` / `share-held` / `sas-picker-held` scenes (DEV knob `__HUSHSEND_SCREEN_HOLD_MS__`).
 - **Screen set (the decisions taken with the owner — do not relitigate):** base width 375, breakpoints
   680 (top bar 56 → 64, gutter 20 → 34) and 1440 (gutter 72). Link and QR are ONE screen (Share: QR +
   link + Copy + Share); no "Waiting for your peer…" copy anywhere, waiting is implied. Home: h1, the
@@ -1325,7 +1342,7 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   (§ UI / styling has the reference, the rules and the gates), built on kit tokens + the kit's
   `controls.css` / `theme-toggle.css` / `layout.css` (monochrome, inversion-as-emphasis, light/dark via
   `[data-theme]`, English only — the RU table is kept, the switch hidden). `ScreenRouter` picks a screen by
-  FSM status (+ method); `HomeScreen` (h1, the **Max privacy / Reliable radio group** — step 6d, drives
+  FSM status (+ method), paced (§ UI / styling → Screen pacing); `HomeScreen` (h1, the **Max privacy / Reliable radio group** — step 6d, drives
   `iceServers` — Invite someone → the method picker [Link or QR code / Code words / Room], the room code
   form, Enter code words → `WordPicker`, Scan a QR code → `ScanScreen`, a **Reconnect section** listing
   paired devices with a per-device Reconnect [`session.reconnectTo(pairingId)`, no code shown or typed]
@@ -1337,8 +1354,8 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   rows → `pickPeer`, the busy reply as a notice line), `WordsCreateScreen` (five numbered words, the
   attempt line after a wrong guess, no copy), `ShareScreen` (link AND qr: the QR + the link + Copy link +
   Share — `LinkCreateScreen` / `QrCreateScreen` are merged into it), `ScanScreen` (qr receive: camera in
-  the viewfinder + the paste-link fallback), `ConnectingScreen` (creating/joining/pairing/confirming — a
-  Max-privacy ICE failure routes to the Failed screen with a switch-to-Reliable hint, NOT a relay offer;
+  the viewfinder + the paste-link fallback), `ConnectingScreen` (creating/joining/pairing/confirming,
+  only when a stage outlasts the hold, with the paced stage title — a Max-privacy ICE failure routes to the Failed screen with a switch-to-Reliable hint, NOT a relay offer;
   step 6d STRICT), `SasScreen` (**asymmetric pick-from-3**: reader shows its phrase as the largest text
   in the app + the HEARD sentence above the confirm; picker is blind among the real + 2 local decoys as
   aria-pressed cards — role from the SAS material, `connection.sasRole`; the refusal on both sides is a

@@ -1,4 +1,6 @@
 import {
+  createContext,
+  useContext,
   useEffect,
   useId,
   useState,
@@ -450,8 +452,15 @@ export function TopBar(): ReactElement {
   );
 }
 
+/**
+ * True while the router holds a screen the connection has already moved past (screens/pacing.ts).
+ * The router provides it; <Screen> turns it into `inert`.
+ */
+export const ScreenBusy = createContext(false);
+
 /** A screen: the single column. `center` stacks everything in the middle of the viewport (the
- *  connecting / failed family). */
+ *  connecting / failed family). While held (ScreenBusy) the whole screen is `inert` — no control on
+ *  it can act, and app.css gives every control the disabled look. */
 export function Screen({
   center,
   children,
@@ -461,8 +470,13 @@ export function Screen({
   children: ReactNode;
   testId?: string;
 }): ReactElement {
+  const busy = useContext(ScreenBusy);
   return (
-    <section className={`hs-screen${center ? ' hs-screen--center' : ''}`} data-testid={testId}>
+    <section
+      className={`hs-screen${center ? ' hs-screen--center' : ''}`}
+      data-testid={testId}
+      inert={busy}
+    >
       {children}
     </section>
   );
