@@ -6,21 +6,26 @@ e2e across four engine projects, feature-detection review, self-hosted QR WASM);
 
 This used to open "the last open item before the security audit" — the audit has since run twice
 internally (2026-09-12 and 2026-09-13, BACKLOG § Security audit), so that ordering is gone: the
-device pass is now the last open item before a public launch, not before the audit. **Progress: 19 of
-the 46 A–F cases are closed (A4a, A6, A7, B7, B9, D1–D5, E1–E5, F3, F5–F7 — see the four 2026-09-27
-entries in § Result log; B1 was unticked on 2026-09-28 because the receive path changed under it); the desktop halves of A1, A2, A3, A4, A5, A6a, B2, B3, B5, B6, B8, B10, C6,
-E7 and F8 ran on the REAL desktop engines (Chrome, Brave, Safari, Firefox) and wait for their handset
-half; the iOS-Simulator, iPad-Simulator and Android-Emulator rehearsals (third entry) covered A1, A3,
-A4, A5, B4 (paste fallback), B5, B6, B8, B10's caps, F1, F2 and F8 — rehearsals, not ticks; 2 are
-still FAILED (A4b, and F2 on the emulator with real airplane mode) and are in BACKLOG — F3 failed too
-and passes on the live build since the connection-lost fix; the rest need a handset, a radio or a
-camera.** The ticks in § 0.1 are PRECONDITIONS, not cases; do not read them as progress.
+device pass is now the last open item before a public launch, not before the audit. **Progress: 21 of
+the 47 A–F cases are closed (A4a, A4b, A6, A7, B1, B7, B9, D1–D5, E1–E5, F3, F5–F7 — see § Result log:
+the four 2026-09-27 entries and the 2026-09-28 one, where A4b and B1 closed on the live build); the
+desktop halves of A1, A2, A3, A4, A5, A6a, B2, B3, B5, B6, B8, B10, C6, E7 and F8 ran on the REAL
+desktop engines (Chrome, Brave, Safari, Firefox) and wait for their handset half — B2's and B10's under
+the receive paths replaced on 2026-09-28, so those desktop halves are due again; the iOS-Simulator,
+iPad-Simulator and Android-Emulator rehearsals (2026-09-27 evening entry) covered A1, A3, A4, A5, B4
+(paste fallback), B5, B6, B8, B10's caps, F1, F2 and F8 — rehearsals, not ticks; 1 is still FAILED
+(F2, on the emulator with real airplane mode — its root cause is fixed and live since `153addd`, the
+re-run needs a phone) and is in BACKLOG — A4b and F3 failed too and pass on the live build; the rest
+need a handset, a radio or a camera.** (The total read "46" here until 2026-09-28: a stale count — the
+plan has 47 checkbox cases.) The ticks in § 0.1 are PRECONDITIONS, not cases; do not read them as
+progress.
 
-> **2026-09-28: the owner's seven decisions are in code but NOT deployed** (`5863f0d` onwards — the
-> receiver's confirmation, the A4b stop, the forget confirmation, no device label, the disk-first
-> receive path, "Save file", the failure screens, the relayed verdict; the signaling server's
-> `3d96125`). § 0.1's deploy tick is for `153addd` and goes stale the moment they ship. Cases whose
-> expectations changed (B1, B2, B10, F1, F4) are reworded below; B1 was unticked.
+> **2026-09-28: the owner's seven decisions are LIVE** — deployed by the owner at 04:32 UTC (frontend
+> `90fdc15`, whose app code is `673509d`'s: the receiver's confirmation, the A4b stop, the forget
+> confirmation, no device label, the disk-first receive path, "Save file", the failure screens, the
+> relayed verdict; then signaling `3d96125`), verified the same hour — § 0.1 re-ticked. Cases whose
+> expectations changed (B1, B2, B10, F1, F4) are reworded below; B1 was unticked for the change and
+> closed again on the live build.
 >
 > **2026-09-27, after the pass: the F2/F3 root cause is fixed and DEPLOYED** (the connection-lost
 > path — BACKLOG § UX bugs, first item; live since 19:58 UTC as `153addd`, § 0.1 re-ticked). **F3 passes
@@ -87,16 +92,16 @@ Last run 2026-09-27 against the bundle fetched over HTTPS from the live host (`i
 ### 0.1 Preconditions
 
 - [x] Frontend redeployed from current `main` (`bash ~/projects/hushsend/deploy/deploy-frontend.sh`)
-      — re-done 2026-09-27 19:58 UTC by the owner (commit `153addd`: the connection-lost fix and its
-      follow-ups); `/var/www/hushsend/dist` is byte-identical to a local build of `153addd` (41 files,
-      equal sha256 manifests) and serves `index-DJlj4l6z.js`. The signaling server is unchanged since
-      2026-09-25 (`hush-signaling-server` `2b5b913`, token rooms join-or-create, running copy at the same
-      sha — re-checked 2026-09-27) and the live host was checked that day to open a token room for its
-      first arrival. **Re-run it if `main` has moved since**, and re-tick. It had gone stale
+      — re-done 2026-09-28 04:32 UTC by the owner (commit `90fdc15`; its app code is `673509d`'s, the
+      owner's seven decisions); `/var/www/hushsend/dist` is byte-identical to a clean local build of
+      `90fdc15` (41 files, equal sha256 manifests) and the public URL serves `index-9nSghGio.js`. The
+      signaling server's running copy (`/var/www/hush-signaling-server`) is at `3d96125` (no device
+      label in the roster), relaunched 04:32:44 UTC: `/health` ok, the `[config]` line normal, TURN
+      configured — checked 2026-09-28. **Re-run it if `main` has moved since**, and re-tick. It had gone stale
       once already (ticked 2026-09-12, `main` moved, nobody re-ticked) — this tick is only worth the
       date next to it.
 - [x] **Verify the new bundle is live:** `grep -r 'stun.l.google' /var/www/hushsend/dist` returns
-      nothing — re-confirmed 2026-09-27 for `index-DJlj4l6z.js` (the pre-2026-09-12 bundle matched; this was the BACKLOG
+      nothing — re-confirmed 2026-09-28 for `index-9nSghGio.js` (the pre-2026-09-12 bundle matched; this was the BACKLOG
       "verify after redeploy" item). The only STUN in the served bundle is
       `stun:turn.hushsend.frelikh.dev:3478`, i.e. our own — which is also the whole of BACKLOG's
       "separate the STUN server" item: one operator still holds app, signaling and STUN.
@@ -301,10 +306,11 @@ Both peers on the home Wi-Fi, default **Max-privacy**. Baseline: if these fail, 
       back." sits directly above the confirm pill and is legible on a phone. Tap the picker's
       refusal: expected **both** sides end in the "channel may be compromised" hard stop, no transfer
       UI on either.
-- [ ] **A4b · the reader can still stop after confirming** — reader taps "They read it back correctly"
+- [x] **A4b · the reader can still stop after confirming** — reader taps "They read it back correctly"
       BEFORE the picker answers, then taps the abort on the waiting screen. Expected: the session
       fails closed. (A reject is accepted even after our own approval, up to settle — a reader who
-      clicked too early must not be trapped.)
+      clicked too early must not be trapped.) *(PASS on the live build 2026-09-28 — the "Stop" pill on
+      "Verifying…" ends both sides in the hard stop; § Result log.)*
 - [ ] **A5 · transfer both ways** — over the A1 connection send a small file (≈5 MB) MBP-A → IPH, then
       IPH → MBP-A. Expected: progress advances monotonically, file arrives intact (**check the size and
       open it**), receiver's terminal plaque shows a **"New transfer"** button.
@@ -349,19 +355,23 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
 > are the ones that can only be answered here** — a headless box has no camera, and Playwright's
 > WebKit on Linux is not Safari on iOS.
 
-- [ ] **B1 · disk receive, no dialog (Chrome desktop)** — receive on MBP-A Chrome. Expected: **no save
+- [x] **B1 · disk receive, no dialog (Chrome desktop)** — receive on MBP-A Chrome. Expected: **no save
       dialog** on accept; the bytes stream into site storage (OPFS) and land via a download at the end;
       RAM does not grow with the file (watch Activity Monitor on a ≈2 GB file). Then a file **larger
       than the site quota** (10 GiB here): the save dialog appears instead (FSA, inside the gesture).
       *(Reworded and UNTICKED 2026-09-28: the receive path changed — the 2026-09-27 tick proved the
-      FSA-dialog path, which is now only the fallback past the quota. Re-run on the live build.)*
+      FSA-dialog path, which is now only the fallback past the quota. Re-run on the live build the same
+      day: PASS — § Result log.)*
 - [ ] **B2 · disk receive on the phone + the RAM fallback's cap** — receive on IPH Safari and on MBP-A
       Firefox. Expected: no save dialog; the file goes to site storage and lands via a download at the
       end — a file well past 200 MiB (say 1 GiB) must complete on the PHONE, which is what the disk
       path is for. Then in a **private window** (where site storage may be unusable → the RAM path)
       offer a file **over 200 MiB**: the receiver must **refuse before accepting**, naming the limit —
       never accept and then die of OOM mid-transfer. *(Reworded 2026-09-28 for the disk-first path; the
-      old caps were 512 MiB phone / 1 GiB desktop.)*
+      old caps were 512 MiB phone / 1 GiB desktop.)* **2026-09-28, desktop Chrome incognito: FAILS this
+      rung** — there site storage IS usable but holds only ~430 MiB while `navigator.storage.estimate()`
+      reports the normal profile's 10 GiB, so a 600 MiB file was accepted on the disk path and died at
+      74 % (§ Result log, BACKLOG § UX bugs). Re-run after the fix, and on Safari / Firefox private.
 - [ ] **B3 · QR scan + self-hosted WASM** — scan on IPH Safari and AND-2 Firefox (the ponyfill path).
       Expected: scanning works, and in Network the WASM is fetched from
       `https://hushsend.frelikh.dev/assets/zxing_reader-*.wasm` with `Content-Type: application/wasm`.
@@ -1039,6 +1049,41 @@ Chrome cannot show the native picker). Link pairing, Max privacy, a 512 MB spars
   Chromium-only delay CLAUDE.md § Known residuals records; no frozen screen in between.
 - The sender counted 3.5 MB while the receiver had 1 MiB: "sent" is what went into the send buffer —
   which is why a "Delivered" that waits for the receiver's confirmation is in the works (BACKLOG).
+
+### 2026-09-28 · the owner's decisions, deployed · A4b and B1 on the live build, Chrome incognito · Chrome 154 ↔ Chrome 154
+
+Setup: production bundle `index-9nSghGio.js` (`90fdc15`; its app code is `673509d`'s), deployed by the
+owner at 04:32 UTC. `/var/www/hushsend/dist` is byte-identical to a clean local build of `90fdc15` (41
+files, equal sha256 manifests; the public URL serves the same entry), `stun.l.google` is absent; the
+signaling server's running copy is at `3d96125`, relaunched 04:32:44 UTC, `/health` ok, TURN configured.
+Real Google Chrome 154 driven by Playwright (`channel: 'chrome'`): two persistent profiles (chromeA,
+chromeB) for A4b and B1; for the incognito rows, off-the-record contexts of one Chrome — the storage
+model of an incognito window. Memory = RSS of each profile's whole Chrome process tree, every 2 s.
+- A4b · T1 · chromeA creates a 4-digit room, chromeB joins (room 8249; the creator picked, the joiner
+  read) · **PASS** — the reader confirmed first and got "Verifying…" with "Stop — they don't have this
+  phrase" while the picker was still choosing; Stop ended BOTH sides in the hard stop ("This channel may
+  be compromised"; reasons "SAS rejected — words did not match" / "peer reported a SAS mismatch"), no
+  transfer UI on either. Copy nit: that screen tells a picker who never confirmed anything "The phrase
+  you confirmed doesn't match your peer's".
+- B1 · T1 · chromeA → chromeB, 2 GiB, the browser left as is · **PASS** — no save dialog asked for
+  (`showSaveFilePicker` wrapped: 0 calls); 39.4 s, 54.5 MB/s, progress monotonic, the sender
+  "Delivered"; the site-storage copy verified block by block in-page, and Chrome's own download of it
+  saved a 2 147 483 648-byte file with the expected SHA-256 (`0df1e700…`); the receiver's tree stayed at
+  414–643 MiB (largest process ≤ 222 MiB) through the whole 2 GiB. Past the quota (reported 10 240 MiB;
+  an 11 GiB offer): Accept asked for the save dialog inside the gesture (`navigator.userActivation.isActive`
+  true at the call). The dialog was answered "Cancel" in-page, so the native window itself was not on
+  screen in this run (it was on 2026-09-27, clicked by the owner); the receiver ended "cancelled", the
+  sender "declined · recipient cancelled". The hold after hand-off (`OPFS_HOLD_MS`, 10 min): 7 min in,
+  the site-storage folder still held exactly the delivered 2 GiB file (usage 2 048 MiB); at 05:05:44,
+  ~10 min after the hand-off, it was empty and usage 0 — the timer removes it on the live build.
+- B2's private-window rung, on the desktop (not the tick — B2 is a phone case) · Chrome incognito ·
+  **FAIL** — the receiver reports quota 10 240 MiB, usage 0, but site storage holds only ~430 MiB there
+  (a bare write stopped at 426 MiB with `QuotaExceededError`). hushsend plans by the reported quota, so
+  a 600 MiB file was ACCEPTED on the disk path and died at 445 MB (74 %): receiver "transfer error · The
+  operation failed because it would cause the application to exceed its storage quota.", sender
+  "cancelled · stopped at 448 MB". The incognito browser's tree grew from ~765 to ~1 124 MiB during it
+  and fell back once the partial file was removed — that storage looks RAM-backed. A normal profile, for
+  comparison: 1 GiB written in 0.9 s, tree +10 MiB. → BACKLOG § UX bugs.
 
 **When the pass is done:** fold the results into `BACKLOG.md` § Step 6 / **6e** (and its
 "Remaining (real devices, post-deploy)" line) and `CLAUDE.md` § Current state / Build order in the

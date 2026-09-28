@@ -204,8 +204,8 @@ the same pass as CLAUDE.md when items land.
   - **Remaining (real devices, post-deploy):** what only hardware shows — QR scan + camera permissions
     on actual iOS Safari, the FSA→Blob cap on real hardware, everything cross-network (TESTPLAN § C),
     and iOS background-tab suspension mid-transfer (§ F1). Engine-level transport interop is now
-    pre-covered headlessly (above). The pass itself is tracked case by case in TESTPLAN.md — 19 of 46
-    closed as of 2026-09-27, with iPhone/iPad-simulator and Android-emulator rehearsals of the handset
+    pre-covered headlessly (above). The pass itself is tracked case by case in TESTPLAN.md — 21 of 47
+    closed as of 2026-09-28, with iPhone/iPad-simulator and Android-emulator rehearsals of the handset
     cases the same evening (its § Result log); the findings are in § UX bugs below.
 - ✅ **Deployment behind nginx (6f) — LIVE at hushsend.frelikh.dev (see DEPLOY.md § 0 — the
   as-realized source of truth).** First bring-up 2026-06-20 on a VPS (`frelikhmax.fvds.ru`); **the live
@@ -573,6 +573,21 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
 
 ## UX bugs — found in the manual test pass (Phase 1)
 
+- [ ] **Chrome incognito: a file past ~430 MiB is accepted to site storage and dies mid-transfer —
+  found 2026-09-28 on the live build (TESTPLAN § Result log, B2's private-window rung).** In an
+  incognito (off-the-record) context `navigator.storage.estimate()` reports the normal profile's quota
+  (10 GiB on this Mac — Chrome does not let a site tell incognito apart by its quota), but site storage
+  there holds only ~430 MiB and looks RAM-backed (the tree grew ~360 MiB during a 445 MB receive and
+  fell back when the file was removed). `planReceive` trusts the estimate, so a 600 MiB offer was
+  accepted on the OPFS path and failed at 74 % with the browser's raw "exceed its storage quota" text —
+  exactly the "accept, then die mid-transfer" the owner's rule forbids, and in incognito it also holds
+  up to that ~430 MiB in RAM, past the 200 MB RAM cap. Direction (not started): reserve the whole size
+  BEFORE accepting — `createWritable()` + `truncate(size)` on the incoming file, so a store that cannot
+  hold it refuses at once and the plan falls through (the save dialog on Chromium, otherwise the RAM
+  path ≤200 MiB or a refusal); and on a mid-transfer `QuotaExceededError` say "not enough space in
+  this browser's storage" instead of the raw text. To check first, per engine: does `truncate` count
+  against the quota without writing (a sparse reservation) on a normal profile, and does it fail fast
+  in incognito, Safari private and Firefox private (none of those three measured yet)?
 - ✅ **Peer gone after `connected` — FIXED and DEPLOYED 2026-09-27 (`153addd`); F3 re-run PASS on the live
   build; F2 not yet re-run (needs a phone).**
   Every loss signal after `established` (DataChannel close, connection closed, ICE failed, and a
@@ -611,7 +626,7 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   One fix covers all of them: handle `connectionstatechange`
   `failed`/`disconnected` and the DataChannel `close` in the `established` phase — fail the in-flight
   transfer visibly and end the session (a "peer left" terminal state), instead of nothing.
-- ✅ **"Delivered" waits for the receiver's confirmation — DONE 2026-09-27 (in code, not deployed; owner's
+- ✅ **"Delivered" waits for the receiver's confirmation — DONE 2026-09-27, LIVE 2026-09-28 (`90fdc15`; owner's
   decision).** Found while fixing the item above: the sender said "Delivered" the moment `eof` sat in its
   send buffer, with up to a MiB still in flight (the live F3 run showed it — 3.5 MB "sent" against 1 MiB
   received), so a receiver whose tab died in that window left the sender claiming a delivery that never
@@ -619,7 +634,7 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   the declared size is an error, and the receiver sends `cancel` so the sender stops waiting), and the
   sender reports done only on it; a loss while it waits ends "not delivered". The phase flips before the
   eof send, so a confirmation that overtakes a drain wait still counts. `fileTransfer.lost.test.ts`.
-- ✅ **Android save dialog killing the transfer — SUPERSEDED 2026-09-28 (in code, not deployed; owner's
+- ✅ **Android save dialog killing the transfer — SUPERSEDED 2026-09-28, LIVE the same day (`90fdc15`; owner's
   rule: "disk wherever possible, a dialog only if disk needs one").** Receives now go to site storage
   (OPFS) with NO dialog while the connection is live; the save dialog is used only when OPFS cannot
   hold the file (quota) — CLAUDE.md § File transfer. Needs the real Android phone to confirm (OPFS on
@@ -642,8 +657,8 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   afterwards is discarded instead of opening a writer to a dead peer. The underlying behaviour (the
   connection dying while the picker is up) and the 0-byte file are unchanged — the decision above
   still stands.
-- ✅ **A signaling drop now reads "Lost the connection to the server" — DONE 2026-09-28 (in code, not
-  deployed).** FailedScreen's `expired` keeps 4009/4010/4002 and room answers; any other `signaling
+- ✅ **A signaling drop now reads "Lost the connection to the server" — DONE 2026-09-28, LIVE the same day
+  (`90fdc15`).** FailedScreen's `expired` keeps 4009/4010/4002 and room answers; any other `signaling
   closed` (1006 above all) is the new `server` variant. The report:
   **A signaling drop during pairing reads as "Room not found or code expired" (found 2026-09-27,
   Android emulator).** `FailedScreen` puts any `signaling closed (code N)` into the `expired` variant
@@ -652,8 +667,8 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   room" to someone who typed no digits. Seen twice: the Android joiner of a Max-privacy link pair that
   could not connect, and the Android joiner after F8's airplane mode. Fix: keep `expired` for
   4009/4010/4002 and give 1006/other closes a "lost the connection to the server" variant.
-- ✅ **A file that completes while the page is hidden waits for "Save file" — DONE 2026-09-28 (in code,
-  not deployed; owner: option A).** The controller holds the finished file when `visibilityState` is
+- ✅ **A file that completes while the page is hidden waits for "Save file" — DONE 2026-09-28, LIVE the
+  same day (`90fdc15`; owner: option A).** The controller holds the finished file when `visibilityState` is
   `hidden` and the finished row shows Save file; the tap hands it over. e2e `receive-disk.spec.ts`
   (visibility faked); the real iPhone (F1) still has to confirm. The report:
   **iOS (simulator): a Blob download that fires while the screen is locked is lost silently
@@ -664,15 +679,15 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   saved a byte-identical file. On a real iPhone this is the likeliest shape of F1; the receiver should
   re-offer the save (a "Save file" button on the finished row) when the page was hidden at the
   hand-off. Needs the real-phone run to confirm.
-- ✅ **The lobby device label — REMOVED from the protocol 2026-09-27 (owner's decision); client in code,
-  server in `hush-signaling-server`, NOT yet deployed.** Since the 2026-09-26 redesign a roster row was
+- ✅ **The lobby device label — REMOVED from the protocol 2026-09-27 (owner's decision); client and
+  server (`hush-signaling-server` `3d96125`) LIVE 2026-09-28, the client first.** Since the 2026-09-26 redesign a roster row was
   the readable id + join time and `peer.device` (`Desktop`/`Mobile`) was sent, capped and relayed but
   never rendered — metadata for the untrusted server and nobody else. The client no longer sends
   `?device=`, the server neither reads nor relays it, and the client's schema tolerates an old server
   that still does (zod strips the key). TESTPLAN D1 reworded. Deploy order: the frontend first (it
   ignores `device` either way), then the signaling server — a tab still running the OLD client rejects
   roster frames without `device`, so hard-refresh after the deploy, as § 0.1 already says.
-- ✅ **"Forget pinned devices" asks first — DONE 2026-09-27 (in code, not deployed).** The row turns into
+- ✅ **"Forget pinned devices" asks first — DONE 2026-09-27, LIVE 2026-09-28 (`90fdc15`).** The row turns into
   "Forget every paired device? Each will have to pair again." with **Forget all** / **Cancel**, Cancel
   focused (a stray Enter cannot wipe anything); `tests/a11y` covers the contract, `visual` the state
   (`home-forget-confirm`). It still also rotates this browser's own identity key: once the pins are
@@ -683,8 +698,8 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   paired device has to pair afresh. On the iPhone simulator the keystore was found in exactly that state
   (new identity, 0 pins) after a tap sequence of mine near the bottom of the home screen — the likely
   cause, not verified. A confirm step (or an undo) is cheap for an irreversible action.
-- ✅ **The SAS reader can stop after confirming early — DONE 2026-09-27 (in code, not deployed; A4b to
-  re-run).** "Verifying…" now carries the reader screen's "Stop — they don't have this phrase" pill
+- ✅ **The SAS reader can stop after confirming early — DONE 2026-09-27, LIVE 2026-09-28; A4b
+  PASS on the live build.** "Verifying…" now carries the reader screen's "Stop — they don't have this phrase" pill
   (`sas-waiting-abort`, `ConnectingScreen`) wired to `confirmSas(false)`; e2e `room-sas.spec.ts` "A4b".
   The report: **The SAS reader cannot stop after confirming early (found 2026-09-27, A4b).** The reader taps
   "They read it back — connect" before the picker has answered and lands on "Verifying…"
@@ -700,7 +715,7 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   visibly with the switch-to-Reliable hint — which points at the wrong fix. The 2026-09-26 "Max
   privacy FAIL 2/2" was exactly this. README / the direct-fail hint should mention the permission on
   macOS 15+; optionally detect "only mDNS host + srflx that is a private address" and say so.
-- [ ] **Copy nits from the 2026-09-27 pass** — two fixed 2026-09-28 (in code): a refusal just over a
+- [ ] **Copy nits from the 2026-09-27 pass** — two fixed 2026-09-28 (live the same day): a refusal just over a
   limit now prints both sizes in bytes when they would round alike, and the SAS hard-stop eyebrow
   ("numbers didn't match") is gone with every eyebrow. Still open: the creator's 4010 wording and
   F7's plan text, below. The original list: a refusal just over the cap reads "This file is 1.0 GB —
@@ -715,8 +730,8 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   link must be opened in a fresh tab. Test-drivers hit this too: always load `/health` first.
   Also seen on iPadOS Safari (simulator, 2026-09-27): a link opened into the tab that shows hushsend
   did nothing, for the same reason.
-- ✅ **A relayed session is labelled "relayed through the server" — DONE 2026-09-28 (in code, not
-  deployed).** New verdict `relayed` from the selected pair's candidate types (`relax.selectedPairRelayed`,
+- ✅ **A relayed session is labelled "relayed through the server" — DONE 2026-09-28, LIVE the same day
+  (`90fdc15`).** New verdict `relayed` from the selected pair's candidate types (`relax.selectedPairRelayed`,
   unit-tested), decided before the address check; the muted row replaces the sr-only "direct path
   confirmed". Phase C (cross-network, Reliable) is where a real relay shows it. The report:
   **"direct path confirmed" labels a RELAYED Reliable session — CONFIRMED 2026-09-27.** `localCandidateAddresses`
@@ -749,8 +764,8 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
 - ✅ **iPad — SUPERSEDED 2026-09-28 by the disk path:** every device, iPad included, now receives to
   site storage (OPFS), and the RAM-only fallback is ONE 200 MiB cap for all (owner's rule for RAM), so
   the iPad-specific 512 MB and the `isMobileUA` detection below were removed again. Kept for the record:
-- (history) **iPad gets the MOBILE cap — DONE 2026-09-27 (in code, not deployed; owner: 512 MB, "a gigabyte of
-  RAM is too much"; no real iPad to measure).** `isMobileUA` also treats a Macintosh UA with
+- (history) **iPad gets the MOBILE cap — DONE 2026-09-27, never shipped (superseded before the deploy;
+  owner: 512 MB, "a gigabyte of RAM is too much"; no real iPad to measure).** `isMobileUA` also treats a Macintosh UA with
   `maxTouchPoints > 1` as a tablet (no Mac has a multi-touch screen); unit-tested both ways. The
   report: **iPad gets the DESKTOP receive cap — CONFIRMED 2026-09-27 (iPad (A16) simulator, iPadOS 27.0).**
   `isMobileUA` looks for `Android|iPhone|iPad|iPod|Mobile`; iPadOS Safari requests desktop sites by

@@ -99,7 +99,10 @@ served as static); unknown deep-link → `200` (SPA fallback). Re-checked 2026-0
 `/health` → `ok`, all three units (`nginx`, `hushsend-signaling`, `coturn`) active; re-checked again
 2026-09-25 after deploying the codeless reconnect (frontend `2eebc0e` via `deploy-frontend.sh`,
 signaling `2b5b913` pulled into the running copy + relaunched — token rooms are join-or-create, and
-the live host was seen opening a token room for its first arrival). **Still pending:**
+the live host was seen opening a token room for its first arrival); and 2026-09-28 after deploying the
+owner's seven decisions (frontend `90fdc15`, byte-identical to a clean local build; signaling `3d96125`
+pulled into the running copy + relaunched 04:32:44 UTC — the roster no longer carries a device label, so
+the frontend had to go first: the previous client required that field). **Still pending:**
 the in-browser P2P/SAS/transfer test on two devices, and a cross-network TURN relay check (only
 provable across different networks).
 
