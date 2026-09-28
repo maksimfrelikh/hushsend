@@ -83,6 +83,43 @@ export function opfsUsable(): Promise<boolean> {
   return probe;
 }
 
+/**
+ * Can site storage REALLY take `size` more bytes? A reservation, not an estimate. In incognito Chrome
+ * `estimate()` reports the normal profile's quota (10 GiB on this Mac — a site must not be able to tell
+ * incognito apart by it) while the storage holds ~430 MiB, so a plan made from the estimate accepted a
+ * 600 MiB file that then died at 74 % (TESTPLAN, 2026-09-28). `truncate(size)` on a fresh writable is
+ * checked against the real limit and writes nothing — measured 2026-09-28: 1–2 ms for 5 GiB on Chrome,
+ * Firefox and Safari, counted in the quota at once, a fast QuotaExceededError in incognito — and the
+ * probe file is aborted and removed right after. Never throws.
+ */
+export async function opfsCanHold(size: number): Promise<boolean> {
+  if (!opfsSupported()) return false;
+  let dir: FileSystemDirectoryHandle | null;
+  try {
+    dir = await incomingDir(true);
+  } catch {
+    return false;
+  }
+  if (!dir) return false;
+  const name = `.reserve-${randomHex(4)}`;
+  try {
+    const handle = await dir.getFileHandle(name, { create: true });
+    const w = await handle.createWritable();
+    try {
+      await w.truncate(size);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      await w.abort().catch(() => {});
+    }
+  } catch {
+    return false;
+  } finally {
+    await dir.removeEntry(name).catch(() => {});
+  }
+}
+
 /** Bytes this site may still store, minus the margin; 0 when the browser will not say. */
 export async function opfsRoom(): Promise<number> {
   try {
@@ -135,8 +172,12 @@ async function holdLock(name: string): Promise<() => void> {
   return release;
 }
 
-/** Create a fresh file in the incoming folder, locked for as long as it is in use. */
-export async function createIncoming(): Promise<IncomingFile> {
+/**
+ * Create a fresh file in the incoming folder, locked for as long as it is in use. With `size`, the
+ * space is reserved up front (see opfsCanHold) — a store that cannot hold the file refuses here, before
+ * `accept` is sent, instead of mid-transfer. The writes then fill it from the start.
+ */
+export async function createIncoming(size?: number): Promise<IncomingFile> {
   const dir = await incomingDir(true);
   if (!dir) throw new Error('site storage is unavailable');
   // The user-visible name is applied at download time; on disk it is only a time + a random tag.
@@ -147,6 +188,14 @@ export async function createIncoming(): Promise<IncomingFile> {
   try {
     handle = await dir.getFileHandle(name, { create: true });
     writable = await handle.createWritable();
+    if (size != null) {
+      try {
+        await writable.truncate(size);
+      } catch (err) {
+        await writable.abort().catch(() => {});
+        throw err;
+      }
+    }
   } catch (err) {
     unlock();
     await dir.removeEntry(name).catch(() => {});

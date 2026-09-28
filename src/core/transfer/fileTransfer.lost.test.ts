@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
+  RECEIVE_WINDOW,
   sendFiles,
   openReceive,
   type ReceiveEvent,
@@ -186,7 +187,7 @@ describe('a receive whose channel dies', () => {
     const events: ReceiveEvent[] = [];
     const rx = await openReceive(wire, offer, RAM, (e) => events.push(e));
     await rx.start();
-    expect(sent).toEqual([JSON.stringify({ t: 'accept' })]);
+    expect(sent).toEqual([JSON.stringify({ t: 'accept', window: RECEIVE_WINDOW })]);
 
     rx.handleChunk(new ArrayBuffer(40));
     await until(() => events.some((e) => e.t === 'progress'));

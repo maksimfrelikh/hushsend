@@ -6,9 +6,10 @@ e2e across four engine projects, feature-detection review, self-hosted QR WASM);
 
 This used to open "the last open item before the security audit" — the audit has since run twice
 internally (2026-09-12 and 2026-09-13, BACKLOG § Security audit), so that ordering is gone: the
-device pass is now the last open item before a public launch, not before the audit. **Progress: 21 of
-the 47 A–F cases are closed (A4a, A4b, A6, A7, B1, B7, B9, D1–D5, E1–E5, F3, F5–F7 — see § Result log:
-the four 2026-09-27 entries and the 2026-09-28 one, where A4b and B1 closed on the live build); the
+device pass is now the last open item before a public launch, not before the audit. **Progress: 20 of
+the 47 A–F cases are closed (A4a, A4b, A6, A7, B7, B9, D1–D5, E1–E5, F3, F5–F7 — see § Result log:
+the four 2026-09-27 entries and the 2026-09-28 one, where A4b closed on the live build; B1 closed there
+too and was unticked again the same day, because desktop Chrome's receive path changed once more); the
 desktop halves of A1, A2, A3, A4, A5, A6a, B2, B3, B5, B6, B8, B10, C6, E7 and F8 ran on the REAL
 desktop engines (Chrome, Brave, Safari, Firefox) and wait for their handset half — B2's and B10's under
 the receive paths replaced on 2026-09-28, so those desktop halves are due again; the iOS-Simulator,
@@ -26,6 +27,11 @@ progress.
 > relayed verdict; then signaling `3d96125`), verified the same hour — § 0.1 re-ticked. Cases whose
 > expectations changed (B1, B2, B10, F1, F4) are reworded below; B1 was unticked for the change and
 > closed again on the live build.
+>
+> **2026-09-28, later: in code, NOT deployed** — desktop Chromium now receives STRAIGHT INTO DOWNLOADS
+> through a download worker (no copy in site storage, no RAM, no dialog); site storage is reserved
+> before accept (the incognito quota lie); flow control (a paused download pauses the sender). B1, B2,
+> B10 and F4 are reworded for it and B1 is unticked again; § 0.1's deploy tick goes stale when it ships.
 >
 > **2026-09-27, after the pass: the F2/F3 root cause is fixed and DEPLOYED** (the connection-lost
 > path — BACKLOG § UX bugs, first item; live since 19:58 UTC as `153addd`, § 0.1 re-ticked). **F3 passes
@@ -197,14 +203,14 @@ Last run 2026-09-27 against the bundle fetched over HTTPS from the live host (`i
 
 | Slot | Device | OS version | Browser + version | Engine | Driven by | Expected receive path | Expected QR decoder |
 |---|---|---|---|---|---|---|---|
-| MBP-A | MacBook | macOS 26 | Chrome 154 | Blink | Claude via **Playwright** driving the installed Chrome (`channel:'chrome'`, persistent profiles, since 2026-09-27) | OPFS, no dialog (quota 10 GiB here); FSA dialog only past it | zxing ponyfill (never native — see B3) |
-| MBP-A | MacBook | | Brave 154 (shields up) | Blink | Claude (Claude-in-Chrome extension) | OPFS expected (Chromium; not probed) — Brave ships no `showSaveFilePicker`, so no dialog fallback | zxing ponyfill |
+| MBP-A | MacBook | macOS 26 | Chrome 154 | Blink | Claude via **Playwright** driving the installed Chrome (`channel:'chrome'`, persistent profiles, since 2026-09-27) | straight into Downloads through the download worker (since 2026-09-28, not yet live); site storage only if the worker cannot come up | zxing ponyfill (never native — see B3) |
+| MBP-A | MacBook | | Brave 154 (shields up) | Blink | Claude (Claude-in-Chrome extension) | the stream path expected (desktop Chromium; not probed — shields may block the worker, then site storage) — Brave ships no `showSaveFilePicker`, so no dialog fallback | zxing ponyfill |
 | MBP-A | MacBook | macOS 26 | Safari 26.6 | **WebKit (the real one)** | Claude via **WebDriver** (`safaridriver`, since 2026-09-27 — see § 0.5) | OPFS (probed 2026-09-27: writes to disk, quota 76.8 GiB) | zxing ponyfill |
-| MBP-A | MacBook | macOS 26 | Firefox 156 | Gecko | Claude via **WebDriver** (`geckodriver`, since 2026-09-27) | OPFS (probed 2026-09-27: writes to disk, quota 10 GiB) | zxing ponyfill |
-| MBP-A | MacBook | macOS 26 | Claude's built-in Chromium 152 | Blink | Claude (built-in browser) — a SECOND profile next to Brave, so E-cases are honest | OPFS expected (no dialog needed; before 2026-09-28 its FSA dialog could not be shown in the pane) | zxing ponyfill |
-| MBP-B | MacBook | | Chrome | Blink | Claude (Playwright) | OPFS, no dialog | zxing ponyfill |
+| MBP-A | MacBook | macOS 26 | Firefox 156 | Gecko | Claude via **WebDriver** (`geckodriver`, since 2026-09-27) | OPFS (probed 2026-09-27: writes to disk, quota 10 GiB) — never the stream path: Firefox fails a streamed download unsafely (2026-09-28) | zxing ponyfill |
+| MBP-A | MacBook | macOS 26 | Claude's built-in Chromium 152 | Blink | Claude (built-in browser) — a SECOND profile next to Brave, so E-cases are honest | the stream path expected (desktop Chromium); before 2026-09-28 its FSA dialog could not be shown in the pane | zxing ponyfill |
+| MBP-B | MacBook | | Chrome | Blink | Claude (Playwright) | straight into Downloads (the stream path) | zxing ponyfill |
 | IPH | iPhone | | Safari (WebKit) | WebKit + phone limits | Claude via Safari Web Inspector (USB) | OPFS expected (not yet probed on a device); Save file if the screen was locked | zxing ponyfill |
-| AND-1 | Android | | Chrome | Blink | Claude via `chrome://inspect` (USB) | OPFS expected — no dialog while the connection is live; the save dialog only past the quota (Chrome 149 HAS `showSaveFilePicker`, and a dialog left open ~20 s killed the connection — why disk-without-dialog is now first) | zxing ponyfill (never native) |
+| AND-1 | Android | | Chrome | Blink | Claude via `chrome://inspect` (USB) | OPFS expected (mobile Chromium does not stream until a handset proves it — B2/B10) — no dialog while the connection is live; the save dialog only past the quota (Chrome 149 HAS `showSaveFilePicker`, and a dialog left open ~20 s killed the connection — why disk-without-dialog is now first) | zxing ponyfill (never native) |
 | SIM-iOS | iPhone 17 **simulator** (rehearsal only) | iOS 27.0 | Safari | WebKit, but the Mac's RAM and network | Claude via simulator taps + screenshots (safaridriver cannot reach it) | OPFS expected (not probed on the simulator) | zxing ponyfill |
 | SIM-iPad | iPad (A16) **simulator** (rehearsal only) | iPadOS 27.0 | Safari | WebKit | as SIM-iOS | OPFS expected; the UA no longer matters (it sent a desktop UA, which picked the 1 GiB cap until 2026-09-27) | zxing ponyfill |
 | EMU-AND | Pixel 9 Pro **emulator** (rehearsal only) | Android 17 (user build) | Chrome 149 | Blink | Claude over CDP (`adb forward … localabstract:chrome_devtools_remote`) + `adb` for native UI | OPFS expected — no dialog any more (it was FSA through the system save dialog) | zxing ponyfill |
@@ -355,23 +361,29 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
 > are the ones that can only be answered here** — a headless box has no camera, and Playwright's
 > WebKit on Linux is not Safari on iOS.
 
-- [x] **B1 · disk receive, no dialog (Chrome desktop)** — receive on MBP-A Chrome. Expected: **no save
-      dialog** on accept; the bytes stream into site storage (OPFS) and land via a download at the end;
-      RAM does not grow with the file (watch Activity Monitor on a ≈2 GB file). Then a file **larger
-      than the site quota** (10 GiB here): the save dialog appears instead (FSA, inside the gesture).
-      *(Reworded and UNTICKED 2026-09-28: the receive path changed — the 2026-09-27 tick proved the
-      FSA-dialog path, which is now only the fallback past the quota. Re-run on the live build the same
-      day: PASS — § Result log.)*
+- [ ] **B1 · straight into Downloads, no dialog (Chrome desktop)** — receive on MBP-A Chrome.
+      Expected: **no save dialog**; the download starts at Accept and the browser writes the file as it
+      arrives (the download worker, `dl/sw.js`) — **nothing in site storage**, RAM flat on a ≈2 GB file,
+      the saved file intact. Cancel one in Chrome's downloads list mid-transfer: both sides end
+      (receiver "error · the browser stopped the download", sender "cancelled") and no partial file is
+      left. Pause one there: the sender's progress stops (flow control) and resumes with the download;
+      RAM stays flat. *(Reworded twice on 2026-09-28: the morning's tick proved the site-storage path
+      — a disk file, no dialog, the dialog only past the quota, all PASS on the live build (§ Result
+      log) — which desktop Chrome no longer takes; Firefox and Safari do, so those checks moved to
+      B2/B10. Unticked until the stream path is live and re-run.)*
 - [ ] **B2 · disk receive on the phone + the RAM fallback's cap** — receive on IPH Safari and on MBP-A
-      Firefox. Expected: no save dialog; the file goes to site storage and lands via a download at the
-      end — a file well past 200 MiB (say 1 GiB) must complete on the PHONE, which is what the disk
-      path is for. Then in a **private window** (where site storage may be unusable → the RAM path)
+      Firefox (both keep site storage — neither may stream, see CLAUDE.md § File transfer). Expected:
+      no save dialog; the file goes to site storage and lands via a download at the end — a file well
+      past 200 MiB (say 1 GiB) must complete on the PHONE, which is what the disk path is for. Then in a **private window** (where site storage may be unusable → the RAM path)
       offer a file **over 200 MiB**: the receiver must **refuse before accepting**, naming the limit —
       never accept and then die of OOM mid-transfer. *(Reworded 2026-09-28 for the disk-first path; the
       old caps were 512 MiB phone / 1 GiB desktop.)* **2026-09-28, desktop Chrome incognito: FAILS this
       rung** — there site storage IS usable but holds only ~430 MiB while `navigator.storage.estimate()`
       reports the normal profile's 10 GiB, so a 600 MiB file was accepted on the disk path and died at
-      74 % (§ Result log, BACKLOG § UX bugs). Re-run after the fix, and on Safari / Firefox private.
+      74 % (§ Result log, BACKLOG § UX bugs). Re-run after the fix: Chrome incognito now streams into
+      Downloads (expect a 1 GiB file to complete there, nothing in site storage); Firefox private has no
+      site storage (`getDirectory()` → SecurityError, measured) — expect the RAM path, a refusal before
+      accept above 200 MiB; Safari private — by hand (safaridriver cannot open one).
 - [ ] **B3 · QR scan + self-hosted WASM** — scan on IPH Safari and AND-2 Firefox (the ponyfill path).
       Expected: scanning works, and in Network the WASM is fetched from
       `https://hushsend.frelikh.dev/assets/zxing_reader-*.wasm` with `Content-Type: application/wasm`.
@@ -459,7 +471,10 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       | Blob, desktop cap 1 GiB (Safari, Firefox, Brave, Chrome without FSA) | 1 GiB + 1 B, 5 GiB, then **exactly 1 GiB** | the first two refused BEFORE accept, naming the limit; 1 GiB completes AND the download lands on disk intact |
       | Blob, mobile cap 512 MiB (iOS Safari, Android Firefox; Android Chrome only where `showSaveFilePicker` is absent — Chrome 149 has it, so its default path is FSA, see AND-1) | 512 MiB + 1 B, 5 GiB, then **exactly 512 MiB** | the same; on a real handset this is also B2's memory-pressure datum |
       | every engine as SENDER | 5 GiB into an FSA receiver | completes; sender memory does not grow with the file |
-      | **NEW · OPFS (every engine, the default)** | 1, 2, 3 GiB, 4 GiB + 1 B, 5 GiB — up to the site quota | completes with NO dialog, every byte verified, receiver memory flat, the download lands intact |
+      | **NEW 2026-09-28 · straight into Downloads (desktop Chrome, the default there)** | 1, 2, 3 GiB, 4 GiB + 1 B, 5 GiB | completes with NO dialog and nothing in site storage, the saved file's SHA-256 right, receiver memory flat |
+      | same · the download PAUSED in Chrome's list mid-transfer, then resumed | 2 GiB | the sender stops at a window's worth (16 MiB) past the receiver, memory flat while paused, completes intact after resume |
+      | same · the download CANCELLED in Chrome's list | 2 GiB | receiver "error · the browser stopped the download", sender "cancelled", no partial file |
+      | **NEW · OPFS (Firefox, Safari, mobile — the default there)** | 1, 2, 3 GiB, 4 GiB + 1 B, 5 GiB — up to the site quota | completes with NO dialog, every byte verified, receiver memory flat, the download lands intact |
       | **NEW · past the quota** (Chrome: > 10 GiB here) | quota + 1 GiB | Chrome/Android: the save dialog appears (FSA); Safari/Firefox: refused before accept, naming the room |
       | **NEW · RAM fallback 200 MiB** (a private window without usable site storage) | 200 MiB + 1 B, then exactly 200 MiB | the first refused before accept; 200 MiB completes |
 
@@ -595,9 +610,9 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       Expected: a visible failure or a recovery, never a frozen progress bar that claims to be alive.
 - [x] **F3 · tab close** — close the receiver's tab mid-transfer. Expected: the sender notices and shows
       a failure.
-- [ ] **F4 · large transfer** — ≈2 GB MBP-A Chrome → MBP-B Chrome (disk both ways — site storage, no
-      dialog, since 2026-09-28). Expected: it completes, memory stays flat, and the signaling socket is
-      long gone by then (A6).
+- [ ] **F4 · large transfer** — ≈2 GB MBP-A Chrome → MBP-B Chrome (the receiver streams straight into
+      Downloads, no dialog — since 2026-09-28). Expected: it completes, memory stays flat, and the
+      signaling socket is long gone by then (A6).
 - [x] **F5 · code expiry** — create a words session and leave it untouched past its TTL, then try to
       join. Expected: the code is freed — the waiting side is closed out (4010) and a later join gets
       `room not found` (4009), with a readable message rather than a raw code.
@@ -1084,6 +1099,43 @@ model of an incognito window. Memory = RSS of each profile's whole Chrome proces
   "cancelled · stopped at 448 MB". The incognito browser's tree grew from ~765 to ~1 124 MiB during it
   and fell back once the partial file was removed — that storage looks RAM-backed. A normal profile, for
   comparison: 1 GiB written in 0.9 s, tree +10 MiB. → BACKLOG § UX bugs.
+
+### 2026-09-28 (later) · the no-copy rule's engineering · a probe page and the LOCAL build · Chrome 154 ↔ Firefox 156 ↔ Safari 26.6 (the Mac)
+
+Not ticks — measurements that decided the design (CLAUDE.md § File transfer), on real engines.
+- **Memory, one yardstick** (RSS of every process of the receiving browser, 1 GiB received from Chrome
+  on the live build): the table given to the owner earlier mixed yardsticks (Chrome's whole browser vs
+  Firefox's main process vs Safari's largest process). Measured the same way: a blank tab already costs
+  Chrome ~790 MiB (browser 195, GPU 117, network 85, storage 61, renderers 330) and Firefox ~1.7 GiB
+  (six pre-launched content processes); the hushsend tab's own process is Chrome ~152 MiB idle / 175
+  connected / 215–242 receiving, Firefox ~198 / 226 / ~347 — its JS heap 4 MiB idle, 10 MiB connected
+  (Chrome's `performance.memory`). Safari's numbers swing with macOS compression on this 8 GiB Mac.
+  None grows with the file.
+- **Straight into Downloads through a service worker** (probe: `/dl/sw.js`, a transferred stream, 1 GiB
+  of structured blocks): Chrome — 1 GiB in 1.2 s, the saved file's SHA-256 right, memory back at once;
+  Firefox — the same (1.65 s, SHA-256 right); Safari — `DataCloneError` for a transferred stream, and
+  fed chunk by chunk it created the download and wrote **0 bytes**. Failure modes: an aborted stream
+  ends the download "canceled" on Chrome (bundled Chromium and Chrome 154), and so does a worker killed
+  mid-download (CDP `ServiceWorker.stopAllWorkers`); on **Firefox** an aborted stream leaves the
+  download in progress for good (a `.part` of 6–8 MiB plus an empty file under the real name, also with
+  the worker erroring its own stream), and once the worker was unregistered Firefox **completed a 7 MiB
+  file declared as 64 MiB** under the real name. A stream closed short completes on both engines (the
+  app never closes short — it errors). Chrome kept a 420 s stream alive with a ping every 10 s and the
+  file arrived intact (past the 5-minute event limit). → the stream path is desktop Chromium only.
+- **Reservation** (`truncate(size)` on a fresh writable): 5 GiB in 1–2 ms on Chrome, Firefox and Safari,
+  counted in the quota at once, writes then start at 0; incognito Chrome refuses 1 GiB in 2 ms
+  (`QuotaExceededError`) and takes 300 MiB; Safari's `estimate()` still counts a removed file for a
+  while. Firefox private: no site storage at all (`getDirectory()` → `SecurityError`).
+- **The local build in real Chrome** (two persistent profiles, vite + the dev signaling server on the
+  Mac): 2 GiB received through the download worker at 50.6 MB/s, the sender "Delivered", nothing in
+  site storage, no hand-off, the saved file's SHA-256 right (`0df1e700…`), the receiver's tree 804–985
+  MiB throughout. **Flow control:** the 5 GiB download PAUSED in `chrome://downloads` 3 s after Accept —
+  for the 15 s it stayed paused the sender did not move a byte (174 063 616) and sat 15.3 MiB ahead of
+  the receiver (the 16 MiB window), the receiver's tree flat at 935–947 MiB; after Resume both ended
+  "done" and the 5 GiB file's SHA-256 was right (`7a9e331b…`).
+- Suites on this code: unit 313/313, integration 26 + 2 skipped (turn-relay: no coturn on the Mac, as
+  before), e2e 143 passed / 14 skipped / 2 failed (the two WebKit path-attestation cases, as before),
+  axe 112/112.
 
 **When the pass is done:** fold the results into `BACKLOG.md` § Step 6 / **6e** (and its
 "Remaining (real devices, post-deploy)" line) and `CLAUDE.md` § Current state / Build order in the

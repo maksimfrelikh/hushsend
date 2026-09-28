@@ -8,7 +8,8 @@
  *
  * Control messages (the `t` discriminator):
  *   { t:'offer-file', name, size, isZip }  sender → receiver, BEFORE any bytes
- *   { t:'accept' } | { t:'reject', reason } receiver → sender
+ *   { t:'accept', window? } | { t:'reject', reason } receiver → sender
+ *   { t:'credit', bytes }                   receiver → sender, as its sink takes the bytes
  *   { t:'eof' }                             sender → receiver, AFTER the last chunk
  *   { t:'received' }                        receiver → sender, once the whole file is saved
  *   { t:'cancel' }                          either side — basic cancel
@@ -22,15 +23,28 @@
  * stream built on the fly with client-zip (streams; never held whole in RAM). Bytes are
  * re-chunked to CHUNK_SIZE and pushed through the backpressure-aware wire.send().
  *
- * Receive — to DISK wherever possible, in this order (owner's rule, 2026-09-27; see planReceive):
- *   1. OPFS (./opfs.ts): the site's private folder, written with no dialog at all, then handed to the
- *      user as a download read from disk. Every current engine has it; bounded by the site's quota.
- *   2. File System Access (`showSaveFilePicker`): disk, but through the save dialog — used only when
- *      OPFS cannot take the file (quota), since on Android a dialog left open killed the connection.
- *   3. RAM (a Blob) — capped at MAX_BYTES_BLOB, the last resort (a private window with no storage).
+ * Receive — to DISK wherever possible, in this order (owner's rules, 2026-09-27 and -28: disk before
+ * RAM, no dialog where disk needs none, and straight into Downloads with no copy where that is possible
+ * without RAM; see planReceive):
+ *   1. Straight into Downloads (./streamDownload.ts): a service worker streams the file into the
+ *      browser's download manager as it arrives — no copy, no RAM, no dialog. Desktop Chromium and
+ *      desktop Firefox (measured); not WebKit, whose download never receives a byte.
+ *   2. OPFS (./opfs.ts): the site's private folder, written with no dialog, then handed to the user as
+ *      a download read from disk, the copy removed after OPFS_HOLD_MS. Its space is RESERVED before
+ *      accept: incognito Chrome reports a quota its storage cannot hold. Safari, mobile browsers, and
+ *      the fallback everywhere else.
+ *   3. File System Access (`showSaveFilePicker`): disk, but through the save dialog — used only when
+ *      neither of the above can take the file, since on Android a dialog left open killed the connection.
+ *   4. RAM (a Blob) — capped at MAX_BYTES_BLOB, the last resort (a private window with no storage).
  * The plan and its size guard run BEFORE accept, so a file no path can take is refused without a
- * single byte crossing. A finished file is returned to the caller to hand off (ReceiveEvent `done`):
- * whether to start the download now or wait for a tap is the controller's call.
+ * single byte crossing. A finished file on paths 2 and 4 is returned to the caller to hand off
+ * (ReceiveEvent `done`): whether to start the download now or wait for a tap is the controller's call.
+ *
+ * Flow control (2026-09-28): the receiver grants the sender RECEIVE_WINDOW bytes in its `accept` and
+ * tops the window up with `credit` as its sink takes the bytes, so a sink that slows down — a download
+ * paused in the browser, a slow disk — pauses the sender instead of piling chunks up in the receiver's
+ * RAM. A peer on an older build ignores both (zod strips the unknown field, an unknown control message
+ * is dropped) and the transfer runs as it did before.
  *
  * INVARIANT: nothing here runs unless the connection is AUTHENTICATED. Both directions are gated in
  * the core on `SessionController.established` — sendFiles always was, and handleIncomingOffer /
@@ -40,7 +54,8 @@
  */
 import { z } from 'zod';
 import { padBytesFor } from './padding';
-import { createIncoming, opfsRoom, opfsUsable } from './opfs';
+import { createIncoming, opfsCanHold, opfsRoom, opfsUsable, OPFS_HOLD_MS } from './opfs';
+import { openStreamSink, prepareDownloadWorker, streamDownloadSupported } from './streamDownload';
 import { makeZip, predictLength } from 'client-zip';
 
 // ── tuning constants ────────────────────────────────────────────────────────
@@ -61,6 +76,12 @@ export const CHUNK_MAX = 256 * 1024; // 256 KiB
  */
 export const MAX_BYTES_BLOB = 200 * 1024 * 1024;
 
+/** Bytes the receiver lets the sender have in flight before its sink has taken them (see the header).
+ *  Far above bandwidth × RTT on any link we see, so it never throttles a healthy transfer. */
+export const RECEIVE_WINDOW = 16 * 1024 * 1024;
+/** The receiver returns credit in steps of at least this many bytes. */
+export const CREDIT_STEP = 1024 * 1024;
+
 /** Final chunk size: the SCTP-negotiated max, clamped to [CHUNK_MIN, CHUNK_MAX]. */
 export function chunkSize(maxMessageSize: number): number {
   const m = maxMessageSize > 0 ? maxMessageSize : CHUNK_MAX;
@@ -70,11 +91,12 @@ export function chunkSize(maxMessageSize: number): number {
 // ── control protocol ─────────────────────────────────────────────────────────
 const controlSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('offer-file'), name: z.string(), size: z.number().nonnegative(), isZip: z.boolean() }),
-  z.object({ t: z.literal('accept') }),
+  z.object({ t: z.literal('accept'), window: z.number().int().positive().max(2 ** 31).optional() }),
   z.object({ t: z.literal('reject'), reason: z.string() }),
   z.object({ t: z.literal('eof') }),
   z.object({ t: z.literal('received') }),
   z.object({ t: z.literal('cancel') }),
+  z.object({ t: z.literal('credit'), bytes: z.number().int().positive().max(2 ** 31) }),
 ]);
 export type ControlMessage = z.infer<typeof controlSchema>;
 
@@ -100,6 +122,19 @@ function forceBlobFallback(): boolean {
   }
 }
 
+/** Dev/test hook: skip the straight-to-Downloads path (`?noStream=1` or a global), so the e2e can
+ *  exercise site storage on an engine that would otherwise stream. DEV-ONLY, like forceBlob. */
+function forceNoStream(): boolean {
+  if (!import.meta.env.DEV) return false;
+  try {
+    if (typeof window === 'undefined') return false;
+    if ((window as unknown as { __HUSHSEND_NO_STREAM__?: unknown }).__HUSHSEND_NO_STREAM__ === true) return true;
+    return new URLSearchParams(window.location.search).get('noStream') === '1';
+  } catch {
+    return false;
+  }
+}
+
 /** Dev/test hook: override the Blob-path byte cap so the limit branch is testable cheaply. */
 function blobMaxOverride(): number | null {
   if (!import.meta.env.DEV) return null; // DEV-ONLY — never let a page-global relax the receive cap
@@ -112,23 +147,29 @@ function blobMaxOverride(): number | null {
 }
 
 /** Where a received file is written — see the header and planReceive. */
-export type ReceivePath = 'opfs' | 'fsa' | 'blob';
+export type ReceivePath = 'stream' | 'opfs' | 'fsa' | 'blob';
 /** What an incoming offer can be received through, decided BEFORE accept: a path and the most it
  *  can hold, or a refusal whose text goes back to the sender. */
 export type ReceivePlan = { path: ReceivePath; maxBytes: number } | { refused: string };
 
 /**
- * Pick the receive path for a file of `size` bytes: OPFS if the site's quota can hold it (disk, no
- * dialog), else the save dialog if the browser has one (disk, through a dialog), else RAM up to
+ * Pick the receive path for a file of `size` bytes (the order and why: the header): straight into
+ * Downloads if this browser can stream a download, else OPFS if site storage really holds it (a
+ * reservation, not just the estimate), else the save dialog if the browser has one, else RAM up to
  * MAX_BYTES_BLOB — else refuse, naming the largest thing that would have fitted. Never throws.
  */
 export async function planReceive(size: number): Promise<ReceivePlan> {
   const cap = blobMaxOverride() ?? MAX_BYTES_BLOB;
   let room = 0;
   if (!forceBlobFallback()) {
+    if (!forceNoStream() && streamDownloadSupported() && (await prepareDownloadWorker())) {
+      return { path: 'stream', maxBytes: Infinity };
+    }
     if (await opfsUsable()) {
-      room = await opfsRoom();
-      if (size <= room) return { path: 'opfs', maxBytes: room };
+      const estimate = await opfsRoom();
+      if (size <= estimate && (await opfsCanHold(size))) return { path: 'opfs', maxBytes: estimate };
+      // Name the estimate in a refusal only when a failed reservation did not just prove it wrong.
+      if (size > estimate) room = estimate;
     }
     const fsa = fsaPlan();
     if (fsa) return fsa;
@@ -137,16 +178,32 @@ export async function planReceive(size: number): Promise<ReceivePlan> {
   return { refused: tooBigReason(size, Math.max(room, cap)) };
 }
 
+/** Site storage, if it is usable and can hold `size` — checked with a reservation (see opfsCanHold). */
+async function opfsPlan(size: number): Promise<{ path: ReceivePath; maxBytes: number } | null> {
+  if (!(await opfsUsable())) return null;
+  const room = await opfsRoom();
+  if (size > room || !(await opfsCanHold(size))) return null;
+  return { path: 'opfs', maxBytes: room };
+}
+
 function fsaPlan(): { path: ReceivePath; maxBytes: number } | null {
   return typeof window !== 'undefined' && 'showSaveFilePicker' in window ? { path: 'fsa', maxBytes: Infinity } : null;
 }
 
-/** Where a receive planned for OPFS goes if OPFS refuses the write after all (see openReceive). */
-function planWithoutOpfs(size: number): { path: ReceivePath; maxBytes: number } | null {
-  const fsa = fsaPlan();
-  if (fsa) return fsa;
-  const cap = blobMaxOverride() ?? MAX_BYTES_BLOB;
-  return size <= cap ? { path: 'blob', maxBytes: cap } : null;
+/** Where a receive goes if its planned path fails to open at accept after all (see openReceive):
+ *  the download worker went away, or site storage refused the reservation it granted a moment ago. */
+async function nextPlan(failed: ReceivePath, size: number): Promise<{ path: ReceivePath; maxBytes: number } | null> {
+  if (failed === 'stream') {
+    const opfs = await opfsPlan(size);
+    if (opfs) return opfs;
+  }
+  if (failed === 'stream' || failed === 'opfs') {
+    const fsa = fsaPlan();
+    if (fsa) return fsa;
+    const cap = blobMaxOverride() ?? MAX_BYTES_BLOB;
+    return size <= cap ? { path: 'blob', maxBytes: cap } : null;
+  }
+  return null;
 }
 
 /** The refusal the sender sees. Both sizes print to the same string just over a limit ("1.0 GB —
@@ -241,6 +298,31 @@ function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+/** What the receiver has room for (see the header's flow control). `take` waits until the receiver
+ *  has granted enough; `close` releases anyone waiting when the transfer ends. */
+class Credit {
+  private waiters: Array<() => void> = [];
+  private closed = false;
+  constructor(private avail: number) {}
+  add(n: number): void {
+    this.avail += n;
+    this.wake();
+  }
+  async take(n: number): Promise<void> {
+    while (!this.closed && this.avail < n) await new Promise<void>((r) => this.waiters.push(r));
+    this.avail -= n;
+  }
+  close(): void {
+    this.closed = true;
+    this.wake();
+  }
+  private wake(): void {
+    const w = this.waiters;
+    this.waiters = [];
+    for (const r of w) r();
+  }
+}
+
 // ── sender ───────────────────────────────────────────────────────────────────
 export type SendEvent =
   | { t: 'offered'; fileName: string; totalBytes: number }
@@ -274,12 +356,21 @@ export function sendFiles(
   let phase: 'offering' | 'sending' | 'confirming' | 'ended' = 'offering';
   let aborted = false;
   let ended = false;
+  /** Set when the receiver's `accept` carried a window; null — a receiver without flow control. */
+  let credit: Credit | null = null;
 
   const finalize = (e: SendEvent): void => {
     if (ended) return;
     ended = true;
     phase = 'ended';
+    credit?.close();
     emit(e);
+  };
+  /** Every byte on the wire counts against the receiver's window — the filler too. */
+  const put = async (piece: Uint8Array): Promise<void> => {
+    if (credit) await credit.take(piece.length);
+    if (aborted) return;
+    await wire.send(piece);
   };
 
   emit({ t: 'offered', fileName: source.name, totalBytes: source.size });
@@ -300,14 +391,16 @@ export function sendFiles(
         if (value && value.length) rc.push(value as Uint8Array);
         let piece: Uint8Array | null;
         while (!aborted && (piece = rc.pull(CHUNK, false)) !== null) {
-          await wire.send(piece);
+          await put(piece);
+          if (aborted) return; // cancelled while this piece waited — no progress after the end
           sent += piece.length;
           emit({ t: 'progress', transferredBytes: sent });
         }
       }
       let piece: Uint8Array | null;
       while (!aborted && (piece = rc.pull(CHUNK, true)) !== null) {
-        await wire.send(piece);
+        await put(piece);
+        if (aborted) return;
         sent += piece.length;
         emit({ t: 'progress', transferredBytes: sent });
       }
@@ -328,7 +421,7 @@ export function sendFiles(
           const filler = new Uint8Array(Math.min(CHUNK, left));
           while (!aborted && left > 0) {
             const piece = left >= filler.length ? filler : filler.subarray(0, left);
-            await wire.send(piece);
+            await put(piece);
             left -= piece.length;
           }
         }
@@ -361,9 +454,14 @@ export function sendFiles(
         if (phase === 'confirming') finalize({ t: 'done' });
         return;
       }
+      if (msg.t === 'credit') {
+        credit?.add(msg.bytes);
+        return;
+      }
       if (phase !== 'offering') return;
       if (msg.t === 'accept') {
         phase = 'sending';
+        if (msg.window) credit = new Credit(msg.window);
         emit({ t: 'accepted' });
         void pump();
       } else if (msg.t === 'reject') {
@@ -386,10 +484,21 @@ export function sendFiles(
 }
 
 // ── receiver ───────────────────────────────────────────────────────────────────
+/** A storage failure in words a person can act on (the engines' own text is for developers). */
+function storageError(err: unknown): string {
+  if (err instanceof DOMException && err.name === 'QuotaExceededError') {
+    return "not enough space in this browser's storage — free up disk space, or receive in a normal (not private) window";
+  }
+  return errMsg(err);
+}
+
 /** A finished file still to be given to the user (OPFS / RAM paths), and how to let it go. */
 export interface Handoff {
   file: Blob;
   name: string;
+  /** How long the file stays readable once the download is started — the download's link lives as
+   *  long (OPFS: the whole hold; RAM: a minute, so the Blob is let go soon). */
+  holdMs: number;
   /** The download has been started: let go of the file (OPFS: removed after the hold). */
   release: () => void;
   /** Nobody will save it: let go of it now (OPFS: removed at once). */
@@ -398,7 +507,7 @@ export interface Handoff {
 
 export type ReceiveEvent =
   | { t: 'progress'; transferredBytes: number }
-  /** `handoff` is null on the save-dialog path: the file is already where the user put it. */
+  /** `handoff` is null on the stream and save-dialog paths: the file is already where it belongs. */
   | { t: 'done'; handoff: Handoff | null }
   | { t: 'cancelled' }
   | { t: 'error'; reason: string };
@@ -427,8 +536,10 @@ interface ReceiveSink {
   abort(): Promise<void>;
 }
 
-/** Hand a finished file to the browser as a download — no dialog on any engine we ship to. */
-export function triggerDownload(blob: Blob, name: string): void {
+/** Hand a finished file to the browser as a download — no dialog on any engine we ship to. The link
+ *  stays valid for `revokeAfterMs`: a browser that asks first ("allow downloads?", iOS's "Download?")
+ *  fetches it only after the human answers, which can take longer than a minute. */
+export function triggerDownload(blob: Blob, name: string, revokeAfterMs = 60_000): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -437,13 +548,26 @@ export function triggerDownload(blob: Blob, name: string): void {
   a.click();
   a.remove();
   // Revoke late — immediate revoke can cancel the download in some browsers.
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  setTimeout(() => URL.revokeObjectURL(url), revokeAfterMs);
 }
 
-async function openSink(name: string, plan: { path: ReceivePath; maxBytes: number }): Promise<ReceiveSink> {
+async function openSink(name: string, size: number, plan: { path: ReceivePath; maxBytes: number }): Promise<ReceiveSink> {
+  if (plan.path === 'stream') {
+    // Straight into Downloads through the download worker (./streamDownload.ts): nothing to hand off.
+    const stream = await openStreamSink(name, size);
+    return {
+      write: (chunk) => stream.write(chunk),
+      close: async () => {
+        await stream.close();
+        return null;
+      },
+      abort: () => stream.abort('transfer stopped'),
+    };
+  }
   if (plan.path === 'opfs') {
-    // Disk, no dialog: the site's private folder (./opfs.ts), then a download read from it.
-    const incoming = await createIncoming();
+    // Disk, no dialog: the site's private folder (./opfs.ts), then a download read from it. The space
+    // is reserved here, before `accept`, so a store that cannot hold the file says so now.
+    const incoming = await createIncoming(size);
     const { writable } = incoming;
     return {
       write: (chunk) => writable.write(chunk),
@@ -451,6 +575,7 @@ async function openSink(name: string, plan: { path: ReceivePath; maxBytes: numbe
         await writable.close();
         return {
           file: await incoming.file(),
+          holdMs: OPFS_HOLD_MS,
           release: () => incoming.releaseLater(),
           discard: () => void incoming.remove(),
         };
@@ -497,7 +622,7 @@ async function openSink(name: string, plan: { path: ReceivePath; maxBytes: numbe
     close: async () => {
       const file = new Blob(parts);
       parts.length = 0; // the Blob holds its own copy — do not keep two
-      return { file, release: () => {}, discard: () => {} };
+      return { file, holdMs: 60_000, release: () => {}, discard: () => {} };
     },
     abort: async () => {
       parts.length = 0;
@@ -518,18 +643,20 @@ export async function openReceive(
 ): Promise<ActiveReceive> {
   let sink: ReceiveSink;
   try {
-    sink = await openSink(offer.name, plan);
+    sink = await openSink(offer.name, offer.size, plan);
   } catch (err) {
-    // Site storage passed the probe and still refused this write (quota taken meanwhile, storage
-    // cleared, a transient engine failure): take the next path, as planReceive would have.
-    const next = plan.path === 'opfs' ? planWithoutOpfs(offer.size) : null;
+    // The planned path did not open after all — the download worker went away, or site storage
+    // refused the reservation it granted a moment ago (quota taken meanwhile, storage cleared, a
+    // transient engine failure): take the next path, as planReceive would have.
+    if (err instanceof DOMException && err.name === 'AbortError') throw err; // the save dialog: a "no"
+    const next = await nextPlan(plan.path, offer.size);
     if (!next) {
-      if (plan.path === 'opfs') {
-        throw new Error(`site storage refused the file and it is too big to hold in memory (${errMsg(err)})`);
+      if (plan.path === 'opfs' || plan.path === 'stream') {
+        throw new Error(`this browser could not store the file and it is too big to hold in memory (${storageError(err)})`);
       }
       throw err;
     }
-    sink = await openSink(offer.name, next);
+    sink = await openSink(offer.name, offer.size, next);
   }
   let received = 0;
   let ended = false;
@@ -538,6 +665,15 @@ export async function openReceive(
   // Serialize writes: chunks arrive ordered (the channel is ordered) but writes are async;
   // chaining keeps them in order and bounds concurrency to one outstanding write.
   let tail: Promise<void> = Promise.resolve();
+  /** Bytes the sink has taken since the last credit (flow control — see the header). */
+  let owed = 0;
+  const grant = (n: number): void => {
+    owed += n;
+    if (owed < CREDIT_STEP) return;
+    const bytes = owed;
+    owed = 0;
+    void wire.send(JSON.stringify({ t: 'credit', bytes })).catch(() => {});
+  };
 
   const finalize = (e: ReceiveEvent): void => {
     if (ended) return;
@@ -578,7 +714,7 @@ export async function openReceive(
 
   return {
     async start(): Promise<void> {
-      await wire.send(JSON.stringify({ t: 'accept' }));
+      await wire.send(JSON.stringify({ t: 'accept', window: RECEIVE_WINDOW }));
     },
     handleChunk(data: ArrayBuffer): void {
       if (ended) return;
@@ -602,10 +738,11 @@ export async function openReceive(
             received += usable.byteLength;
             emit({ t: 'progress', transferredBytes: received });
           }
+          grant(data.byteLength); // taken — written, or dropped as padding
         } catch (err) {
           await sink.abort().catch(() => {});
           sendCancel();
-          finalize({ t: 'error', reason: errMsg(err) });
+          finalize({ t: 'error', reason: storageError(err) });
         }
       });
     },

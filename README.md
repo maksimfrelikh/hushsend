@@ -126,11 +126,12 @@ be verified without a reference hash.
 
 **Feature-complete and deployed.** All four methods, the codeless reconnect, the mesh lobby, TURN,
 light/dark, the Claude Design screen set (English only for now; the RU table is kept, the switch
-hidden), and the deployment are built and live. **331 vitest tests** and a
-Playwright e2e suite — **48 cases per engine: 46 run on chromium, 45 on firefox, 43 on webkit** (the
-silent-peer case needs CDP, so it is Chromium-only; the two site-storage cases skip on Playwright's
-WebKit, whose storage cannot write; plus 2 opt-in cases everywhere, the size ladder and the two-STUN
-cross-check), plus a 4-case phone profile and 5 cross-engine pairs — cover the protocol paths; the axe
+hidden), and the deployment are built and live. **341 vitest tests** and a
+Playwright e2e suite — **50 cases per engine: 48 run on chromium, 45 on firefox, 43 on webkit** (the
+silent-peer case needs CDP, and the two straight-into-Downloads cases apply only where the stream path
+does — desktop Chromium; the two site-storage cases skip on Playwright's WebKit, whose storage cannot
+write; plus 2 opt-in cases everywhere, the size ladder and the two-STUN cross-check), plus a 4-case
+phone profile and 5 cross-engine pairs — cover the protocol paths; the axe
 gate (`npm run test:a11y`, 112 checks) and the screenshot gate (`npm run visual`, 167 checks — on the
 deploy host, whose renders the baselines are) cover the screens. The vitest, per-engine e2e, phone, axe
 and screenshot counts were re-run 2026-09-28; the cross-engine count is from 2026-09-26. Refresh them

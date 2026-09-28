@@ -86,6 +86,7 @@ import {
   type ActiveReceive,
 } from './transfer/fileTransfer';
 import { sweepIncoming } from './transfer/opfs';
+import { sweepDownloadWorker } from './transfer/streamDownload';
 
 const DEFAULT_SIGNALING_URL = 'ws://localhost:8080';
 
@@ -864,6 +865,7 @@ export class SessionController {
     // Remove files an earlier visit left in the site's private storage (a tab that closed while it
     // held one — see transfer/opfs.ts). Locked files of other open tabs are left alone.
     void sweepIncoming();
+    void sweepDownloadWorker();
   }
 
   /**
@@ -2034,6 +2036,7 @@ export class SessionController {
       case 'accept':
       case 'reject':
       case 'received':
+      case 'credit':
         this.sender?.handleControl(msg);
         break;
       case 'eof':
@@ -2143,7 +2146,7 @@ export class SessionController {
       this.dispatch(transferActions.saveNeeded(true));
       return;
     }
-    triggerDownload(h.file, h.name);
+    triggerDownload(h.file, h.name, h.holdMs);
     h.release();
   }
 
@@ -2153,7 +2156,7 @@ export class SessionController {
     if (!h) return;
     this.pendingSave = null;
     this.dispatch(transferActions.saveNeeded(false));
-    triggerDownload(h.file, h.name);
+    triggerDownload(h.file, h.name, h.holdMs);
     h.release();
   }
 

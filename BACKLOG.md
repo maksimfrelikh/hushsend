@@ -573,21 +573,38 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
 
 ## UX bugs — found in the manual test pass (Phase 1)
 
-- [ ] **Chrome incognito: a file past ~430 MiB is accepted to site storage and dies mid-transfer —
-  found 2026-09-28 on the live build (TESTPLAN § Result log, B2's private-window rung).** In an
-  incognito (off-the-record) context `navigator.storage.estimate()` reports the normal profile's quota
-  (10 GiB on this Mac — Chrome does not let a site tell incognito apart by its quota), but site storage
-  there holds only ~430 MiB and looks RAM-backed (the tree grew ~360 MiB during a 445 MB receive and
-  fell back when the file was removed). `planReceive` trusts the estimate, so a 600 MiB offer was
-  accepted on the OPFS path and failed at 74 % with the browser's raw "exceed its storage quota" text —
-  exactly the "accept, then die mid-transfer" the owner's rule forbids, and in incognito it also holds
-  up to that ~430 MiB in RAM, past the 200 MB RAM cap. Direction (not started): reserve the whole size
-  BEFORE accepting — `createWritable()` + `truncate(size)` on the incoming file, so a store that cannot
-  hold it refuses at once and the plan falls through (the save dialog on Chromium, otherwise the RAM
-  path ≤200 MiB or a refusal); and on a mid-transfer `QuotaExceededError` say "not enough space in
-  this browser's storage" instead of the raw text. To check first, per engine: does `truncate` count
-  against the quota without writing (a sparse reservation) on a normal profile, and does it fail fast
-  in incognito, Safari private and Firefox private (none of those three measured yet)?
+- ✅ **Straight into Downloads on desktop Chromium, with flow control — DONE 2026-09-28 (in code, NOT
+  deployed; owner: "where it can be done without RAM, save straight into Downloads with no copy in
+  site storage").** A download worker (`public/dl/sw.js`, scope `/dl/`, registered per offer and
+  unregistered after) streams the file into the browser's download manager as it arrives: no copy, no
+  RAM, no dialog, no quota. Desktop Chromium only — measured on the real engines: Chrome 154 wrote
+  1 GiB through it intact and flat, and an aborted stream or a worker killed mid-download ends the
+  download FAILED; **Firefox 156 fails unsafely** (an aborted download stalls with a `.part` left; a
+  dead worker makes it COMPLETE a truncated file), **Safari 26.6** writes 0 bytes. Firefox, Safari and
+  mobile browsers keep site storage. Flow control rides along: the receiver grants a 16 MiB window in
+  `accept` and tops it up with `credit` as its sink takes the bytes, so a paused download pauses the
+  sender instead of filling the receiver's RAM (backward compatible both ways). Tests: unit
+  `fileTransfer.flow.test.ts`, `fileTransfer.test.ts` (plan order), e2e `receive-disk.spec.ts` (the
+  stream arrives intact with nothing in site storage; a download cancelled in the browser stops both
+  sides), `connection-lost.spec.ts` (a started stream download ends FAILED). **Still to prove:** mobile
+  Chromium on a handset (then it could stream too), Firefox on a later version (re-run the two failure
+  probes before enabling it), and a paused download on the live build (TESTPLAN B10).
+- ✅ **Chrome incognito: a file past ~430 MiB was accepted to site storage and died mid-transfer —
+  FIXED 2026-09-28 (in code, NOT deployed), found the same day on the live build (TESTPLAN § Result
+  log, B2's private-window rung).** In an incognito (off-the-record) context
+  `navigator.storage.estimate()` reports the normal profile's quota (10 GiB on this Mac — Chrome does
+  not let a site tell incognito apart by its quota) while site storage holds only ~430 MiB and looks
+  RAM-backed. `planReceive` trusted the estimate, so a 600 MiB offer was accepted on the OPFS path and
+  failed at 74 % with the browser's raw "exceed its storage quota" text. Now: (1) desktop Chromium —
+  incognito included, Playwright's contexts are off-the-record — streams straight into Downloads and
+  never touches site storage; (2) wherever site storage IS used, the plan RESERVES the whole size
+  before the offer is shown (`opfsCanHold`: `truncate(size)` on a probe writable — 1–2 ms for 5 GiB on
+  Chrome, Firefox and Safari, sparse, counted in the quota at once, a fast QuotaExceededError in
+  incognito) and again at accept (`createIncoming(size)`), so a store that cannot hold the file is
+  known before a byte crosses; (3) a QuotaExceededError reads "not enough space in this browser's
+  storage — free up disk space, or receive in a normal (not private) window". Firefox private has no
+  site storage at all (`getDirectory()` → SecurityError), so it takes the RAM path ≤200 MiB and refuses
+  larger files before accept. Safari private: not measured (safaridriver cannot open one).
 - ✅ **Peer gone after `connected` — FIXED and DEPLOYED 2026-09-27 (`153addd`); F3 re-run PASS on the live
   build; F2 not yet re-run (needs a phone).**
   Every loss signal after `established` (DataChannel close, connection closed, ICE failed, and a
@@ -723,7 +740,9 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   (they are words); the CREATOR of an expired words/4-digit room sees "Room not found or code
   expired" (the joiner's wording) after its own 4010; TESTPLAN F7's "4002" is reachable only while the
   first pair is still pairing — after connect the token room is already gone and a second joiner gets
-  the dead-link copy instead (correct behaviour, plan text to adjust).
+  the dead-link copy instead (correct behaviour, plan text to adjust). New 2026-09-28 (A4b on the live
+  build): when the READER stops after confirming, the picker's hard stop tells someone who never
+  confirmed anything "The phrase you confirmed doesn't match your peer's".
 - [ ] **A link pasted into an already-open hushsend tab does nothing (found 2026-09-26).** Only the
   fragment differs, so the browser does a same-document navigation and `App.tsx` reads
   `location.hash` at load only. Either listen to `hashchange` (join if idle) or document that the

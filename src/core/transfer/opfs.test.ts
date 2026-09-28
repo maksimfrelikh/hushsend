@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { OPFS_HOLD_MS, createIncoming, opfsSupported, sweepIncoming } from './opfs';
+import { OPFS_HOLD_MS, createIncoming, opfsCanHold, opfsSupported, sweepIncoming } from './opfs';
 
 /**
  * The site-storage receive path's housekeeping (transfer/opfs.ts): what is written comes back as a
@@ -9,11 +9,18 @@ import { OPFS_HOLD_MS, createIncoming, opfsSupported, sweepIncoming } from './op
  * live origin (see the module's header).
  */
 
+/** What the fake storage REALLY holds, whatever estimate() says (incognito Chrome: ~430 MiB). */
+let holds = Infinity;
+
 class FakeWritable {
   private readonly parts: BlobPart[] = [];
   constructor(private readonly onClose: (parts: BlobPart[]) => void) {}
   async write(chunk: BlobPart): Promise<void> {
     this.parts.push(chunk);
+  }
+  async truncate(size: number): Promise<void> {
+    if (size > holds)
+      throw new DOMException('would exceed its storage quota', 'QuotaExceededError');
   }
   async close(): Promise<void> {
     this.onClose(this.parts);
@@ -82,6 +89,7 @@ let root: FakeDir;
 let locks: ReturnType<typeof fakeLocks>;
 
 beforeEach(() => {
+  holds = Infinity;
   root = new FakeDir();
   locks = fakeLocks();
   vi.stubGlobal('navigator', {
@@ -139,6 +147,26 @@ describe('receiving into site storage (OPFS)', () => {
     expect(dir.entries.size).toBe(1);
     await live.remove();
     expect(dir.entries.size).toBe(0);
+  });
+
+  it('a reservation answers what the storage REALLY holds and leaves nothing behind', async () => {
+    holds = 430 * 1024 * 1024;
+    expect(await opfsCanHold(300 * 1024 * 1024)).toBe(true);
+    expect(await opfsCanHold(600 * 1024 * 1024)).toBe(false);
+    expect((await incoming()).entries.size).toBe(0); // the probe files are gone either way
+  });
+
+  it('a receive that cannot reserve its size fails before accept and keeps no file or lock', async () => {
+    holds = 430 * 1024 * 1024;
+    await expect(createIncoming(600 * 1024 * 1024)).rejects.toMatchObject({
+      name: 'QuotaExceededError',
+    });
+    expect((await incoming()).entries.size).toBe(0);
+    await Promise.resolve();
+    expect(locks.held.size).toBe(0);
+    const ok = await createIncoming(300 * 1024 * 1024);
+    expect((await incoming()).entries.size).toBe(1);
+    await ok.remove();
   });
 
   it('a sweep with nothing there, or no site storage at all, is a quiet no-op', async () => {

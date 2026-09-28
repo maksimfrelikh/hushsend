@@ -38,7 +38,7 @@ function setup(visibility: 'visible' | 'hidden') {
   const sc = new SessionController(dispatch as unknown as AppDispatch);
   const release = vi.fn();
   const discard = vi.fn();
-  const handoff = { file: new Blob(['hello']), name: 'a.txt', release, discard };
+  const handoff = { file: new Blob(['hello']), name: 'a.txt', holdMs: 600_000, release, discard };
   const finish = (): void => (sc as unknown as SCInternals).onReceiveEvent({ t: 'done', handoff });
   return { sc, dispatch, handoff, release, discard, finish };
 }
@@ -54,7 +54,8 @@ describe('SessionController — handing a received file to the user', () => {
   it('a visible page downloads at once and lets the file go', () => {
     const { finish, release, discard, dispatch } = setup('visible');
     finish();
-    expect(hoisted.triggerDownload).toHaveBeenCalledWith(expect.any(Blob), 'a.txt');
+    // The download's link lives as long as the file does (a browser that asks first fetches late).
+    expect(hoisted.triggerDownload).toHaveBeenCalledWith(expect.any(Blob), 'a.txt', 600_000);
     expect(release).toHaveBeenCalledTimes(1);
     expect(discard).not.toHaveBeenCalled();
     expect(dispatch).not.toHaveBeenCalledWith(transferActions.saveNeeded(true));
@@ -67,7 +68,8 @@ describe('SessionController — handing a received file to the user', () => {
     expect(dispatch).toHaveBeenCalledWith(transferActions.saveNeeded(true));
 
     sc.saveReceived(); // the tap on "Save file"
-    expect(hoisted.triggerDownload).toHaveBeenCalledWith(expect.any(Blob), 'a.txt');
+    // The download's link lives as long as the file does (a browser that asks first fetches late).
+    expect(hoisted.triggerDownload).toHaveBeenCalledWith(expect.any(Blob), 'a.txt', 600_000);
     expect(release).toHaveBeenCalledTimes(1);
     expect(dispatch).toHaveBeenCalledWith(transferActions.saveNeeded(false));
     sc.saveReceived(); // a second tap has nothing left to save
@@ -91,7 +93,7 @@ describe('SessionController — handing a received file to the user', () => {
     expect(discard).toHaveBeenCalledTimes(1);
   });
 
-  it('a file already saved through the dialog (no handoff) needs nothing', () => {
+  it('a file already saved — through the dialog, or streamed straight into Downloads — needs nothing', () => {
     const { sc } = setup('visible');
     (sc as unknown as SCInternals).onReceiveEvent({ t: 'done', handoff: null });
     expect(hoisted.triggerDownload).not.toHaveBeenCalled();

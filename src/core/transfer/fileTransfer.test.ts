@@ -1,11 +1,23 @@
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
+
+const stream = vi.hoisted(() => ({ supported: false, worker: true }));
+vi.mock('./streamDownload', () => ({
+  streamDownloadSupported: () => stream.supported,
+  prepareDownloadWorker: async () => (stream.worker ? ({} as ServiceWorkerRegistration) : null),
+  openStreamSink: async () => {
+    throw new Error('not in unit tests');
+  },
+}));
+
 import { CHUNK_MAX, CHUNK_MIN, MAX_BYTES_BLOB, chunkSize, formatBytes, planReceive } from './fileTransfer';
 
 /**
- * The receive-path POLICY (owner's rule, 2026-09-27): disk wherever possible — OPFS first (no
- * dialog), the save dialog only when OPFS cannot take the file, RAM last and capped at 200 MB — and
- * how a refusal is worded. The engines' real support was measured on the live origin (transfer/opfs.ts);
- * these are the cheap, deterministic half of the decision.
+ * The receive-path POLICY (owner's rules, 2026-09-27 and -28): disk wherever possible — straight into
+ * Downloads where the browser can stream a download (no copy, no RAM, no dialog), else OPFS (no
+ * dialog) when site storage REALLY holds the file, the save dialog only when neither can take it, RAM
+ * last and capped at 200 MB — and how a refusal is worded. The engines' real support was measured on
+ * the live origin (transfer/opfs.ts, transfer/streamDownload.ts); these are the cheap, deterministic
+ * half of the decision.
  */
 
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Safari/604.1';
@@ -13,27 +25,50 @@ const ANDROID = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120 M
 const MAC = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15';
 const GiB = 1024 ** 3;
 
+beforeEach(() => {
+  stream.supported = false;
+  stream.worker = true;
+});
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-/** Just enough of an OPFS folder for the write probe (opfsUsable) to succeed. */
-function writableDir(): unknown {
+/** Just enough of an OPFS folder for the write probe (opfsUsable) and the reservation (opfsCanHold):
+ *  `holds` is what the storage can REALLY take, whatever the estimate says. */
+function writableDir(holds: number): unknown {
   const dir = {
     getDirectoryHandle: async () => dir,
-    getFileHandle: async () => ({ createWritable: async () => ({ write: async () => {}, close: async () => {} }) }),
+    getFileHandle: async () => ({
+      createWritable: async () => ({
+        write: async () => {},
+        close: async () => {},
+        abort: async () => {},
+        truncate: async (n: number) => {
+          if (n > holds) throw new DOMException('would exceed its storage quota', 'QuotaExceededError');
+        },
+      }),
+    }),
     removeEntry: async () => {},
   };
   return dir;
 }
 
-/** A browser with (or without) OPFS, a site quota, and (or without) the save dialog. */
-function browser(opts: { opfs?: boolean; room?: number; estimateFails?: boolean; dialog?: boolean; ua?: string }) {
+/** A browser with (or without) OPFS, a site quota (and what its storage really holds), and (or
+ *  without) the save dialog. */
+function browser(opts: {
+  opfs?: boolean;
+  room?: number;
+  holds?: number;
+  estimateFails?: boolean;
+  dialog?: boolean;
+  ua?: string;
+}) {
   const { opfs = false, room = 0, estimateFails = false, dialog = false, ua = MAC } = opts;
+  const holds = opts.holds ?? room;
   vi.stubGlobal('navigator', {
     userAgent: ua,
     storage: {
-      ...(opfs ? { getDirectory: async () => writableDir() } : {}),
+      ...(opfs ? { getDirectory: async () => writableDir(holds) } : {}),
       estimate: async () => {
         if (estimateFails) throw new Error('no estimate');
         return { quota: room + 64 * 1024 * 1024, usage: 0 }; // opfsRoom keeps 64 MiB of headroom
@@ -52,6 +87,32 @@ function browser(opts: { opfs?: boolean; room?: number; estimateFails?: boolean;
 }
 
 describe('which path a file is received through', () => {
+  it('straight into Downloads first, wherever the browser can stream a download — no copy at all', async () => {
+    stream.supported = true;
+    browser({ opfs: true, room: 10 * GiB, dialog: true });
+    expect(await planReceive(50 * GiB)).toEqual({ path: 'stream', maxBytes: Infinity });
+  });
+
+  it('a download worker that cannot come up hands the file to site storage instead', async () => {
+    stream.supported = true;
+    stream.worker = false;
+    browser({ opfs: true, room: 10 * GiB, dialog: true });
+    expect(await planReceive(5 * GiB)).toEqual({ path: 'opfs', maxBytes: 10 * GiB });
+  });
+
+  it('incognito Chrome reports a quota its storage cannot hold — the reservation catches it before accept', async () => {
+    // Measured 2026-09-28: estimate() says 10 GiB, the storage takes ~430 MiB. Planned from the
+    // estimate, a 600 MiB file was accepted and died at 74 %; planned by reservation it never starts.
+    browser({ opfs: true, room: 10 * GiB, holds: 430 * 1024 * 1024, dialog: true });
+    expect(await planReceive(600 * 1024 * 1024)).toEqual({ path: 'fsa', maxBytes: Infinity });
+    browser({ opfs: true, room: 10 * GiB, holds: 430 * 1024 * 1024, dialog: false });
+    const r = (await planReceive(600 * 1024 * 1024)) as { refused: string };
+    // The refusal names the RAM cap — not the 10 GB the failed reservation just proved false.
+    expect(r.refused).toMatch(/larger than the 200 MB/);
+    browser({ opfs: true, room: 10 * GiB, holds: 430 * 1024 * 1024, dialog: false });
+    expect(await planReceive(300 * 1024 * 1024)).toEqual({ path: 'opfs', maxBytes: 10 * GiB });
+  });
+
   it('OPFS first — disk with no dialog — whenever the site quota can hold the file', async () => {
     browser({ opfs: true, room: 10 * GiB, dialog: true });
     expect(await planReceive(5 * GiB)).toEqual({ path: 'opfs', maxBytes: 10 * GiB });

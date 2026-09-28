@@ -204,7 +204,21 @@ is never saved, and 10 minutes after the download starts when it is delivered; i
 first it stays until hushsend is next opened, which removes it. Only this site can read that folder,
 and it holds the same bytes the user was just handed — but it is a copy on disk that can outlive the
 tab, where the old in-memory path left nothing behind. Someone who seizes the device inside that
-window finds the file in the browser profile as well as in Downloads.
+window finds the file in the browser profile as well as in Downloads. **Since 2026-09-28** desktop
+Chromium receives straight into Downloads instead (below) and makes no such copy; Firefox, Safari and
+mobile browsers still do — the owner prefers a short-lived copy on disk to holding the file in RAM.
+
+**New 2026-09-28: a service worker exists on the origin while desktop Chromium receives a file.** The
+only way to stream a download with no copy and no dialog is a service worker that answers a
+navigation with a streaming response, so hushsend registers one — `dl/sw.js` — when a file is offered
+and unregisters it a minute after the download (a closed tab's leftover is removed at the next start).
+A service worker is code the browser keeps between visits, which is why this one is boxed in: its
+scope is `/dl/`, so it can never control or intercept the app's pages or assets; it answers only
+`/dl/<random id>` for a stream a same-origin page registered moments before, once; it has no cache,
+no storage and no network access of its own. What it changes against § 1 (code delivery): a
+compromised server could ship a hostile `sw.js` exactly as it could ship a hostile bundle — same
+origin, same delivery, the same manifest and attestation covering it — and the extra it would buy,
+persistence past a fix, is bounded by that scope and by the unregistration after every download.
 
 **Closed 2026-09-18, then removed 2026-09-25:** the `pairingId` disclosure that used to sit here. A
 code-guesser winning the 4-digit reconnect race was handed a stable per-pair identifier before any

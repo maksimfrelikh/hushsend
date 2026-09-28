@@ -22,6 +22,16 @@ export default tseslint.config(
     },
   },
   {
+    // The download worker (public/dl/sw.js) is served as-is, not bundled: a classic service-worker
+    // script with service-worker globals (self, Response, ReadableStream, …).
+    files: ['public/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'script',
+      globals: globals.serviceworker,
+    },
+  },
+  {
     // The signaling server is standalone Node ESM (its own package, not bundled with the SPA),
     // so it runs with Node globals (process, setInterval, URL, console, …), not browser ones.
     files: ['server/**/*.js'],

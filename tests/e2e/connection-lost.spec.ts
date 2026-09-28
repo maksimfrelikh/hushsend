@@ -1,4 +1,11 @@
-import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import {
+  test,
+  expect,
+  type Browser,
+  type BrowserContext,
+  type Download,
+  type Page,
+} from '@playwright/test';
 import { closeSync, ftruncateSync, mkdirSync, openSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { BASE, createLink, forwardConsole, fragmentOf } from './helpers';
@@ -18,9 +25,10 @@ import { BASE, createLink, forwardConsole, fragmentOf } from './helpers';
  *
  * The file is 190 MiB and SPARSE (no disk, no RAM in the runner): big enough that the tab goes with
  * the sender still pushing and its send buffer full — exactly where the old drain wait hung. It is
- * received into site storage (OPFS, the real path), so a receiver that is cut off must also leave
- * nothing behind there. Each tab is its own browser context, so a crashed renderer cannot take the
- * other tab with it.
+ * received along the real path — straight into Downloads through the download worker on Chromium
+ * (that download starts at Accept), site storage elsewhere — so a receiver that is cut off must
+ * leave nothing behind on either: the started download ends FAILED, and site storage stays empty.
+ * Each tab is its own browser context, so a crashed renderer cannot take the other tab with it.
  */
 
 const TMP = join(process.cwd(), 'e2e-tmp-connection-lost');
@@ -54,18 +62,23 @@ async function openTab(browser: Browser, label: string, fragment = ''): Promise<
   openContexts.push(context);
   const page = await context.newPage();
   forwardConsole(page, label);
-  // No `forceBlob`: the receiver takes its real path — site storage (OPFS) on every engine here.
+  // No `forceBlob`: the receiver takes its real path (the stream or site storage, per engine).
   await page.goto(`${BASE}/${fragment}`);
   return page;
 }
 
-/** Pair two tabs over a one-time link and start the 190 MiB send; returns once bytes are arriving. */
-async function midTransfer(browser: Browser): Promise<{ sender: Page; receiver: Page }> {
+/** Pair two tabs over a one-time link and start the 190 MiB send; returns once bytes are arriving,
+ *  with every download the receiver's browser started (the stream path starts one at Accept). */
+async function midTransfer(
+  browser: Browser,
+): Promise<{ sender: Page; receiver: Page; downloads: Download[] }> {
   const sender = await openTab(browser, 'sender');
   const link = await createLink(sender, 'link');
   const receiver = await openTab(browser, 'receiver', fragmentOf(link));
   await expect(sender.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
   await expect(receiver.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
+  const downloads: Download[] = [];
+  receiver.on('download', (d) => downloads.push(d));
 
   await sender.getByTestId('file-input').setInputFiles(sparseFile('big.bin'));
   await sender.getByTestId('send-btn').click();
@@ -78,7 +91,7 @@ async function midTransfer(browser: Browser): Promise<{ sender: Page; receiver: 
       document.querySelector('[data-testid="transfer-bytes"]')?.textContent?.trim() ?? '',
     ),
   );
-  return { sender, receiver };
+  return { sender, receiver, downloads };
 }
 
 /** The survivor's end state: the connection-lost screen, naming the file and what became of it. */
@@ -106,12 +119,14 @@ test('F3: the receiver closes its tab mid-transfer — the sender says so, and t
 test('the sender closes its tab mid-transfer — the receiver says so, and saves nothing', async ({
   browser,
 }) => {
-  const { sender, receiver } = await midTransfer(browser);
-  let downloads = 0;
-  receiver.on('download', () => downloads++);
+  const { sender, receiver, downloads } = await midTransfer(browser);
   await sender.close();
   await expectLost(receiver, /not received/, 30_000);
-  expect(downloads, 'a partial file must not be handed to the browser as a download').toBe(0);
+  // The stream path started a download at Accept: it must end FAILED (the browser discards the part).
+  // The site-storage path starts one only for a complete file: none may exist.
+  for (const d of downloads) {
+    expect(await d.failure(), 'a partial file must not complete as a download').not.toBeNull();
+  }
   // …nor left in the site's private storage: a failed receive removes its file at once.
   const left = await receiver.evaluate(async () => {
     try {
