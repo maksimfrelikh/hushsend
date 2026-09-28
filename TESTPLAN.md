@@ -482,7 +482,7 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       | **NEW · OPFS (Firefox, Safari, mobile — the default there)** | 1, 2, 3 GiB, 4 GiB + 1 B, 5 GiB — up to the site quota | completes with NO dialog, every byte verified, receiver memory flat, the download lands intact |
       | **NEW · past the quota** (Chrome: > 10 GiB here) | quota + 1 GiB | Chrome/Android: the save dialog appears (FSA); Safari/Firefox: refused before accept, naming the room |
       | **NEW · RAM fallback 200 MiB** (a private window without usable site storage) | 200 MiB + 1 B, then exactly 200 MiB | the first refused before accept; 200 MiB completes |
-      | *(2026-09-28, the live `c5a51c4`: the stream rungs PASS on Chrome, the site-storage rungs PASS on Firefox with the over-quota refusal, the RAM rung PASS on Firefox private; Safari done at 1 GiB, 2–5 GiB to re-run with downloads allowed — § Result log)* | | |
+      | *(2026-09-28, the live `c5a51c4`: the stream rungs PASS on Chrome, the site-storage rungs PASS on Firefox with the over-quota refusal and on Safari to 5 GiB, the RAM rung PASS on Firefox private — § Result log. The desktop half of B10 is done; the handset half is what is left.)* | | |
 
       **Build the files so they cost the page nothing and still prove every byte:** 1 MiB blocks, each
       a unique 16-byte header plus one shared body, assembled from Blob parts that REFERENCE that body.
@@ -1180,10 +1180,12 @@ receiving browser's whole process tree every 2 s. The Mac was under heavy memory
   GB this browser can take right now". **Found:** a second big file right after the first — 6 GiB
   received, then 5 GiB offered 4 s later — was refused "larger than the 3.9 GB … Free up disk space"
   with 267 GB free: the first file's held copy fills the quota for up to 10 minutes (BACKLOG § UX bugs).
-- B10 · site-storage rungs · Safari · 2 GiB NOT completed — the transfer reached site storage, "Save
-  file" was tapped, and then Safari asked whether to allow the download (confirmed by the owner, who saw
-  it); that prompt blocks WebDriver, so the run stopped there. Not a product failure (no crash report,
-  nothing in WebKit's log); re-run 2–5 GiB with downloads allowed for the site.
+- B10 · site-storage rungs · Safari · first run stopped at 2 GiB — the transfer reached site storage,
+  "Save file" was tapped, and then Safari asked whether to allow the download (confirmed by the owner,
+  who saw it); that prompt blocks WebDriver. Not a product failure (no crash report, nothing in
+  WebKit's log). **Re-run the same evening with downloads allowed for the site: PASS** — 2, 3, 4 GiB +
+  1 B, 5 GiB at 43.7 / 43.9 / 40.9 / 42.9 MB/s, no worker, the site-storage copy verified block by block
+  each time, and every file Safari saved to ~/Downloads has the expected SHA-256.
 - Harness, not product: Chrome 154 crashed (browser process, SIGSEGV) on the first download in a
   Playwright profile relaunched after an intercepted download — a plain 5-byte blob download crashed
   it too, and with the profile's `History` moved aside it did not. Recorded for the harness.
