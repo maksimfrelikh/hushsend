@@ -100,21 +100,30 @@ Last run 2026-09-27 against the bundle fetched over HTTPS from the live host (`i
 ### 0.1 Preconditions
 
 - [x] Frontend redeployed from current `main` (`bash ~/projects/hushsend/deploy/deploy-frontend.sh`)
-      — re-done 2026-09-28 ~18:00 UTC by the owner (commit `1f2abab`; its app code is `254c31b`'s: a
-      held copy gives way to the next big file after 2 min, and the refusal before that says so);
-      `/var/www/hushsend/dist` is byte-identical to a clean local build of `1f2abab` (42 files, equal
-      sha256 manifests) and the public URL serves `index-Cs9XZg39.js`. Earlier the same day `c5a51c4`
+      — re-done 2026-09-29 18:47 UTC by the owner (commit `273e9e7`: the screen pacing — a screen the
+      FSM leaves for a pre-connection stage is held 400 ms with its controls quiet, the Connecting
+      screen appears only when a stage outlasts that, each of its titles stays ≥ 500 ms; CLAUDE.md §
+      UI / styling → Screen pacing); `/var/www/hushsend/dist` is byte-identical to a clean local build
+      of `273e9e7` (42 files, equal sha256 manifests) and the public URL serves `index-CwM5wm6M.js`.
+      Checked live the same evening with real Chrome on both sides (link method, 5 direct + 3 relayed
+      runs, on a LAN that was slow that night — 59 ms average ping to the server): no screen flashed;
+      a run under 400 ms went straight from the held Share screen / an empty column to Transfer, a
+      longer one showed "Creating session…" / "Joining…" / "Agreeing on keys…" for 500–650 ms, and a
+      confirming stage of 2–20 ms never got its "Verifying…" title. The day before, `1f2abab` (app code
+      `254c31b`: a held copy gives way to the next big file after 2 min) was checked the same way — 42
+      files, `index-Cs9XZg39.js`. Earlier on 2026-09-28 `c5a51c4`
       (straight into Downloads on desktop Chromium, flow control, the site-storage reservation) was
       checked the same way — 42 files, `dl/sw.js` the download worker, served as `index-B-Rj0zzX.js`; `dl/sw.js`
       is served as `application/javascript`, and a `/dl/<id>` no worker answers falls back to the app
       page with `X-Frame-Options: DENY` (so a hidden iframe can never render it). The signaling
-      server's running copy (`/var/www/hush-signaling-server`) is unchanged at `3d96125` (relaunched
-      04:32:44 UTC), `/health` ok — checked 2026-09-28. **Re-run it if `main` has moved since**, and
+      server's running copy (`/var/www/hush-signaling-server`) is unchanged at `3d96125`, `/health` ok,
+      nginx / hushsend-signaling / coturn `active` — checked 2026-09-29. **Re-run it if `main` has moved since**, and
       re-tick. It had gone stale
       once already (ticked 2026-09-12, `main` moved, nobody re-ticked) — this tick is only worth the
       date next to it.
 - [x] **Verify the new bundle is live:** `grep -r 'stun.l.google' /var/www/hushsend/dist` returns
-      nothing — re-confirmed 2026-09-28 for `index-Cs9XZg39.js` (the pre-2026-09-12 bundle matched; this was the BACKLOG
+      nothing — re-confirmed 2026-09-29 for `index-CwM5wm6M.js` (on the clean build the live dist is
+      byte-identical to) (the pre-2026-09-12 bundle matched; this was the BACKLOG
       "verify after redeploy" item). The only STUN in the served bundle is
       `stun:turn.hushsend.frelikh.dev:3478`, i.e. our own — which is also the whole of BACKLOG's
       "separate the STUN server" item: one operator still holds app, signaling and STUN.

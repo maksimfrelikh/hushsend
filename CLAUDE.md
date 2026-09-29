@@ -951,8 +951,11 @@ travels live in the kit's own `CLAUDE.md`; its `README.md` is the consumer contr
   title had that long, a stage over within `STAGE_SETTLE_MS` (150) never gets its title. A hold before
   the app's first frame (a link opened straight into `joining`) is an empty column, not the unseen
   Home. Measured on the live build before the change (2026-09-28, real Chrome, a MutationObserver
-  recorder on both sides): a direct pair ran through every stage in 30–215 ms — it now goes QR →
-  Transfer with no Connecting screen — and a relayed one in 0.3–1.5 s. Only the DISPLAY lags: the FSM,
+  recorder on both sides): a direct pair ran through every stage in 30–215 ms and a relayed one in
+  0.3–1.5 s. Live with `273e9e7` (2026-09-29, a LAN that night at ~60 ms to the server, so every
+  stage took 2–5× longer): nothing flashed — a run under the hold went from the held screen straight
+  to the next one, a longer one showed the Connecting screen for 500–650 ms, and "Verifying…" (2–20 ms
+  stages) never appeared. Only the DISPLAY lags: the FSM,
   the store and `data-testid="status"` are untouched, and `connected` is shown only while the status
   is `connected`. Visual scenes that end in a stage wait for the Connecting screen; the held looks are
   the `method-held` / `share-held` / `sas-picker-held` scenes (DEV knob `__HUSHSEND_SCREEN_HOLD_MS__`).
