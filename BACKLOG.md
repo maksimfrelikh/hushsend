@@ -1173,7 +1173,7 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   measured 31 at peak and climbing, now 12 and flat. That closed the chromium half; it was never the
   whole cause, and this entry is the rest of it.
 
-- [ ] **CONFIRM the reconnect fix on the nightly matrix (opened 2026-09-17).** The root cause is
+- ✅ **CONFIRM the reconnect fix on the nightly matrix (opened 2026-09-17) — CLOSED 2026-09-29.** The root cause is
   proved and its regression test is deterministic, but in the wild the window is a few event-loop
   turns rather than the 3 s the test forces — so whether it accounts for EVERY nightly failure is
   still open. Baseline to beat: the engine matrix failed 1 night in 5 (13–16 Sep green, 17 Sep red,
@@ -1185,6 +1185,12 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   night is the expected outcome about 80% of the time either way. The load-bearing evidence is still
   the deterministic reproduction (5/5 failures without the fix, passes with it) and 0-in-6 webkit
   suite runs after. This is corroboration accumulating, not a result.
+  **Closed 2026-09-29: 12 green nights in a row, 18–29 Sep** (read from the public Actions API: every
+  scheduled run `success`, and in each of the 12 the `e2e (firefox · webkit · interop · phone profile)`
+  job itself ran and passed — not skipped), across `9b42cca`, `1fac03a` ×7, `35e813a`, `79e3624`,
+  `c5a51c4` and `273e9e7`. With the old rate (red 1 night in 5) twelve greens by chance is 0.8¹² ≈ 7 %,
+  and the deterministic reproduction still carries the weight. The only red scheduled run since
+  2026-09-13 is 17 Sep, the night that opened this item.
 - ✅ **Reconnect spec's patience raised above the app's own deadline (2026-09-17).** The app fails a
   stalled re-auth at 120 s (`DEFAULT_RECONNECT_TIMEOUT_MS`) while the spec waited 60 s, so the test
   gave up first and "the app stalled" was indistinguishable from "the app failed correctly" — the
