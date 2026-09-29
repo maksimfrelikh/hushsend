@@ -359,9 +359,10 @@ the same pass as CLAUDE.md when items land.
   Note for the next person: it did NOT need root, only the deploy user.
 - **Scheduled CI expires on a quiet repo.** GitHub disables `schedule:` workflows after 60 days with
   no commits, which would silently stop the nightly engine matrix — the only thing that exercises
-  firefox/webkit/interop, since that job is skipped on push. Last commit 2026-09-13, so **the nightly
-  stops around 2026-11-12** unless something lands before then. Re-enable it (or run the matrix from
-  the Actions tab) before any release.
+  firefox/webkit/interop, since that job is skipped on push. The rule applies here: the repository is
+  PUBLIC (anonymous `git ls-remote` works, checked 2026-09-29), and GitHub's 60-day auto-disable is a
+  public-repository rule. Last commit 2026-09-29, so **the nightly stops around 2026-11-28** unless
+  something lands before then. Re-enable it (or run the matrix from the Actions tab) before any release.
 - **Two measurements were left half-finished** when the ladder ran on a Mac: WebKit's 1792 MB rung was
   interrupted by hand before the stall watchdog could name a percentage, and Chromium's ceiling is
   only bracketed as "2 GB OK, 3 GB fails" — the boundary between them is unmeasured. Neither blocks
