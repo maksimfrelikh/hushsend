@@ -59,6 +59,13 @@ refusing a larger file before anything is sent.
 - **Reliable** — adds a TURN relay (short-lived HMAC credentials minted per session; the shared
   secret never leaves the server) so a pair behind hostile NATs still connects.
 
+> **On a Mac (macOS 15 and later), Max privacy on ONE network needs the browser's Local Network
+> permission** — System Settings → Privacy & Security → Local Network. Two devices on the same
+> Wi-Fi find each other through mDNS `.local` host candidates; a browser without the permission can
+> neither publish nor resolve them, so the direct connection fails and the switch-to-Reliable hint
+> points at the wrong fix (Reliable would relay what could have gone direct). The failure screen on a
+> Mac says so.
+
 > **Honest caveat — what Max privacy does and does not promise.** Confidentiality is solid: DTLS is
 > end-to-end between the two real peers and the fingerprint binding defeats any MITM that terminates
 > it, so nothing on the path reads a byte. The *path* promise cannot rest on candidate filtering — an

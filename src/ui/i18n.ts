@@ -247,15 +247,34 @@ export const STR = {
     en: 'This channel may be compromised',
     ru: 'Канал может быть скомпрометирован',
   },
+  // The description names the cause each side actually saw (BACKLOG § UX bugs, copy nits): a picker
+  // whose reader stopped first never confirmed any phrase, and words / link have no phrase at all.
   erMismatchDesc: {
-    en: 'The phrase you confirmed doesn’t match your peer’s. Someone may be intercepting — don’t send files.',
-    ru: 'Подтверждённая фраза не совпала с фразой собеседника. Кто-то может перехватывать — не передавайте файлы.',
+    en: 'The check that proves you reached your peer failed. Someone may be intercepting — don’t send files.',
+    ru: 'Проверка того, что вы соединились именно с собеседником, не прошла. Кто-то может перехватывать — не передавайте файлы.',
+  },
+  erSasRejectDesc: {
+    en: 'The phrases didn’t match. Someone may be intercepting — don’t send files.',
+  },
+  erSasPeerDesc: {
+    en: 'Your peer said the phrases don’t match. Someone may be intercepting — don’t send files.',
+  },
+  erWordsKeyDesc: {
+    en: 'The words didn’t match on both sides — a mistyped word, or someone intercepting. Don’t send files.',
   },
   exTitle: { en: 'Room not found or code expired', ru: 'Комната не найдена или код истёк' },
   exDesc: {
     en: 'No active room has this code, or it has already expired. Check the digits or start your own room.',
     ru: 'Нет активной комнаты с таким кодом, либо он уже истёк. Проверьте цифры или создайте свою комнату.',
   },
+  // Our OWN code ran out while we waited in its room with nobody engaged (WAIT_EXPIRED_REASON) — not
+  // the joiner's "not found or expired", which asked someone who typed nothing to check the digits.
+  waitWordsTitle: { en: 'Your words expired' },
+  waitWordsDesc: { en: 'Nobody joined in time. Get new words to try again.' },
+  waitLinkTitle: { en: 'Your link expired' },
+  waitLinkDesc: { en: 'Nobody opened it in time. Make a new one to try again.' },
+  waitRoomTitle: { en: 'The room expired' },
+  waitRoomDesc: { en: 'Nobody connected in time. Start a new room to try again.' },
   erGenericTitle: { en: 'Couldn’t connect', ru: 'Не удалось соединиться' },
   // A signaling drop that is not a room answer (1006 above all) — no digits to check, a network to.
   serverLostTitle: { en: 'Lost the connection to the server' },
@@ -263,6 +282,12 @@ export const STR = {
   // Max-privacy STRICT model: never relays — a direct failure is terminal (step 6d).
   directFailTitle: { en: 'Couldn’t connect directly', ru: 'Не удалось соединиться напрямую' },
   directFailHint: { en: 'Switch to Reliable to allow relaying through a server.' },
+  // macOS 15+ gates a browser's access to the local network: without the permission it can neither
+  // publish nor resolve `.local` candidates, so two devices on ONE network cannot find each other and
+  // Max privacy fails here — where "switch to Reliable" alone points at the wrong fix.
+  localNetworkHint: {
+    en: 'On a Mac, also check System Settings → Privacy & Security → Local Network for this browser: without it, devices on the same network can’t find each other.',
+  },
   // Reliable mode: the relay we were promised was not there (see connectionSlice.relayUnavailable).
   relayUnavailableHint: {
     en: 'Reliable mode found no relay, so this attempt ran direct-only — the fallback you chose this mode for was not there. If it keeps happening the relay is down or misconfigured, not your network.',

@@ -608,6 +608,16 @@ function errText(err: unknown): string {
 const DIRECT_FAIL_REASON = "couldn't connect directly (Max privacy)";
 
 /**
+ * Failure reason for a room that expired while THIS side sat in it with nobody engaged — our own
+ * words, our own link, or a room lobby (creator or joiner). The server's TTL close (4010 `expired`)
+ * reaches the waiting side exactly as it reaches a joiner of a dead code, and used to show the
+ * joiner's "Room not found or code expired — check the digits" to someone who typed no digits
+ * (BACKLOG § UX bugs, copy nits). A STABLE marker for FailedScreen, which checks `nobody joined`
+ * BEFORE its generic not-found/expired match.
+ */
+const WAIT_EXPIRED_REASON = 'nobody joined before the code expired';
+
+/**
  * Failure-reason prefix when an AUTHENTICATED channel dies (a tab closed, a network dropped — on
  * either side — ICE failed for good). The full reason is `connection lost: <which signal>`, e.g.
  * `connection lost: ICE failed`. FailedScreen keys its "connection lost" variant off the prefix and
@@ -808,6 +818,11 @@ export class SessionController {
   /** A-side: our PUBLIC rendezvous word (room id), kept across retries so the same words are
    *  re-shown while the attempt counter climbs. */
   private rendezvous: string | null = null;
+  /** Sitting in a room with the credential or lobby on screen and nobody engaged yet (set with each
+   *  `roomReady` projection, cleared when a pairing begins) — so a TTL expiry now is OUR code running
+   *  out, not a code someone typed wrong (WAIT_EXPIRED_REASON). Not set for the codeless reconnect,
+   *  which re-takes its room instead of failing. */
+  private waitingInRoom = false;
   /** A-side: failed pairing attempts against `rendezvous` (online-guessing bound). */
   private attemptCount = 0;
   /** Per-attempt guard so a single failed attempt (mismatch OR abort OR disconnect OR bad frame)
@@ -925,12 +940,14 @@ export class SessionController {
       // credential (rendezvous + 4 secret) so A can read it aloud. For room, credential=null.
       // Then we sit in the room: the LOBBY (room) shows the roster; words/link/qr just wait.
       this.rendezvous = room;
+      this.waitingInRoom = true;
       this.dispatch(connectionActions.roomReady({ room, credential: this.fullCredential() }));
     } else if (this.isLobby()) {
       // room method (mesh lobby): DON'T auto-pair. Land in the lobby (joining → awaitingPeer) so the
       // joiner sees the roster + picks whom to pair with, exactly like the creator. Pairing starts
       // ONLY on a human pick (pickPeer) or an inbound pair-request — see onPairRequest.
       this.rendezvous = room;
+      this.waitingInRoom = true;
       this.dispatch(connectionActions.roomReady({ room, credential: null }));
     } else if (this.reconnect) {
       // reconnect: nothing to show (the token is derived, never displayed) and nothing to pick. The
@@ -1067,6 +1084,7 @@ export class SessionController {
     this.confirmSettled = false;
     this.clearConfirmTimeout();
     this.sas = newSasState(); // fresh nonce for the next pick (still a SAS-room lobby session)
+    this.waitingInRoom = true;
     this.dispatch(connectionActions.returnToLobby());
   }
 
@@ -1084,6 +1102,7 @@ export class SessionController {
    */
   private beginPairing(peerId: string): void {
     this.peerId = peerId;
+    this.waitingInRoom = false;
     const role = pairingRoleFor(this.selfId, peerId);
     if (!role) {
       // Fail closed: an unresolved role (a missing/equal id — impossible in a real room, ids are
@@ -1750,6 +1769,7 @@ export class SessionController {
       return;
     }
     // Below the cap: wait for the next joiner — same rendezvous, same secret words.
+    this.waitingInRoom = true;
     this.dispatch(connectionActions.roomReady({ room: this.rendezvous!, credential: this.fullCredential() }));
   }
 
@@ -1823,9 +1843,10 @@ export class SessionController {
       this.dispatch(devActions.appendLog('signaling: word-room TTL expired — P2P connection persists'));
       return;
     }
+    const waiting = this.waitingInRoom;
     this.teardownPeerOnly();
     this.signaling?.close();
-    this.fail(new Error('expired'));
+    this.fail(new Error(waiting ? WAIT_EXPIRED_REASON : 'expired'));
   }
 
   /** Stash the peer's confirmation tag and try to settle (order-independent with our own). Used by
@@ -2187,6 +2208,10 @@ export class SessionController {
         return;
       }
       if (this.channelOpen) return;
+    }
+    if (code === 4010 && this.waitingInRoom) {
+      this.fail(new Error(WAIT_EXPIRED_REASON));
+      return;
     }
     this.fail(new Error(`signaling closed (code ${code}${reason ? `: ${reason}` : ''})`));
   }
@@ -3492,6 +3517,7 @@ export class SessionController {
     this.confirmSettled = false;
     this.clearConfirmTimeout();
     this.rendezvous = null;
+    this.waitingInRoom = false;
     this.attemptCount = 0;
     this.attemptResolved = false;
     // per-session enrollment state (the long-term identity + keystore intentionally PERSIST)

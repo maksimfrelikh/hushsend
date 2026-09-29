@@ -125,19 +125,40 @@ function PrivacyModeSync(): null {
  * no-op (stay on the home screen); a valid-but-dead link surfaces as the "room not found" failure
  * the moment the joiner finds the token room empty (token rooms are join-or-create, so the server
  * itself no longer says 4009 — SessionController.onWelcome does).
+ *
+ * The same happens when a link is opened into a tab that ALREADY shows hushsend (pasted into the
+ * address bar, or tapped while the app is the current tab — iPadOS Safari does exactly that): only
+ * the fragment differs, so the browser does a same-document navigation and nothing reloads — it
+ * used to do nothing at all. `hashchange` catches it. The fragment is scrubbed at once whatever the
+ * state; the join runs from the home screen and from a finished (failed) session, but never tears
+ * down a session in progress or a live channel — a link pasted there is dropped, not followed.
  */
 function LinkFragmentJoin(): null {
   const session = useSession();
+  const status = useAppSelector((s) => s.connection.status);
+  const statusRef = useRef(status);
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
   const handled = useRef(false);
 
   useEffect(() => {
-    if (handled.current) return;
-    handled.current = true;
-    const parsed = parseLink(window.location.hash);
-    if (!parsed) return;
-    // Scrub the secret out of the URL/history BEFORE any await — keep only path + query.
-    window.history.replaceState(null, '', window.location.pathname + window.location.search);
-    void session.joinLinkSession(parsed.rendezvous, parsed.secret, 'link');
+    const take = (): void => {
+      const parsed = parseLink(window.location.hash);
+      if (!parsed) return;
+      // Scrub the secret out of the URL/history BEFORE any await — keep only path + query.
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      const now = statusRef.current;
+      if (now !== 'idle' && now !== 'failed') return;
+      if (now === 'failed') session.dispose(); // back to idle: the failed session is over anyway
+      void session.joinLinkSession(parsed.rendezvous, parsed.secret, 'link');
+    };
+    if (!handled.current) {
+      handled.current = true;
+      take();
+    }
+    window.addEventListener('hashchange', take);
+    return () => window.removeEventListener('hashchange', take);
   }, [session]);
 
   return null;

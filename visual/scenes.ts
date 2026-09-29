@@ -477,6 +477,23 @@ export const SCENES: Scene[] = [
     setup: (page) => dispatch(page, ...failed('room', 'room not found (4009)')),
   },
   {
+    // The picker whose READER stopped first: the peer's reject, not a phrase this side confirmed.
+    name: 'failed-sas-peer',
+    matrix: 'phone',
+    setup: (page) => dispatch(page, ...failed('room', 'peer reported a SAS mismatch')),
+  },
+  {
+    // Our own words ran out while we waited (WAIT_EXPIRED_REASON), not the joiner's "not found".
+    name: 'failed-words-expired',
+    matrix: 'phone',
+    setup: (page) => dispatch(page, ...failed('words', 'nobody joined before the code expired')),
+  },
+  {
+    name: 'failed-link-expired',
+    matrix: 'phone',
+    setup: (page) => dispatch(page, ...failed('link', 'nobody joined before the code expired')),
+  },
+  {
     name: 'failed-noshow',
     matrix: 'phone',
     setup: (page) =>

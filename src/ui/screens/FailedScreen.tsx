@@ -4,10 +4,12 @@ import { useAppSelector } from '../../store/hooks';
 import { formatBytes } from '../../core/transfer/fileTransfer';
 import { useT } from '../prefs';
 import { Screen, Space, Pill, TextLink, Glyph } from '../ui';
+import { onMacDesktop } from '../platform';
 
 /**
  * ONE terminal failure screen with variants, classified from the error text and the method:
- * compromised (SAS / key-confirmation mismatch), room not found or code expired, lost the connection
+ * compromised (SAS / key-confirmation mismatch — the description names the cause THIS side saw),
+ * our own code expired while we waited in its room, room not found or code expired, lost the connection
  * to the server (a signaling drop that is not a room answer), nobody came (reconnect), direct path
  * failed (Max privacy, ± the missing-relay hint in Reliable), connection lost (an AUTHENTICATED channel
  * died — with the last file's outcome), generic, and the words method, which additionally offers fresh
@@ -57,6 +59,9 @@ export function FailedScreen(): ReactElement {
 
   const lower = error.toLowerCase();
   const isMismatch = /(match|man-in-the-middle|tamper|mismatch|compromis)/.test(lower);
+  // Our own code ran out while we waited in its room with nobody engaged — keyed off the stable
+  // WAIT_EXPIRED_REASON marker, and checked BEFORE the joiner's generic not-found/expired below.
+  const isWaitExpired = /nobody joined/.test(lower);
   // A room answer: gone (4009 / a dead token), expired (4010), full (4002).
   const isExpired = /(not found|expired|4009|4010|4002|room full)/.test(lower);
   // Any OTHER signaling close — 1006 above all: the network or the server went away while pairing.
@@ -79,15 +84,32 @@ export function FailedScreen(): ReactElement {
       ? 'lost'
       : isNoShow
         ? 'noShow'
-        : isExpired
-          ? 'expired'
-          : isServerLost
-            ? 'server'
-            : isDirectFail
-              ? 'direct'
-              : 'generic';
+        : isWaitExpired
+          ? 'waitExpired'
+          : isExpired
+            ? 'expired'
+            : isServerLost
+              ? 'server'
+              : isDirectFail
+                ? 'direct'
+                : 'generic';
+  // The same hard-stop title for every mismatch; the description says what THIS side actually saw.
+  const mismatchDesc = /peer reported a sas mismatch/.test(lower)
+    ? t('erSasPeerDesc')
+    : /sas rejected/.test(lower)
+      ? t('erSasRejectDesc')
+      : /key-confirmation mismatch/.test(lower) && method === 'words'
+        ? t('erWordsKeyDesc')
+        : t('erMismatchDesc');
+  const waitCopy =
+    method === 'words'
+      ? { title: t('waitWordsTitle'), desc: t('waitWordsDesc') }
+      : method === 'link' || method === 'qr'
+        ? { title: t('waitLinkTitle'), desc: t('waitLinkDesc') }
+        : { title: t('waitRoomTitle'), desc: t('waitRoomDesc') };
   const copy = {
-    mismatch: { title: t('erMismatchTitle'), desc: t('erMismatchDesc') },
+    mismatch: { title: t('erMismatchTitle'), desc: mismatchDesc },
+    waitExpired: waitCopy,
     noShow: { title: t('noShowTitle'), desc: t('noShowDesc') },
     expired: { title: t('exTitle'), desc: t('exDesc') },
     server: { title: t('serverLostTitle'), desc: t('serverLostDesc') },
@@ -121,6 +143,10 @@ export function FailedScreen(): ReactElement {
         ) : relayUnavailable ? (
           <p className="hs-p hs-p--muted hs-p--narrow" data-testid="relay-unavailable-hint">
             {t('relayUnavailableHint')}
+          </p>
+        ) : variant === 'direct' && onMacDesktop() ? (
+          <p className="hs-p hs-p--muted hs-p--narrow" data-testid="local-network-hint">
+            {t('localNetworkHint')}
           </p>
         ) : null
       }

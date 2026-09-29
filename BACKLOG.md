@@ -363,7 +363,10 @@ the same pass as CLAUDE.md when items land.
   PUBLIC (anonymous `git ls-remote` works, checked 2026-09-29), and GitHub's 60-day auto-disable is a
   public-repository rule. Last commit 2026-09-29, so **the nightly stops around 2026-11-28** unless
   something lands before then. Re-enable it (or run the matrix from the Actions tab) before any release.
-- **Two measurements were left half-finished** when the ladder ran on a Mac: WebKit's 1792 MB rung was
+- ✅ **OBSOLETE 2026-09-29 — no need to finish.** Since 2026-09-28 the RAM (Blob) receive path is capped
+  at 200 MiB on every device (the disk paths carry everything bigger), far below both engines' measured
+  Blob ceilings, so the unmeasured rungs describe a path no transfer takes any more. Kept for the record:
+  **Two measurements were left half-finished** when the ladder ran on a Mac: WebKit's 1792 MB rung was
   interrupted by hand before the stall watchdog could name a percentage, and Chromium's ceiling is
   only bracketed as "2 GB OK, 3 GB fails" — the boundary between them is unmeasured. Neither blocks
   anything.
@@ -746,14 +749,30 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   never offers one, so a reader who clicked too early is trapped until the picker answers or the
   120 s deadline. Expected: the same "Stop — they don't have this phrase" pill on the waiting screen,
   wired to `confirmSas(false)`.
-- [ ] **Same-LAN Max privacy needs the macOS "Local Network" permission — document it (found
-  2026-09-27).** On one LAN every browser gathers only an mDNS host candidate plus an srflx that is the
+- ✅ **Same-LAN Max privacy needs the macOS "Local Network" permission — DOCUMENTED 2026-09-29, not
+  live yet.** README § Privacy modes says it, and the direct-fail screen adds `localNetworkHint`
+  (`local-network-hint`) on a desktop Mac (`ui/platform.ts` `isMacDesktop`: a Macintosh UA with no
+  multi-touch — an iPad asking for the desktop site is not a Mac; unit-tested). NOT done: the optional
+  detection of "only an mDNS host + a private srflx". The report (found 2026-09-27): On one LAN every browser gathers only an mDNS host candidate plus an srflx that is the
   ROUTER's LAN address (the hairpinned STUN reply), so LAN peers pair over mDNS alone; a browser that
   lacks Privacy & Security → Local Network (Brave did) cannot resolve or publish `.local` and fails
   visibly with the switch-to-Reliable hint — which points at the wrong fix. The 2026-09-26 "Max
   privacy FAIL 2/2" was exactly this. README / the direct-fail hint should mention the permission on
   macOS 15+; optionally detect "only mDNS host + srflx that is a private address" and say so.
-- [ ] **Copy nits from the 2026-09-27 pass** — two fixed 2026-09-28 (live the same day): a refusal just over a
+- ✅ **Copy nits from the 2026-09-27 pass — the rest FIXED 2026-09-29, not live yet.** The waiting
+  side of an expired room — the creator of words / a link / a 4-digit room, or a lobby member — now
+  fails with `WAIT_EXPIRED_REASON` ("nobody joined before the code expired", set from a
+  `waitingInRoom` flag the `roomReady` projections raise and `beginPairing` clears) and FailedScreen
+  says "Your words expired" / "Your link expired" / "The room expired" with "Nobody joined in time";
+  a joiner of a dead code keeps "Room not found or code expired" (`SessionController.waitExpired.test.ts`).
+  The mismatch hard stop keeps its title and names the cause THIS side saw: "Your peer said the phrases
+  don't match" (the peer's reject — the A4b picker who never confirmed anything), "The phrases didn't
+  match" (our own reject), "The words didn't match on both sides — a mistyped word, or someone
+  intercepting" (words key-confirmation), and otherwise "The check that proves you reached your peer
+  failed" — no side is told about a phrase it never confirmed, and words / link have none. F7's plan
+  text is corrected in TESTPLAN. Scenes `failed-sas-peer`, `failed-words-expired`,
+  `failed-link-expired` are new; `failed-compromised` was re-recorded for the new description. Before
+  that — two fixed 2026-09-28 (live the same day): a refusal just over a
   limit now prints both sizes in bytes when they would round alike, and the SAS hard-stop eyebrow
   ("numbers didn't match") is gone with every eyebrow. Still open: the creator's 4010 wording and
   F7's plan text, below. The original list: a refusal just over the cap reads "This file is 1.0 GB —
@@ -764,7 +783,12 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   the dead-link copy instead (correct behaviour, plan text to adjust). New 2026-09-28 (A4b on the live
   build): when the READER stops after confirming, the picker's hard stop tells someone who never
   confirmed anything "The phrase you confirmed doesn't match your peer's".
-- [ ] **A link pasted into an already-open hushsend tab does nothing (found 2026-09-26).** Only the
+- ✅ **A link pasted into an already-open hushsend tab does nothing — FIXED 2026-09-29, not live yet.**
+  `App.tsx` `LinkFragmentJoin` listens to `hashchange` too: the fragment is scrubbed at once, the link
+  joins from the home screen and from a finished (failed) session, and a session in progress or a
+  live channel is never torn down for it (the link is dropped). e2e `link.spec.ts`: home tab joins
+  with no reload (a marker survives), a failed tab starts over and joins, a connected tab ignores a
+  second link. The report (found 2026-09-26): Only the
   fragment differs, so the browser does a same-document navigation and `App.tsx` reads
   `location.hash` at load only. Either listen to `hashchange` (join if idle) or document that the
   link must be opened in a fresh tab. Test-drivers hit this too: always load `/health` first.
@@ -792,7 +816,17 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   from shared parts, so the growth is in the read path (`File.stream()` → chunking → DataChannel), not
   the file. Harmless on an 8 GiB Mac, a likely tab kill on an iPhone. Measure a real-file 5 GiB send from
   iOS before deciding anything; if it reproduces, look for retained `Uint8Array`s in the pump/rechunker.
-- [ ] **STUN cross-check: a cold Firefox can miss the 4 s probe window (found 2026-09-27, TESTPLAN B7).**
+  **Code read 2026-09-29 (no change made):** the pump retains nothing — each piece is referenced only
+  until its `put` resolves, the rechunker holds at most one source chunk plus one piece — and the
+  growth fell back after the send, which reads as WebKit collecting lazily rather than a leak. What the
+  read path DOES do is allocate: `Rechunker.pull` copies every piece into a fresh `Uint8Array`
+  (~20 000 × 256 KiB for 5 GiB) even when one source chunk already covers it. If the iOS measurement
+  shows the growth, the first thing to try is a zero-copy `pull` (return `head.subarray(…)` when the
+  head alone satisfies the request, copy only to coalesce small chunks), measured before and after on
+  the same device.
+- ✅ **STUN cross-check: a cold Firefox can miss the 4 s probe window — window raised to 12 s
+  2026-09-29, not live yet; unverifiable until a second STUN operator exists** (with one configured
+  STUN the probe does not run at all — `probeStunViews` needs two). The report (TESTPLAN B7):
   On a fresh profile Firefox's first srflx from the live STUN took 9.8 s (a 4 s probe got nothing);
   warm probes take 0.26 s. `PROBE_TIMEOUT_MS` is 4 s, so a cold Firefox reads `unknown`. Harmless while
   one STUN operator exists (the check says nothing then anyway); revisit with the second operator.

@@ -636,7 +636,10 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
 - [x] **F6 · history is session-only** — after a few transfers, reload the page. Expected: the transfer
       history is **empty** (in-memory only); `localStorage` holds only lang/theme/privacy prefs.
 - [x] **F7 · second joiner on a 1:1 method** — forward the same link/QR to a second device. Expected:
-      the second joiner is rejected (4002) — the one-time link reaches exactly one receiver.
+      the one-time link reaches exactly one receiver. Which refusal the second joiner sees depends on
+      timing: after the first pair connects, both sockets close and the token room is gone, so the
+      second joiner gets the dead-link failure ("the link has expired or was already used") at once;
+      the 4002 "room full" bounce is reachable only while the first two are still pairing.
 - [ ] **F8 · silent peer on the 1:1 confirm path** — open a link on the receiving device and, the
       instant the connection starts, put that browser in a state where it cannot answer (airplane mode
       works; force-quitting the tab does not — that raises a channel close instead, which is a

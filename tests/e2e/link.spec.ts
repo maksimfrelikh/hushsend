@@ -131,3 +131,71 @@ test('link negative: a dead link (nobody in the token room) fails at once as "ro
   await expect(receiver.getByTestId('status')).toHaveText('failed', { timeout: 30_000 });
   await expect(receiver.getByTestId('failure')).toHaveAttribute('data-reason', /not found/); // the copy says it; the raw reason is kept on the node
 });
+
+/**
+ * A link opened into a tab that ALREADY shows hushsend (pasted into its address bar, or tapped while
+ * the app is the current tab — iPadOS Safari, 2026-09-27): only the fragment differs, so the browser
+ * does a same-document navigation — nothing reloads, only `hashchange` fires. It used to do nothing
+ * (BACKLOG § UX bugs). A marker set before the navigation proves no reload happened.
+ */
+test('link opened into an ALREADY-OPEN home tab (same document, only the fragment) joins', async ({ context }) => {
+  const sender = await context.newPage();
+  await sender.goto('/?forceBlob=1');
+  const link = await createLink(sender, 'link');
+
+  const receiver = await openJoiner(context);
+  await expect(receiver.getByTestId('invite-btn')).toBeVisible();
+  await receiver.evaluate(() => {
+    (window as unknown as { __sameDocument: boolean }).__sameDocument = true;
+  });
+  await receiver.evaluate((frag) => {
+    window.location.hash = frag;
+  }, fragmentOf(link));
+
+  await expect(sender.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
+  await expect(receiver.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
+  expect(
+    await receiver.evaluate(() => (window as unknown as { __sameDocument?: boolean }).__sameDocument),
+  ).toBe(true);
+  // Scrubbed exactly as on page load: the secret never lingers in the address bar.
+  expect(await receiver.evaluate(() => window.location.hash)).toBe('');
+});
+
+test('a link opened into a tab showing a FAILED session starts over and joins', async ({ context }) => {
+  // A dead link first: the receiver fails at once …
+  const receiver = await openJoiner(
+    context,
+    `#${randomBytes(16).toString('base64url')}.${randomBytes(16).toString('base64url')}`,
+  );
+  await expect(receiver.getByTestId('status')).toHaveText('failed', { timeout: 30_000 });
+  // … then a real one arrives in the same tab: the finished session is disposed and the link joins.
+  const sender = await context.newPage();
+  await sender.goto('/?forceBlob=1');
+  const link = await createLink(sender, 'link');
+  await receiver.evaluate((frag) => {
+    window.location.hash = frag;
+  }, fragmentOf(link));
+  await expect(sender.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
+  await expect(receiver.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
+  expect(await receiver.evaluate(() => window.location.hash)).toBe('');
+});
+
+test('a link opened into a tab with a LIVE channel is dropped (scrubbed), never followed', async ({ context }) => {
+  const sender = await context.newPage();
+  await sender.goto('/?forceBlob=1');
+  const link = await createLink(sender, 'link');
+  const receiver = await openJoiner(context, fragmentOf(link));
+  await expect(receiver.getByTestId('status')).toHaveText('connected', { timeout: 60_000 });
+
+  // A second link lands in the connected tab: the live session must not be torn down for it.
+  const other = await context.newPage();
+  await other.goto('/?forceBlob=1');
+  const second = await createLink(other, 'link');
+  await receiver.evaluate((frag) => {
+    window.location.hash = frag;
+  }, fragmentOf(second));
+  await expect.poll(() => receiver.evaluate(() => window.location.hash)).toBe(''); // the secret is still scrubbed
+  await receiver.waitForTimeout(1500);
+  await expect(receiver.getByTestId('status')).toHaveText('connected');
+  await expect(other.getByTestId('status')).toHaveText('awaitingPeer'); // nobody came to the second link
+});

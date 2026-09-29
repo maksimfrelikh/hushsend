@@ -419,7 +419,11 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
   by a fresh DTLS cert per session **plus** S being single-use (scrubbed after read).
 - **Fragment scrub**: the joiner reads `location.hash` on page load, extracts the token + S, **scrubs
   the fragment immediately** via `history.replaceState` (before any await — see `LinkFragmentJoin`
-  in `App.tsx`), and sends only the token to the server (`join`, `codeType=token`). A malformed/absent
+  in `App.tsx`), and sends only the token to the server (`join`, `codeType=token`). A link opened into
+  a tab that ALREADY shows hushsend is a same-document navigation (only the fragment differs), so
+  `LinkFragmentJoin` also listens to `hashchange` (since 2026-09-29): scrub at once whatever the state,
+  join from `idle` or a finished `failed` session, and never tear down a session in progress or a live
+  channel for it — there the link is dropped (`link.spec.ts`, three cases). A malformed/absent
   fragment is a no-op (stay home); a valid-but-dead link surfaces as the "room not found" failure the
   moment the joiner finds the token room EMPTY (`onWelcome`: token rooms are join-or-create, so the
   server no longer says 4009 — but the sender always opens the room before the link exists, so
@@ -1372,8 +1376,12 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   send, never touching the connection or the history; **Save file** [`save-file-btn`] when a received
   file finished while the page was hidden; the `interrupted` alert line while ICE is `disconnected`;
   the muted `relayed` path row),
-  `FailedScreen` (ONE screen, variants by reason + method — mismatch, expired, `server` (a signaling
-  drop that is not a room answer, 1006 above all; it used to read "Room not found"), noShow, direct,
+  `FailedScreen` (ONE screen, variants by reason + method — mismatch (one title; the description names
+  the cause THIS side saw: the peer's SAS reject, our own, a words key-confirmation, or the generic
+  check), `waitExpired` (our OWN words / link / room ran out while we waited in it with nobody engaged —
+  `WAIT_EXPIRED_REASON`, since 2026-09-29; it used to get the joiner's "check the digits"), expired, `server` (a signaling
+  drop that is not a room answer, 1006 above all; it used to read "Room not found"), noShow, direct (on a
+  desktop Mac + the macOS Local Network permission hint, `ui/platform.ts`),
   `lost` (an authenticated channel died — shows the last file's outcome, `LastTransfer` /
   `last-transfer`, with Save file when one is held), generic. **Nothing is said twice** (owner,
   2026-09-27): no eyebrows, a description only where it adds something, the raw reason shown only for
