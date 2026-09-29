@@ -100,7 +100,16 @@ Last run 2026-09-27 against the bundle fetched over HTTPS from the live host (`i
 ### 0.1 Preconditions
 
 - [x] Frontend redeployed from current `main` (`bash ~/projects/hushsend/deploy/deploy-frontend.sh`)
-      — re-done 2026-09-29 18:47 UTC by the owner (commit `273e9e7`: the screen pacing — a screen the
+      — re-done 2026-09-29 19:44 UTC by the owner (commit `8c9ea59`: a link opened into an already-open
+      tab joins via `hashchange`; honest failure copy — a waiting side's own expired room, the mismatch
+      description by cause; the macOS Local Network hint; the STUN probe window 12 s);
+      `/var/www/hushsend/dist` is byte-identical to a clean local build of `8c9ea59` (42 files, equal
+      sha256 manifests) and the public URL serves `index-C-42SlIP.js`. Checked live with real Chrome the
+      same evening: a link set as the fragment of an open home tab joined in 608 ms with no reload (a
+      marker in `window` survived) and the fragment was scrubbed; a link nobody opened failed on its
+      creator exactly 180 s later (the live `TOKEN_ROOM_TTL_MS`) as "Your link expired — Nobody opened
+      it in time" (`data-reason` `nobody joined before the code expired`). Before it, 2026-09-29 18:47
+      UTC, `273e9e7` (the screen pacing — a screen the
       FSM leaves for a pre-connection stage is held 400 ms with its controls quiet, the Connecting
       screen appears only when a stage outlasts that, each of its titles stays ≥ 500 ms; CLAUDE.md §
       UI / styling → Screen pacing); `/var/www/hushsend/dist` is byte-identical to a clean local build
@@ -117,12 +126,12 @@ Last run 2026-09-27 against the bundle fetched over HTTPS from the live host (`i
       is served as `application/javascript`, and a `/dl/<id>` no worker answers falls back to the app
       page with `X-Frame-Options: DENY` (so a hidden iframe can never render it). The signaling
       server's running copy (`/var/www/hush-signaling-server`) is unchanged at `3d96125`, `/health` ok,
-      nginx / hushsend-signaling / coturn `active` — checked 2026-09-29. **Re-run it if `main` has moved since**, and
+      nginx / hushsend-signaling / coturn `active` — checked 2026-09-29 after the 19:44 deploy. **Re-run it if `main` has moved since**, and
       re-tick. It had gone stale
       once already (ticked 2026-09-12, `main` moved, nobody re-ticked) — this tick is only worth the
       date next to it.
 - [x] **Verify the new bundle is live:** `grep -r 'stun.l.google' /var/www/hushsend/dist` returns
-      nothing — re-confirmed 2026-09-29 for `index-CwM5wm6M.js` (on the clean build the live dist is
+      nothing — re-confirmed 2026-09-29 for `index-C-42SlIP.js` (on the clean build the live dist is
       byte-identical to) (the pre-2026-09-12 bundle matched; this was the BACKLOG
       "verify after redeploy" item). The only STUN in the served bundle is
       `stun:turn.hushsend.frelikh.dev:3478`, i.e. our own — which is also the whole of BACKLOG's

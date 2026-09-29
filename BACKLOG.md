@@ -749,8 +749,9 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   never offers one, so a reader who clicked too early is trapped until the picker answers or the
   120 s deadline. Expected: the same "Stop — they don't have this phrase" pill on the waiting screen,
   wired to `confirmSas(false)`.
-- ✅ **Same-LAN Max privacy needs the macOS "Local Network" permission — DOCUMENTED 2026-09-29, not
-  live yet.** README § Privacy modes says it, and the direct-fail screen adds `localNetworkHint`
+- ✅ **Same-LAN Max privacy needs the macOS "Local Network" permission — DOCUMENTED 2026-09-29, LIVE
+  the same day (`8c9ea59`; the hint itself is covered by unit tests, not yet seen on a real direct
+  failure on a Mac).** README § Privacy modes says it, and the direct-fail screen adds `localNetworkHint`
   (`local-network-hint`) on a desktop Mac (`ui/platform.ts` `isMacDesktop`: a Macintosh UA with no
   multi-touch — an iPad asking for the desktop site is not a Mac; unit-tested). NOT done: the optional
   detection of "only an mDNS host + a private srflx". The report (found 2026-09-27): On one LAN every browser gathers only an mDNS host candidate plus an srflx that is the
@@ -759,7 +760,9 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   visibly with the switch-to-Reliable hint — which points at the wrong fix. The 2026-09-26 "Max
   privacy FAIL 2/2" was exactly this. README / the direct-fail hint should mention the permission on
   macOS 15+; optionally detect "only mDNS host + srflx that is a private address" and say so.
-- ✅ **Copy nits from the 2026-09-27 pass — the rest FIXED 2026-09-29, not live yet.** The waiting
+- ✅ **Copy nits from the 2026-09-27 pass — the rest FIXED 2026-09-29, LIVE the same day
+  (`8c9ea59`; checked live: a link nobody opened failed on its creator after the server's 180 s as
+  "Your link expired").** The waiting
   side of an expired room — the creator of words / a link / a 4-digit room, or a lobby member — now
   fails with `WAIT_EXPIRED_REASON` ("nobody joined before the code expired", set from a
   `waitingInRoom` flag the `roomReady` projections raise and `beginPairing` clears) and FailedScreen
@@ -783,8 +786,9 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   the dead-link copy instead (correct behaviour, plan text to adjust). New 2026-09-28 (A4b on the live
   build): when the READER stops after confirming, the picker's hard stop tells someone who never
   confirmed anything "The phrase you confirmed doesn't match your peer's".
-- ✅ **A link pasted into an already-open hushsend tab does nothing — FIXED 2026-09-29, not live yet.**
-  `App.tsx` `LinkFragmentJoin` listens to `hashchange` too: the fragment is scrubbed at once, the link
+- ✅ **A link pasted into an already-open hushsend tab does nothing — FIXED 2026-09-29, LIVE the same day
+  (`8c9ea59`; checked live: an open home tab given the link as its fragment joined in 608 ms with no
+  reload).** `App.tsx` `LinkFragmentJoin` listens to `hashchange` too: the fragment is scrubbed at once, the link
   joins from the home screen and from a finished (failed) session, and a session in progress or a
   live channel is never torn down for it (the link is dropped). e2e `link.spec.ts`: home tab joins
   with no reload (a marker survives), a failed tab starts over and joins, a connected tab ignores a
@@ -825,7 +829,7 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   head alone satisfies the request, copy only to coalesce small chunks), measured before and after on
   the same device.
 - ✅ **STUN cross-check: a cold Firefox can miss the 4 s probe window — window raised to 12 s
-  2026-09-29, not live yet; unverifiable until a second STUN operator exists** (with one configured
+  2026-09-29, live the same day (`8c9ea59`); unverifiable until a second STUN operator exists** (with one configured
   STUN the probe does not run at all — `probeStunViews` needs two). The report (TESTPLAN B7):
   On a fresh profile Firefox's first srflx from the live STUN took 9.8 s (a 4 s probe got nothing);
   warm probes take 0.26 s. `PROBE_TIMEOUT_MS` is 4 s, so a cold Firefox reads `unknown`. Harmless while
