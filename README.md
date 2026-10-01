@@ -133,8 +133,8 @@ be verified without a reference hash.
 
 **Feature-complete and deployed.** All four methods, the codeless reconnect, the mesh lobby, TURN,
 light/dark, the Claude Design screen set (English only for now; the RU table is kept, the switch
-hidden), and the deployment are built and live. **341 vitest tests** and a
-Playwright e2e suite — **50 cases per engine: 48 run on chromium, 45 on firefox, 43 on webkit** (the
+hidden), and the deployment are built and live. **367 vitest tests** and a
+Playwright e2e suite — **53 cases per engine: 51 run on chromium** (2026-10-01; firefox and webkit last measured 2026-09-28 at 45 and 43 of 50) (the
 silent-peer case needs CDP, and the two straight-into-Downloads cases apply only where the stream path
 does — desktop Chromium; the two site-storage cases skip on Playwright's WebKit, whose storage cannot
 write; plus 2 opt-in cases everywhere, the size ladder and the two-STUN cross-check), plus a 4-case
