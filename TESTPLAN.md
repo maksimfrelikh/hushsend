@@ -100,7 +100,10 @@ Last run 2026-09-27 against the bundle fetched over HTTPS from the live host (`i
 ### 0.1 Preconditions
 
 - [x] Frontend redeployed from current `main` (`bash ~/projects/hushsend/deploy/deploy-frontend.sh`)
-      — re-done 2026-10-03 ~00:55 UTC (commit `190151b`: the three UX fixes from the Pixel 5 pass — the
+      — re-done 2026-10-03 ~01:35 UTC (commit `981f8df`: the reconnect wait returns to waiting when the
+      engaged peer vanishes before any transport — the ghost at the rendezvous); byte-identical to a
+      clean local build of `981f8df`, the public URL serves `index-DkYJ-hTt.js`; checked on the phone
+      (§ Result log, end of the 2026-10-02 entry). Before it, 2026-10-03 ~00:55 UTC (commit `190151b`: the three UX fixes from the Pixel 5 pass — the
       Max hint under the peer-left race, the reconnect wait's retry, the Finishing line);
       `/var/www/hushsend/dist` is byte-identical to a clean local build of `190151b` (42 files), the public
       URL serves `index-CkRmiW5i.js`, no `stun.l.google`; the three fixes were then checked on the live
@@ -1403,6 +1406,11 @@ on the live build after clearing every browser's cache:**
   socket, which the server had not yet declared dead** (it needs ~25 s, cf. F8) — pairing began
   against the ghost, nothing answered, and the server's eventual `peer-left` ended the wait as
   "reconnect aborted — peer left during re-auth". BACKLOG § UX bugs (the ghost at the rendezvous).
+- **The ghost fix (`981f8df`, deployed ~01:35 UTC, byte-identical to a clean build) — the same scenario
+  on the live build:** Wi-Fi off 12 s → sockets re-taken every 3 s while offline → the first socket after
+  the network returned met the ghost ("Agreeing on keys…", ~3 s) → **back to "Waiting for the other
+  device" on a fresh socket** and still waiting when the 120 s observation ended. The wait survives both
+  the drop and the ghost; the cap is the original one (`waitUntil`).
 - **B10 (phone, site-storage ladder) · T2 · Mac → Pixel 5 over USB, Max, one pair:** **2 GiB PASS** (510 s
   = 4.2 MB/s, every block verified, Chrome PSS 223–264 MB over 99 samples, site storage then 2048 MB of a
   12.3 GB quota), **3 GiB PASS** (1062 s = 3.0 MB/s, verified, PSS 211–229 MB; usage 3072 MB — the 2 GiB
