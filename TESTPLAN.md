@@ -100,7 +100,13 @@ Last run 2026-09-27 against the bundle fetched over HTTPS from the live host (`i
 ### 0.1 Preconditions
 
 - [x] Frontend redeployed from current `main` (`bash ~/projects/hushsend/deploy/deploy-frontend.sh`)
-      — re-done 2026-10-02 ~19:20 UTC (commit `9bdda44`: the QR scanner's zxing glue/wasm ABI fix —
+      — re-done 2026-10-03 ~00:55 UTC (commit `190151b`: the three UX fixes from the Pixel 5 pass — the
+      Max hint under the peer-left race, the reconnect wait's retry, the Finishing line);
+      `/var/www/hushsend/dist` is byte-identical to a clean local build of `190151b` (42 files), the public
+      URL serves `index-CkRmiW5i.js`, no `stun.l.google`; the three fixes were then checked on the live
+      build (§ Result log, end of the 2026-10-02 entry). The visual gate ran on the deploy host against
+      this commit: 181 / 181 after recording `transfer-finishing` (and re-recording the sas-picker's
+      seeded decoys, which had moved — see that commit). Before it, 2026-10-02 ~19:20 UTC (commit `9bdda44`: the QR scanner's zxing glue/wasm ABI fix —
       `zxing-wasm` 3.1.3 — plus the vitest ABI gate and this pass's records); `/var/www/hushsend/dist` is
       byte-identical to a clean local build of `9bdda44` (42 files, equal sha256 manifests), the public
       URL serves `index-CL2avokU.js` and `zxing_reader-BxB2YfIY.wasm`, no `stun.l.google`. Checked live
@@ -1379,6 +1385,24 @@ F8 on, the phone on a **second Wi-Fi that exits through a VPN in France** ("enli
   1 %"), so the RAM path is never reached there: unlike desktop Chrome incognito (430 MiB of real room
   behind a 10 GiB estimate) and Firefox private (no OPFS at all), Android Chrome incognito simply has
   working site storage. The 200 MiB cap stays covered by the e2e and by Firefox private on the desktop.
+
+**The three fixes (`190151b`, deployed 2026-10-03 ~00:55 UTC, byte-identical to a clean build), checked
+on the live build after clearing every browser's cache:**
+- **Finishing line** — chromeA → chromeB on the Mac, Max, 1 GiB + 1 B (bucket 1.125 GiB → 128 MiB of
+  filler): at 23.9 s both panels switched to "Finishing", the sender's status line "Hiding the file's
+  size — a little extra data goes out after the file.", the receiver's "The sender is hiding the file's
+  size — a little extra data arrives after the file.", 2.4 s later Delivered / Received.
+- **Max hint under the peer-left race** — the C3 run that used to lose it (Mac Max creator ↔ Pixel 5
+  Reliable on the VPN Wi-Fi, link): the phone's ICE failed at 17.7 s, its `peer-left` reached the Mac at
+  19.6 s while the Mac's PeerConnection was still `connecting`, and the Mac now reads **"Couldn't connect
+  directly — Switch to Reliable…"** (18.7 s). Fail-closed as before; the copy is now the useful one.
+- **Reconnect wait across a network drop** — Pixel 5 alone on the wait screen, Wi-Fi off 12 s: the socket
+  died with 1006, the wait **stayed up** and re-took the rendezvous every 3 s while offline (each
+  attempt closing 1006 at once), and the first socket after the network returned opened — the fix
+  works. Then a new finding: that socket found a peer in the token room — **the phone's own previous
+  socket, which the server had not yet declared dead** (it needs ~25 s, cf. F8) — pairing began
+  against the ghost, nothing answered, and the server's eventual `peer-left` ended the wait as
+  "reconnect aborted — peer left during re-auth". BACKLOG § UX bugs (the ghost at the rendezvous).
 - **B10 (phone, site-storage ladder) · T2 · Mac → Pixel 5 over USB, Max, one pair:** **2 GiB PASS** (510 s
   = 4.2 MB/s, every block verified, Chrome PSS 223–264 MB over 99 samples, site storage then 2048 MB of a
   12.3 GB quota), **3 GiB PASS** (1062 s = 3.0 MB/s, verified, PSS 211–229 MB; usage 3072 MB — the 2 GiB

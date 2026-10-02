@@ -644,6 +644,19 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   file's size" line while filler flows, or a padding ceiling in absolute bytes (a cap of, say, 64 MiB of
   filler buys back the minutes at the cost of a coarser bucket for files over 512 MiB — files that
   size are rarer and their exact size is less telling). Owner's call.
+- 🟡 **A reconnect wait that loses its network for a few seconds meets its own GHOST at the rendezvous —
+  found 2026-10-03 on the Pixel 5 while verifying the retry fix.** Wi-Fi off for 12 s under the wait: the
+  phone's socket died (1006), the new retry loop re-took the rendezvous every 3 s while offline (each
+  attempt failing to open), and when the network came back the first socket that opened found a PEER in
+  the token room — the phone's OWN previous socket, which the server had not yet noticed was dead (it
+  detects a dead socket in ~25 s, cf. F8). Pairing started against the ghost ("Agreeing on keys…"), the
+  ghost never answered, and ~25 s later the server's `peer-left` ended the session as "reconnect aborted
+  — peer left during re-auth". Two consequences: the wait is lost after a blip it had just survived,
+  and while the ghost sits there the 1:1 token room is FULL, so the real other device would be bounced
+  with 4002 for those seconds. Candidate fix: a pre-transport `peer-left` (or the liveness deadline) on
+  the RECONNECT method should return to WAITING and re-take the rendezvous — the other device may still
+  come — rather than fail, bounded by the existing wait cap; and/or treat a peer that never sends its
+  hello within a few seconds the same way. Owner's call (it changes the reconnect failure semantics).
 - ✅(code, 2026-10-03) **A reconnect wait dies on a network change instead of re-taking — found 2026-10-02
   on the Pixel 5 (TESTPLAN E7 +15 min).** The 1006 itself was already answered with a re-take; what ended
   the wait was the re-take's socket failing to OPEN on a network still coming up. Now that failure
