@@ -65,8 +65,26 @@ interface SCInternals {
   keystore: Keystore;
   signaling: unknown;
   peerId: string | null;
-  reconnect: { settled: boolean; rejoins: number } | null;
+  peer: { close(): void; remoteFingerprint(): string | null } | null;
+  channelOpen: boolean;
+  established: boolean;
+  reconnect: { settled: boolean; rejoins: number; waitUntil: number } | null;
+  onPeerLeft(peerId: string): void;
+  armReconnectTimeout(reason: string, ms: number): void;
 }
+
+/** Put the controller in the state of a reconnect pairing that has just engaged a peer at the rendezvous
+ *  but has no transport yet: a PeerConnection created, no remote description (nothing came back). */
+function engageGhost(internals: SCInternals, id = 'ghost'): { close: ReturnType<typeof vi.fn> } {
+  const peer = { close: vi.fn(), remoteFingerprint: () => null };
+  internals.peerId = id;
+  internals.peer = peer;
+  internals.channelOpen = false;
+  internals.established = false;
+  return peer;
+}
+const typesOf = (dispatch: ReturnType<typeof vi.fn>): string[] =>
+  dispatch.mock.calls.map((c) => (c[0] as { type?: string }).type ?? '');
 
 const PAIRING_ID_HEX = '0102030405060708090a0b0c0d0e0f10';
 const PEER_KEY_HEX = 'ab'.repeat(32);
@@ -208,6 +226,53 @@ describe('SessionController — codeless reconnect rendezvous (derive, refresh, 
     } finally {
       delete (globalThis as unknown as { window?: unknown }).window;
     }
+  });
+
+  it('an engaged peer that leaves BEFORE any transport (a ghost) returns the wait — not failed — and re-takes the rendezvous', async () => {
+    // TESTPLAN 2026-10-03 (Pixel 5): after a 12 s Wi-Fi drop the first socket that opened met the
+    // phone's OWN previous socket in the token room; pairing began, nothing answered, and the server's
+    // eventual peer-left ended the wait as "peer left during re-auth".
+    const { dispatch, internals } = await newReconnecting();
+    const n0 = hoisted.instances.length;
+    const peer = engageGhost(internals);
+    internals.onPeerLeft('ghost');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(failedReasons(dispatch)).toEqual([]);
+    expect(typesOf(dispatch)).toContain('connection/returnToLobby'); // pairing → awaitingPeer
+    expect(peer.close).toHaveBeenCalledTimes(1);
+    expect(internals.peerId).toBeNull();
+    expect(internals.peer).toBeNull();
+    expect(hoisted.instances).toHaveLength(n0 + 1); // the rendezvous taken again
+    expect(hoisted.instances[n0].connects).toEqual(hoisted.instances[0].connects); // same token, same bucket
+    expect(internals.reconnect?.settled).toBe(false);
+  });
+
+  it('the re-auth deadline with NO channel ever opened also returns the wait; with a channel open it still fails', async () => {
+    const { dispatch, internals } = await newReconnecting();
+    engageGhost(internals);
+    internals.armReconnectTimeout('reconnect timed out', 1_000);
+    await vi.advanceTimersByTimeAsync(1_005);
+    expect(failedReasons(dispatch)).toEqual([]);
+    expect(typesOf(dispatch)).toContain('connection/returnToLobby');
+    expect(internals.peerId).toBeNull();
+    // Now a peer that DID raise a channel and then stalled: the deadline is terminal, as before.
+    engageGhost(internals, 'staller');
+    internals.channelOpen = true;
+    internals.armReconnectTimeout('reconnect timed out — peer did not complete re-authentication', 1_000);
+    await vi.advanceTimersByTimeAsync(1_005);
+    expect(failedReasons(dispatch)[0]).toMatch(/timed out/);
+    expect(internals.reconnect?.settled).toBe(true);
+  });
+
+  it('a resumed wait keeps the ORIGINAL cap: the no-show reason still fires at the first deadline', async () => {
+    const { dispatch, internals } = await newReconnecting();
+    await vi.advanceTimersByTimeAsync(WAIT_MS - 60_000); // 9 minutes in, a ghost shows up and leaves
+    engageGhost(internals);
+    internals.onPeerLeft('ghost');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(failedReasons(dispatch)).toEqual([]);
+    await vi.advanceTimersByTimeAsync(60_000 + 5); // the original 10-minute mark, not 10 minutes after the resume
+    expect(failedReasons(dispatch)[0]).toMatch(/did not show up/);
   });
 
   it('once a peer is engaged, neither the refresh nor a room-closed moves us off the room', async () => {

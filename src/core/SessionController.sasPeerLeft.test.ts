@@ -101,6 +101,9 @@ function midComparisonSas(): TestSas {
 interface MockPeer {
   closed: boolean;
   sent: unknown[];
+  close: ReturnType<typeof vi.fn>;
+  /** a remote description arrived — ICE really ran (null = we only ever offered into the void). */
+  remoteFingerprint(): string | null;
 }
 interface MockSignaling {
   close: ReturnType<typeof vi.fn>;
@@ -145,7 +148,7 @@ function newController(): {
     .mockImplementation(() => {});
   const internals = sc as unknown as SCInternals;
   const signaling: MockSignaling = { close: vi.fn(), send: vi.fn(), destroyRoom: vi.fn() };
-  const peer: MockPeer = { closed: false, sent: [] };
+  const peer: MockPeer = { closed: false, sent: [], close: vi.fn(), remoteFingerprint: () => 'CC:DD' };
   internals.method = 'room';
   internals.reconnect = null;
   internals.peerId = 'peer-a';
@@ -303,17 +306,43 @@ describe('SessionController — SAS peer-left channelOpen gate (Part A) + room p
     expect(failReconnect).not.toHaveBeenCalled();
   });
 
-  it('reconnect still fails on a peer-left BEFORE the transport is up (the gate only disarms later)', () => {
-    const { internals, failReconnect } = newController();
-    internals.reconnect = { settled: false };
+  it('reconnect: a peer-left BEFORE the transport is up RETURNS THE WAIT (resumeReconnectWait), not failReconnect — the gate still fires, its outcome changed 2026-10-03', () => {
+    const { sc, internals, failReconnect, dispatch, peer } = newController();
+    // The reconnect fields resumeReconnectWait resets / reads (the real state has more; see
+    // newReconnectState) — a wait that is 5 minutes from its cap.
+    internals.reconnect = {
+      settled: false,
+      timer: null,
+      role: null,
+      peerChallenge: null,
+      fps: null,
+      helloSent: false,
+      proofSent: false,
+      peerProofOk: false,
+      waitTimer: null,
+      waitUntil: Date.now() + 5 * 60_000,
+    };
+    // The re-take itself opens a real SignalingClient — not this test's subject; spy it out.
+    const rejoin = vi
+      .spyOn(sc as unknown as { rejoinReconnectRendezvous: (why: string) => void }, 'rejoinReconnectRendezvous')
+      .mockImplementation(() => {});
     internals.peerId = 'peer-a';
     internals.channelOpen = false;
     internals.established = false;
-    // Reliable: with a relay on offer the bare peer-left reason stands (in Max privacy with a
-    // PeerConnection in flight this same peer-left takes failDirect — tested above).
+    // Reliable: with a relay on offer this is not a Max direct attempt (that path takes failDirect — tested above).
     (internals as unknown as { privacyMode: string }).privacyMode = 'reliable';
 
     internals.onPeerLeft('peer-a');
-    expect(failReconnect).toHaveBeenCalled();
+
+    // The gate fired (pre-transport peer-left is still an abort of THIS pairing)…
+    expect(peer.close).toHaveBeenCalledTimes(1);
+    expect(internals.peerId).toBeNull();
+    // …but on the reconnect method the session goes back to waiting and re-takes the rendezvous.
+    expect(failReconnect).not.toHaveBeenCalled();
+    expect(dispatch.mock.calls.map((c) => (c[0] as { type?: string }).type)).toContain('connection/returnToLobby');
+    expect(rejoin).toHaveBeenCalledTimes(1);
+    const waitTimer = (internals.reconnect as { waitTimer: unknown }).waitTimer;
+    expect(waitTimer).not.toBeNull(); // the original cap re-armed
+    clearTimeout(waitTimer as ReturnType<typeof setTimeout>);
   });
 });

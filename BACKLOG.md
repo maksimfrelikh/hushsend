@@ -644,8 +644,13 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   file's size" line while filler flows, or a padding ceiling in absolute bytes (a cap of, say, 64 MiB of
   filler buys back the minutes at the cost of a coarser bucket for files over 512 MiB — files that
   size are rarer and their exact size is less telling). Owner's call.
-- 🟡 **A reconnect wait that loses its network for a few seconds meets its own GHOST at the rendezvous —
-  found 2026-10-03 on the Pixel 5 while verifying the retry fix.** Wi-Fi off for 12 s under the wait: the
+- ✅(code, 2026-10-03) **A reconnect wait that loses its network for a few seconds meets its own GHOST at
+  the rendezvous — found 2026-10-03 on the Pixel 5 while verifying the retry fix.** Done as proposed:
+  `resumeReconnectWait` — a pre-transport `peer-left` on the reconnect method, or the re-auth deadline
+  with no channel ever opened, tears the half-pairing down, returns to the wait screen (`pairing →
+  awaitingPeer`) and re-takes the rendezvous, against the ORIGINAL wait cap (`waitUntil`) and the
+  re-join cap; a peer that raised a channel and then stalled still fails. Unit-tested in
+  `SessionController.reconnectRendezvous.test.ts` (CLAUDE.md § Reconnect → Rendezvous). Original note: Wi-Fi off for 12 s under the wait: the
   phone's socket died (1006), the new retry loop re-took the rendezvous every 3 s while offline (each
   attempt failing to open), and when the network came back the first socket that opened found a PEER in
   the token room — the phone's OWN previous socket, which the server had not yet noticed was dead (it

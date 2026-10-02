@@ -547,6 +547,9 @@ interface ReconnectState {
   refreshTimer: ReturnType<typeof setTimeout> | null;
   /** the overall wait cap — the other device never showed up. */
   waitTimer: ReturnType<typeof setTimeout> | null;
+  /** when the overall wait ends (absolute ms) — a wait RESUMED after a peer vanished pre-transport
+   *  re-arms against this same deadline, so the cap is the cap however many ghosts are met. */
+  waitUntil: number;
 }
 
 /**
@@ -680,6 +683,7 @@ function newReconnectState(pairingId: Uint8Array): ReconnectState {
     timer: null,
     refreshTimer: null,
     waitTimer: null,
+    waitUntil: 0,
   };
 }
 
@@ -1209,7 +1213,7 @@ export class SessionController {
     // a REAL abort there is caught by onChannelClose.
     if (this.reconnect && peerLeftAbortsPairing(this.established, this.channelOpen)) {
       if (this.peerLeftWhileDirectAttempt()) this.failDirectAfterPeerLeft();
-      else this.failReconnect('reconnect aborted — peer left during re-auth');
+      else this.resumeReconnectWait('the peer left');
     }
     // room + SAS: SAME gate as words and link/qr. A peer dropping before the DataChannel transport
     // is up aborts the pairing (e.g. the other side rejected the SAS and tore down before the channel
@@ -1245,7 +1249,16 @@ export class SessionController {
    * alternative — the bare "peer left" — is no truer about a peer that has vanished.
    */
   private peerLeftWhileDirectAttempt(): boolean {
-    return this.privacyMode === 'max' && this.peer !== null && !this.channelOpen && !this.established;
+    // "In flight" means ICE actually ran: a remote description arrived (the fingerprint parses). A
+    // PeerConnection that only ever sent an offer into the void — a reconnect pairing against a ghost
+    // socket, say — was never a direct attempt that failed.
+    return (
+      this.privacyMode === 'max' &&
+      this.peer !== null &&
+      this.peer.remoteFingerprint() !== null &&
+      !this.channelOpen &&
+      !this.established
+    );
   }
 
   private failDirectAfterPeerLeft(): void {
@@ -2466,6 +2479,7 @@ export class SessionController {
     this.reconnect = rc;
     this.dispatch(devActions.setReconnect({ active: true, outcome: null }));
     // The overall cap: if the other device never taps, say so instead of waiting forever.
+    rc.waitUntil = Date.now() + reconnectWaitMs();
     rc.waitTimer = setTimeout(() => this.onReconnectWaitExpired(), reconnectWaitMs());
     // A network change while waiting: the browser's `online` event is the earliest sign the new
     // network is up — take the rendezvous again at once rather than at the next retry/refresh tick.
@@ -2541,6 +2555,50 @@ export class SessionController {
     this.rendezvous = null;
     this.dispatch(connectionActions.rosterSet([]));
     void this.takeReconnectRendezvous();
+  }
+
+  /**
+   * The engaged peer vanished BEFORE any transport existed — its signaling `peer-left`, or the re-auth
+   * deadline with the channel never opened. On the reconnect method that is not the end: the device we
+   * are waiting for may still come, and the "peer" was quite possibly our own GHOST — after a network
+   * blip the first socket that opens finds the previous one still in the token room, because the
+   * server needs ~25 s to notice a dead socket (TESTPLAN 2026-10-03, the Pixel 5: Wi-Fi off 12 s →
+   * paired against itself → "peer left during re-auth" when the server finally dropped the ghost).
+   * So: tear the half-started pairing down, go back to the wait screen (`pairing → awaitingPeer`, the
+   * lobby's own transition — no new state) and take the rendezvous again. Bounded twice over: the
+   * ORIGINAL wait cap (`waitUntil` — the clock is not reset) and the re-join cap. Nothing in the
+   * verify/crypto changes: a peer that DID raise a channel and then stalled still fails (the deadline's
+   * other arm), and no byte can flow before the hello/proof/ok anyway.
+   */
+  private resumeReconnectWait(why: string): void {
+    const rc = this.reconnect;
+    if (!rc || rc.settled || this.established || this.channelOpen) return;
+    if (rc.timer != null) clearTimeout(rc.timer);
+    rc.timer = null;
+    this.peer?.close();
+    this.peer = null;
+    this.clearPendingPeerSignals();
+    this.pendingReconnectFrames = [];
+    this.peerId = null;
+    this.role = null;
+    this.channelOpen = false;
+    // Per-pairing re-auth state back to the start; the pairing secret and our challenge stay.
+    rc.role = null;
+    rc.peerChallenge = null;
+    rc.fps = null;
+    rc.helloSent = false;
+    rc.proofSent = false;
+    rc.peerProofOk = false;
+    this.dispatch(devActions.appendLog(`reconnect: ${why} before any transport — back to waiting`));
+    this.dispatch(connectionActions.returnToLobby()); // pairing → awaitingPeer; clears the per-pair projections
+    const left = rc.waitUntil - Date.now();
+    if (left <= 0) {
+      this.onReconnectWaitExpired();
+      return;
+    }
+    if (rc.waitTimer != null) clearTimeout(rc.waitTimer);
+    rc.waitTimer = setTimeout(() => this.onReconnectWaitExpired(), left);
+    this.rejoinReconnectRendezvous(`peer gone before any transport: ${why}`);
   }
 
   /** The wait cap fired with nobody there: a clear failure, not a silent spinner. */
@@ -2739,7 +2797,13 @@ export class SessionController {
     const rc = this.reconnect;
     if (!rc || rc.settled) return;
     if (rc.timer != null) clearTimeout(rc.timer);
-    rc.timer = setTimeout(() => this.failReconnect(reason), ms);
+    rc.timer = setTimeout(() => {
+      // A peer that raised a channel and then stalled the hello/proof is a failed re-auth. One that
+      // never raised a channel at all is a no-show at the rendezvous — our own ghost socket, a device
+      // that lost its network a second after joining — and the wait goes on (2026-10-03).
+      if (!this.channelOpen) this.resumeReconnectWait('the peer never raised a channel before the deadline');
+      else this.failReconnect(reason);
+    }, ms);
   }
 
   /**

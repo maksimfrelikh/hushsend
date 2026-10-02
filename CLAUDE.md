@@ -501,7 +501,13 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
      the wait — a phone leaving its Wi-Fi; the old socket died with a 1006 a moment earlier) with a
      retry after `RECONNECT_RETRY_MS` (3 s) inside the same cap instead of ending the wait, re-takes
      at once on the browser's `online` event (neither counts against the cap; both since 2026-10-03,
-     TESTPLAN E7 on the Pixel 5), and gives up at `reconnectWaitMs()` (10 min; DEV knob
+     TESTPLAN E7 on the Pixel 5), **returns to waiting when the engaged peer vanishes BEFORE any
+     transport** — its `peer-left`, or the re-auth deadline with the channel never opened —
+     (`resumeReconnectWait`: tear the half-pairing down, `pairing → awaitingPeer` via the lobby's
+     `returnToLobby`, re-take the rendezvous; the ORIGINAL wait cap is kept via `rc.waitUntil`; since
+     2026-10-03 — after a network blip the first socket that opens meets the device's OWN previous
+     socket in the token room, because the server needs ~25 s to notice a dead one; a peer that DID
+     raise a channel and then stalled still fails), and gives up at `reconnectWaitMs()` (10 min; DEV knob
      `?reconnectWaitMs=N` / `__HUSHSEND_RECONNECT_WAIT_MS__`) with the stable
      `RECONNECT_NO_SHOW_REASON` ("did not show up" — its own FailedScreen variant). Nothing about the
      token is projected to the store. `SessionController.reconnectRendezvous.test.ts`.
