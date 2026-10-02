@@ -194,12 +194,74 @@ describe('SessionController — SAS peer-left channelOpen gate (Part A) + room p
     internals.sas = midComparisonSas();
     internals.channelOpen = false; // still connecting — the rendezvous is the liveness authority
     internals.established = false;
+    // Reliable: a relay was on offer, so a peer leaving pre-transport is just that — the bare reason.
+    (internals as unknown as { privacyMode: string }).privacyMode = 'reliable';
 
     internals.onPeerLeft('peer-a');
 
     // Pre-transport, a peer-left is a real abort.
     expect(failSas).toHaveBeenCalledTimes(1);
     expect(failSas).toHaveBeenCalledWith('peer left during SAS pairing');
+  });
+
+  it('Max privacy with a PeerConnection in flight: the same pre-transport peer-left ends as a DIRECT failure (the Reliable hint), not "peer left"', () => {
+    // TESTPLAN C3, 2026-10-02: in a Max ↔ Reliable pair across two NATs the peer's ICE gave up ~2 s
+    // before ours, its socket closed, and the `peer-left` reached the Max side first — which then read
+    // "peer left during pairing" instead of "Couldn't connect directly — switch to Reliable". Same
+    // outcome, wrong copy; the race decided which. Now a pre-transport peer-left while OUR direct
+    // attempt is still running (Max, PeerConnection present, channel not open) takes failDirect.
+    const { sc, internals, failSas } = newController();
+    const failDirect = vi
+      .spyOn(sc as unknown as { failDirect: (reason: string) => void }, 'failDirect')
+      .mockImplementation(() => {});
+    internals.sas = midComparisonSas();
+    internals.channelOpen = false;
+    internals.established = false;
+    (internals as unknown as { privacyMode: string }).privacyMode = 'max';
+    expect(internals.peer).not.toBeNull(); // newController() gives us a PeerConnection in flight
+
+    internals.onPeerLeft('peer-a');
+
+    expect(failDirect).toHaveBeenCalledTimes(1);
+    expect(failDirect.mock.calls[0][0]).toMatch(/connect directly|max privacy/i);
+    expect(failSas).not.toHaveBeenCalled();
+  });
+
+  it('Max privacy but NO PeerConnection yet (the peer left before any offer): the bare peer-left reason stays', () => {
+    const { sc, internals, failSas } = newController();
+    const failDirect = vi
+      .spyOn(sc as unknown as { failDirect: (reason: string) => void }, 'failDirect')
+      .mockImplementation(() => {});
+    internals.sas = midComparisonSas();
+    internals.channelOpen = false;
+    internals.established = false;
+    internals.peer = null; // nothing was ever tried on the wire — no direct attempt to blame
+    (internals as unknown as { privacyMode: string }).privacyMode = 'max';
+
+    internals.onPeerLeft('peer-a');
+
+    expect(failDirect).not.toHaveBeenCalled();
+    expect(failSas).toHaveBeenCalledWith('peer left during SAS pairing');
+  });
+
+  it('link method, Max privacy, direct attempt in flight: peer-left → the direct failure with the hint', () => {
+    const { sc, internals } = newController();
+    const failDirect = vi
+      .spyOn(sc as unknown as { failDirect: (reason: string) => void }, 'failDirect')
+      .mockImplementation(() => {});
+    const failLink = vi
+      .spyOn(sc as unknown as { failLink: (reason: string) => void }, 'failLink')
+      .mockImplementation(() => {});
+    internals.method = 'link';
+    internals.sas = null;
+    internals.channelOpen = false;
+    internals.established = false;
+    (internals as unknown as { privacyMode: string }).privacyMode = 'max';
+
+    internals.onPeerLeft('peer-a');
+
+    expect(failDirect).toHaveBeenCalledTimes(1);
+    expect(failLink).not.toHaveBeenCalled();
   });
 
   it('unrelated: a peer-left from a DIFFERENT peer updates the roster but never fails the SAS pair', () => {
@@ -247,6 +309,9 @@ describe('SessionController — SAS peer-left channelOpen gate (Part A) + room p
     internals.peerId = 'peer-a';
     internals.channelOpen = false;
     internals.established = false;
+    // Reliable: with a relay on offer the bare peer-left reason stands (in Max privacy with a
+    // PeerConnection in flight this same peer-left takes failDirect — tested above).
+    (internals as unknown as { privacyMode: string }).privacyMode = 'reliable';
 
     internals.onPeerLeft('peer-a');
     expect(failReconnect).toHaveBeenCalled();

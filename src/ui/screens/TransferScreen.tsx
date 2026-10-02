@@ -2,7 +2,7 @@ import { useRef, useState, type DragEvent, type ReactElement } from 'react';
 import { useSession } from '../SessionProvider';
 import { useAppSelector } from '../../store/hooks';
 import { formatBytes } from '../../core/transfer/fileTransfer';
-import { useT } from '../prefs';
+import { usePrefs, useT } from '../prefs';
 import type { StrKey } from '../i18n';
 import type { ConnectionMethod } from '../../store/connectionSlice';
 import { type TransferState } from '../../store/transferSlice';
@@ -230,13 +230,24 @@ function TransferPanel({
   const peerId = useAppSelector((s) => s.connection.peerId);
   const { phase, direction, fileName, totalBytes, transferredBytes, error } = transfer;
 
+  const { privacyMode } = usePrefs();
   const pct = totalBytes > 0 ? Math.min(100, Math.round((transferredBytes / totalBytes) * 100)) : 0;
   const incoming = phase === 'offered' && direction === 'receive';
   const inFlight = phase === 'offered' || phase === 'transferring';
   const done = phase === 'done';
   const ended = phase === 'rejected' || phase === 'cancelled' || phase === 'error';
+  // Every declared byte has crossed but the transfer has not ended: the sender is pushing the volume
+  // padding (Max privacy) and then waiting for `received`; the receiver is dropping that padding and
+  // closing its sink. No progress is emitted for any of it by design, so without a word the bar sits
+  // at 100% looking dead — minutes on a slow link (TESTPLAN B10, 2026-10-02). Say what is going on.
+  const finishing = phase === 'transferring' && totalBytes > 0 && transferredBytes >= totalBytes;
   const name = fileName ?? '—';
-  const title = panelTitle(transfer, t);
+  const title = finishing ? t('finishingTitle') : panelTitle(transfer, t);
+  const finishingHint = !finishing
+    ? null
+    : privacyMode === 'max'
+      ? t(direction === 'send' ? 'finishingPadSend' : 'finishingPadReceive')
+      : t(direction === 'send' ? 'finishingConfirm' : 'finishingSave');
 
   const progressText = `${formatPair(transferredBytes, totalBytes)} · ${pct}%`;
   const progress = (
@@ -255,6 +266,11 @@ function TransferPanel({
       >
         <span className="hs-progress__fill" style={{ width: `${pct}%` }} />
       </div>
+      {finishingHint && (
+        <p className="hs-meta hs-send__finishing" data-testid="transfer-finishing" role="status">
+          {finishingHint}
+        </p>
+      )}
     </div>
   );
 

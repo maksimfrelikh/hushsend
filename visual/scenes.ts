@@ -377,6 +377,13 @@ export const SCENES: Scene[] = [
   },
   { name: 'transfer-sending', matrix: 'full', setup: (page) => dispatch(page, ...sending) },
   {
+    // Every declared byte sent, the padding tail / confirmation still running: "Finishing" + the line
+    // that says why the full bar is not the end (2026-10-03).
+    name: 'transfer-finishing',
+    matrix: 'phone',
+    setup: (page) => dispatch(page, ...sending, tr('progress', { transferredBytes: SIZE })),
+  },
+  {
     name: 'transfer-incoming',
     matrix: 'phone',
     setup: (page) =>

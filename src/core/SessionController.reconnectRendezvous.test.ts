@@ -24,6 +24,8 @@ const hoisted = vi.hoisted(() => {
     onClose?: (code: number, reason: string) => void;
   }
   const instances: FakeSignaling[] = [];
+  /** how many of the NEXT connect() calls reject (the network is down under the wait). */
+  const failing = { next: 0 };
   class FakeSignaling {
     readonly connects: unknown[] = [];
     closed = false;
@@ -35,6 +37,10 @@ const hoisted = vi.hoisted(() => {
     }
     async connect(opts: unknown): Promise<void> {
       this.connects.push(opts);
+      if (failing.next > 0) {
+        failing.next--;
+        throw new Error('signaling connection failed');
+      }
     }
     send(): void {}
     destroyRoom(): void {}
@@ -45,7 +51,7 @@ const hoisted = vi.hoisted(() => {
       this.closed = true;
     }
   }
-  return { instances, FakeSignaling };
+  return { instances, FakeSignaling, failing };
 });
 
 vi.mock('./signaling/SignalingClient', () => ({ SignalingClient: hoisted.FakeSignaling }));
@@ -152,6 +158,56 @@ describe('SessionController — codeless reconnect rendezvous (derive, refresh, 
     expect(hoisted.instances).toHaveLength(9); // the 9th is refused
     expect(failedReasons(dispatch)[0]).toMatch(/keeps closing the rendezvous/);
     expect(internals.reconnect?.settled).toBe(true);
+  });
+
+  it('the network going away under the wait (1006, then the new socket cannot open) is retried, not fatal', async () => {
+    // TESTPLAN E7, 2026-10-02: the phone switched Wi-Fi while waiting; its socket died with a 1006,
+    // the immediate re-take could not open a socket on a network that was still coming up, and the wait
+    // ended at once with "signaling connection failed". Now: retry after RECONNECT_RETRY_MS, counted
+    // against the same cap.
+    const { dispatch, internals } = await newReconnecting();
+    hoisted.failing.next = 2; // the next two sockets fail to open
+    hoisted.instances[0].handlers.onClose?.(1006, '');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(hoisted.instances).toHaveLength(2); // re-join attempted at once…
+    expect(failedReasons(dispatch)).toEqual([]); // …its failure to open is NOT the end of the wait
+    await vi.advanceTimersByTimeAsync(3_000 + 5);
+    expect(hoisted.instances).toHaveLength(3); // second try, 3 s later — fails too
+    expect(failedReasons(dispatch)).toEqual([]);
+    await vi.advanceTimersByTimeAsync(3_000 + 5);
+    expect(hoisted.instances).toHaveLength(4); // third try opens (failing.next exhausted)
+    expect(hoisted.instances[3].connects).toEqual(hoisted.instances[0].connects); // same token room
+    expect(failedReasons(dispatch)).toEqual([]);
+    expect(internals.reconnect?.settled).toBe(false);
+  });
+
+  it('a socket that never opens again gives up at the re-join cap with a readable reason', async () => {
+    const { dispatch, internals } = await newReconnecting();
+    hoisted.failing.next = 100;
+    hoisted.instances[0].handlers.onClose?.(1006, '');
+    for (let i = 0; i < 12; i++) await vi.advanceTimersByTimeAsync(3_000 + 5);
+    expect(internals.reconnect?.settled).toBe(true);
+    expect(failedReasons(dispatch)[0]).toMatch(/signaling connection failed|could not be reached/);
+    hoisted.failing.next = 0;
+  });
+
+  it('a browser `online` event while waiting re-takes the rendezvous at once and does not count against the cap', async () => {
+    // Node has no `window`; the controller installs its listener only when one exists, so give it a
+    // bare EventTarget for this test.
+    const fakeWindow = new EventTarget();
+    (globalThis as unknown as { window: unknown }).window = fakeWindow;
+    try {
+      const { dispatch, internals } = await newReconnecting();
+      const before = hoisted.instances.length;
+      fakeWindow.dispatchEvent(new Event('online'));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(hoisted.instances).toHaveLength(before + 1);
+      expect(hoisted.instances[before - 1].closed).toBe(true);
+      expect(internals.reconnect?.rejoins).toBe(0);
+      expect(failedReasons(dispatch)).toEqual([]);
+    } finally {
+      delete (globalThis as unknown as { window?: unknown }).window;
+    }
   });
 
   it('once a peer is engaged, neither the refresh nor a room-closed moves us off the room', async () => {

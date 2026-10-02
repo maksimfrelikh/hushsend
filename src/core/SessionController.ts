@@ -331,6 +331,11 @@ const RECONNECT_REFRESH_MS = 2 * 60_000;
 /** Unexpected server-side closes while waiting alone are answered with a re-join; this many in one
  *  wait is a server that keeps bouncing us (rate-limit, "room full" from a squatter), not bad luck. */
 const RECONNECT_MAX_REJOINS = 8;
+/** A rendezvous socket that could not even OPEN while waiting alone — the network went away under the
+ *  wait (a phone walking from Wi-Fi to cellular, roaming between access points; the previous socket
+ *  died with a 1006 a moment earlier — TESTPLAN E7, 2026-10-02) — is retried after this pause, within
+ *  RECONNECT_MAX_REJOINS and the overall wait, instead of ending the wait at once. */
+const RECONNECT_RETRY_MS = 3_000;
 /** Stable reason markers the FailedScreen keys its copy off. */
 const RECONNECT_NO_SHOW_REASON = 'the other device did not show up — open hushsend there and tap Reconnect on this device';
 const RECONNECT_STRANGER_REASON =
@@ -844,6 +849,9 @@ export class SessionController {
    *  pref (prefs.tsx) via setPrivacyMode; READ at pairing start (so a mid-session toggle affects the
    *  NEXT connection, not the live one). */
   private privacyMode: PrivacyMode = DEFAULT_PRIVACY_MODE;
+  /** `online` listener while a reconnect waits alone (re-takes the rendezvous on a network change);
+   *  core-only live handle, removed with the wait timers. */
+  private reconnectOnline: (() => void) | null = null;
   /** This session's fetched coturn credentials (Reliable mode only). Null until
    *  fetched; reset per session in openSignaling (creds are tied to the live signaling socket).
    *  NO_TURN (empty urls) ⇒ relay unavailable → we stay direct-only. */
@@ -1190,7 +1198,8 @@ export class SessionController {
     // link/qr: same gate — a peer dropping before the transport is up aborts this single-use attempt
     // (no bytes); a post-channel-open `peer-left` is the benign post-connect close and is ignored.
     if ((this.method === 'link' || this.method === 'qr') && peerLeftAbortsPairing(this.established, this.channelOpen)) {
-      this.failLink('peer left during pairing');
+      if (this.peerLeftWhileDirectAttempt()) this.failDirectAfterPeerLeft();
+      else this.failLink('peer left during pairing');
     }
     // reconnect: a peer dropping mid-re-auth is a hard stop (no bytes). Gated by
     // peerLeftAbortsPairing for the SAME reason as words/link/SAS: a settled reconnect closes its own
@@ -1199,7 +1208,8 @@ export class SessionController {
     // channel is already up. After channel-open the DataChannel/ICE are the liveness authority, and
     // a REAL abort there is caught by onChannelClose.
     if (this.reconnect && peerLeftAbortsPairing(this.established, this.channelOpen)) {
-      this.failReconnect('reconnect aborted — peer left during re-auth');
+      if (this.peerLeftWhileDirectAttempt()) this.failDirectAfterPeerLeft();
+      else this.failReconnect('reconnect aborted — peer left during re-auth');
     }
     // room + SAS: SAME gate as words and link/qr. A peer dropping before the DataChannel transport
     // is up aborts the pairing (e.g. the other side rejected the SAS and tore down before the channel
@@ -1212,8 +1222,37 @@ export class SessionController {
     // peerLeftAbortsPairing — not a bare `!established` — weakens nothing; it only stops the race from
     // tearing down a pair where both humans already confirmed the SAS.
     if (this.sas && peerLeftAbortsPairing(this.established, this.channelOpen)) {
-      this.failSas('peer left during SAS pairing');
+      if (this.peerLeftWhileDirectAttempt()) this.failDirectAfterPeerLeft();
+      else this.failSas('peer left during SAS pairing');
     }
+  }
+
+  /**
+   * A pre-transport `peer-left` while OUR PeerConnection is still trying, in Max privacy, is almost
+   * always the peer giving up on a direct path that could not be built: in a Max ↔ Reliable pair across
+   * two NATs both sides' ICE times out ~15 s after `connecting`, and whichever fails first closes its
+   * socket — when that is the peer, its `peer-left` reaches us a moment before our own `failed`, and the
+   * session used to end as "peer left during pairing" instead of the one actionable line, "Switch to
+   * Reliable" (TESTPLAN C3, 2026-10-02: the hint showed or not depending on who lost the race). The
+   * outcome is the same either way — fail closed, no bytes; only the copy was wrong. So with a
+   * PeerConnection in flight and no transport yet, in Max privacy, the peer-left ends through
+   * failDirect, i.e. the DIRECT_FAIL_REASON the FailedScreen renders its hint off.
+   *
+   * Words is excluded on purpose: its peer-left branch is a counted guess attempt with its own retry
+   * copy (onWordsPairingFailure), and that budget must not change shape. The one edge this misreads is a
+   * peer that leaves in the few milliseconds between ICE connecting and the relay gate passing (the
+   * channel not yet `open`): measured 0–1 ms on every engine (§ Max-privacy strict model), and the
+   * alternative — the bare "peer left" — is no truer about a peer that has vanished.
+   */
+  private peerLeftWhileDirectAttempt(): boolean {
+    return this.privacyMode === 'max' && this.peer !== null && !this.channelOpen && !this.established;
+  }
+
+  private failDirectAfterPeerLeft(): void {
+    this.dispatch(
+      devActions.appendLog('peer left before any transport while our direct attempt was still running (Max privacy) — failing with the Reliable hint'),
+    );
+    this.failDirect(DIRECT_FAIL_REASON);
   }
 
   /**
@@ -2428,6 +2467,12 @@ export class SessionController {
     this.dispatch(devActions.setReconnect({ active: true, outcome: null }));
     // The overall cap: if the other device never taps, say so instead of waiting forever.
     rc.waitTimer = setTimeout(() => this.onReconnectWaitExpired(), reconnectWaitMs());
+    // A network change while waiting: the browser's `online` event is the earliest sign the new
+    // network is up — take the rendezvous again at once rather than at the next retry/refresh tick.
+    if (typeof window !== 'undefined' && !this.reconnectOnline) {
+      this.reconnectOnline = () => this.rejoinReconnectRendezvous('online');
+      window.addEventListener('online', this.reconnectOnline);
+    }
     await this.takeReconnectRendezvous();
   }
 
@@ -2452,6 +2497,20 @@ export class SessionController {
     try {
       await this.signaling!.connect({ join: token, codeType: 'token' });
     } catch (err) {
+      // The socket did not open. While we are still waiting alone this is not terminal: on a phone it
+      // is the network changing under the wait (the 1006 that closed the previous socket brought us
+      // here, and the new network is not up yet). Try again after a short pause — counted against the
+      // same re-join cap, inside the same overall wait — and keep the failure text for when the cap
+      // runs out or a peer was already engaged.
+      if (rc.settled || this.peerId) return;
+      if (rc.rejoins < RECONNECT_MAX_REJOINS) {
+        this.dispatch(
+          devActions.appendLog(`reconnect: the rendezvous socket did not open (${errText(err)}) — retrying in ${RECONNECT_RETRY_MS} ms`),
+        );
+        if (rc.refreshTimer != null) clearTimeout(rc.refreshTimer);
+        rc.refreshTimer = setTimeout(() => this.rejoinReconnectRendezvous(`the socket did not open: ${errText(err)}`), RECONNECT_RETRY_MS);
+        return;
+      }
       this.failReconnect(`reconnect: ${errText(err)}`);
     }
   }
@@ -2466,8 +2525,13 @@ export class SessionController {
   private rejoinReconnectRendezvous(why: string): void {
     const rc = this.reconnect;
     if (!rc || rc.settled || this.peerId || this.established) return;
-    if (why !== 'refresh' && ++rc.rejoins > RECONNECT_MAX_REJOINS) {
-      this.failReconnect(`reconnect: the server keeps closing the rendezvous (${why})`);
+    // The scheduled refresh and a "back online" nudge are not the server's doing and do not count.
+    if (why !== 'refresh' && why !== 'online' && ++rc.rejoins > RECONNECT_MAX_REJOINS) {
+      this.failReconnect(
+        why.startsWith('closed')
+          ? `reconnect: the server keeps closing the rendezvous (${why})`
+          : `reconnect: the rendezvous could not be reached (${why})`,
+      );
       return;
     }
     this.dispatch(devActions.appendLog(`reconnect: re-taking the rendezvous (${why})`));
@@ -2495,6 +2559,10 @@ export class SessionController {
     rc.refreshTimer = null;
     if (rc.waitTimer != null) clearTimeout(rc.waitTimer);
     rc.waitTimer = null;
+    if (this.reconnectOnline && typeof window !== 'undefined') {
+      window.removeEventListener('online', this.reconnectOnline);
+      this.reconnectOnline = null;
+    }
   }
 
   /**

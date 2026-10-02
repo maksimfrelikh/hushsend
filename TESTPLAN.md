@@ -657,7 +657,7 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       timing: after the first pair connects, both sockets close and the token room is gone, so the
       second joiner gets the dead-link failure ("the link has expired or was already used") at once;
       the 4002 "room full" bounce is reachable only while the first two are still pairing.
-- [ ] **F8 · silent peer on the 1:1 confirm path** — open a link on the receiving device and, the
+- [ ] **F8 · silent peer on the 1:1 confirm path** *(Android half ✅ 2026-10-03: Pixel 5 on a VPN Wi-Fi, Reliable, Wi-Fi cut right after `welcome` — the sender ended in 25 s, the server's `peer-left` beat the 120 s deadline; § Result log. IPH pending)* — open a link on the receiving device and, the
       instant the connection starts, put that browser in a state where it cannot answer (airplane mode
       works; force-quitting the tab does not — that raises a channel close instead, which is a
       different path). Expected: the SENDER ends in **`failed` within ~120 s**, not an endless
@@ -1356,6 +1356,29 @@ F8 on, the phone on a **second Wi-Fi that exits through a VPN in France** ("enli
   tap on Save file (a real `input tap`): `/sdcard/Download/hs-f1-manual-200000000.bin`, 200 000 000
   bytes, **SHA-256 equal to the generator's**. So on Android Chrome: a receive survives the screen lock,
   the download is held rather than lost, and a single tap lands it intact.
+- **F8 · T2 · the phone on the VPN Wi-Fi, Reliable both, Wi-Fi cut 1.8 s after `welcome` · PASS (25 s).**
+  Over the relay the join takes ~5 s, so the cut landed while the phone was still "Joining…" (no
+  PeerConnection yet — it was waiting for its TURN credentials). The Mac sat in "Agreeing on keys…" with
+  its PeerConnection `new` and ended at **25.3 s** with "Couldn't connect — peer left during pairing":
+  the SERVER noticed the dead socket and broadcast `peer-left` long before the 120 s client deadline
+  would have. No endless wait. (The phone, Wi-Fi back 8 s later: "Lost the connection to the server —
+  Check your internet connection and start again", plus the relay-unavailable line because its
+  `turn-credentials` never arrived — honest, if a little misleading about WHY there was no relay.) On
+  the LAN this case is not reachable: the join completes in ~1.5 s, faster than `svc wifi disable`.
+- **B10 · past the quota on the phone · PASS** — a 16 GiB offer (the phone's site quota read 10–15 GB
+  across the evening) was accepted on the Pixel 5 through a trusted click: planReceive skipped site
+  storage and **the system save dialog came to the front** (`com.google.android.documentsui …
+  PickActivity`, screenshot `quota_dialog.png`) — the File System Access path, as the table predicts for
+  Chrome/Android. Back out of the dialog: receiver "Transfer ended · cancelled", sender "declined —
+  recipient cancelled", nothing transferred, the channel still open.
+- **B10 · the "RAM rung" in an incognito tab on the phone · NOT APPLICABLE on Android Chrome.** An
+  incognito tab (opened from Chrome's menu; reachable over the same DevTools socket — Android hands every
+  tab, incognito included, to one BrowserContext, so the harness picks it by URL) reported site storage
+  **usable** (the one-byte OPFS probe wrote and closed), `estimate()` 10 GB, `showSaveFilePicker` present.
+  A 250 MiB offer over the relay was accepted with **no dialog and went to site storage** ("Receiving …
+  1 %"), so the RAM path is never reached there: unlike desktop Chrome incognito (430 MiB of real room
+  behind a 10 GiB estimate) and Firefox private (no OPFS at all), Android Chrome incognito simply has
+  working site storage. The 200 MiB cap stays covered by the e2e and by Firefox private on the desktop.
 - **B10 (phone, site-storage ladder) · T2 · Mac → Pixel 5 over USB, Max, one pair:** **2 GiB PASS** (510 s
   = 4.2 MB/s, every block verified, Chrome PSS 223–264 MB over 99 samples, site storage then 2048 MB of a
   12.3 GB quota), **3 GiB PASS** (1062 s = 3.0 MB/s, verified, PSS 211–229 MB; usage 3072 MB — the 2 GiB

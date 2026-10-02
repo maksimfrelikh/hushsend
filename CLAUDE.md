@@ -497,7 +497,11 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
      two clocks that disagree by less than a bucket still meet, at worst after the skew has elapsed)
      and every `RECONNECT_REFRESH_MS` (2 min, well inside the server's 3-min token TTL — a fresh room
      for a late peer), answers a `room-closed`/server close with another take (bounded by
-     `RECONNECT_MAX_REJOINS` = 8), and gives up at `reconnectWaitMs()` (10 min; DEV knob
+     `RECONNECT_MAX_REJOINS` = 8), answers a socket that cannot even OPEN (the network changed under
+     the wait — a phone leaving its Wi-Fi; the old socket died with a 1006 a moment earlier) with a
+     retry after `RECONNECT_RETRY_MS` (3 s) inside the same cap instead of ending the wait, re-takes
+     at once on the browser's `online` event (neither counts against the cap; both since 2026-10-03,
+     TESTPLAN E7 on the Pixel 5), and gives up at `reconnectWaitMs()` (10 min; DEV knob
      `?reconnectWaitMs=N` / `__HUSHSEND_RECONNECT_WAIT_MS__`) with the stable
      `RECONNECT_NO_SHOW_REASON` ("did not show up" — its own FailedScreen variant). Nothing about the
      token is projected to the store. `SessionController.reconnectRendezvous.test.ts`.
@@ -646,6 +650,16 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
   browser stops the transfer and tells the sender; site storage, forced with the DEV-only
   `?noStream=1`: no dialog, bytes intact; hidden page → Save file) and `connection-lost.spec.ts` (a
   started stream download must end FAILED) / `mobile.spec.ts`, which run on the real path.
+- **"Finishing" — the 100 % that is not the end (2026-10-03, owner's choice "option 1").** Once every
+  declared byte has crossed, the sender still pushes the volume padding (Max privacy, up to 12.5 % of
+  the file — 512 MiB at 2^32 + 1 B, ~137 s at the Pixel 5's 3.9 MB/s, TESTPLAN B10) and then waits for
+  `received`; the receiver drops that padding and closes its sink. No progress is emitted for any of it
+  by design, so the bar sat at 100 % looking dead. `TransferScreen` now derives
+  `finishing = transferring && transferredBytes >= totalBytes` (no core or protocol change): the title
+  becomes "Finishing" and a `role=status` line (`transfer-finishing`) says why — in Max privacy
+  "Hiding the file's size — a little extra data goes out / arrives after the file", otherwise
+  "Waiting for the other side to confirm…" / "Saving the file." The padding ceiling (option 2) was NOT
+  taken: the bucket ladder is unchanged. Visual/a11y scene `transfer-finishing`.
 - **"Delivered" means the receiver confirmed (2026-09-27).** The receiver sends `{t:'received'}` after
   saving every DECLARED byte (an `eof` short of the declared size is an error + `cancel`); the sender's
   `done` waits for it (`confirming` phase, flipped BEFORE the eof send so a confirmation that overtakes a
@@ -813,6 +827,15 @@ enforce it in Max-privacy, then a direct failure is **terminal**:
   genuine `onClose` → `failed` (relay was available and still couldn't save it — no hint).
   `DIRECT_FAIL_REASON` (`"couldn't connect directly (Max privacy)"`) is the stable marker the screen
   keys off (`/connect directly|max privacy/`).
+- **A pre-transport `peer-left` during a Max-privacy direct attempt ALSO ends as the direct failure
+  (since 2026-10-03).** In a Max ↔ Reliable pair across two NATs both ICE agents time out ~15 s after
+  `connecting`; when the PEER's gives up first its socket closes and its `peer-left` reaches us before
+  our own `failed`, and the Max side used to read "peer left during pairing" — fail-closed, but without
+  the one actionable line (TESTPLAN C3 on the Pixel 5, 2026-10-02: the hint showed or not depending on
+  who lost the race). `SessionController.peerLeftWhileDirectAttempt()` (Max privacy + a PeerConnection
+  in flight + channel not open + not established) routes the link/qr, room/SAS and reconnect
+  `onPeerLeft` branches through `failDirect(DIRECT_FAIL_REASON)`; **words is excluded** (its peer-left
+  is a counted guess with its own retry copy). Unit: `SessionController.sasPeerLeft.test.ts`.
 - **No relax-offer / bilateral / relax signal**: there is NO consent-gated relay escalation. The
   `connection.relax` projection, the `relax` signaling frame, `relaxConnection`/`declineRelax`, and the
   `pc.setConfiguration`/`restartIce` ICE-restart-over-relay were all **removed**. This also removes the

@@ -611,8 +611,12 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   `catch {}`: a decoder that throws the same error on every frame should surface the paste fallback (or
   a "scanner unavailable" line) instead of a live-looking viewfinder — the first frames' error is
   "transient" only if a later frame succeeds.
-- 🟡 **A Max-privacy side that cannot go direct does not always get the "Switch to Reliable" hint — found
-  2026-10-02 on the live build, Mac Chrome (Max) ↔ Pixel 5 (Reliable) across two networks (TESTPLAN C3).**
+- ✅(code, 2026-10-03) **A Max-privacy side that cannot go direct does not always get the "Switch to
+  Reliable" hint — found 2026-10-02 on the live build, Mac Chrome (Max) ↔ Pixel 5 (Reliable) across two
+  networks (TESTPLAN C3).** Done as proposed: `peerLeftWhileDirectAttempt()` (Max + PeerConnection in
+  flight + no transport) sends the link/qr, room/SAS and reconnect `onPeerLeft` branches through
+  `failDirect(DIRECT_FAIL_REASON)`; words untouched. Unit-tested in `SessionController.sasPeerLeft.test.ts`
+  (CLAUDE.md § Max-privacy strict model). Original note:
   Whose ICE gives up first decides the copy: when the Max side's own ICE reached `failed` first it read
   "Couldn't connect directly — Switch to Reliable" (the phone as Max on the link method; both room runs);
   when the Reliable peer's ICE failed ~2 s earlier its socket closed, the `peer-left` arrived first and
@@ -625,8 +629,13 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   `DIRECT_FAIL_REASON` (or append the hint) instead of the bare "peer left" — the peer leaving before any
   transport existed is, in Max privacy, overwhelmingly a direct path that could not be built. Decide
   with the owner; keep the words branch's guess-counting untouched.
-- 🟡 **The padding tail is minutes of "100 %" with no sign of life on a slow link — seen 2026-10-02 on
-  the Pixel 5 ladder (TESTPLAN B10).** At 2^32 + 1 B the Max-privacy bucket is 4.5 GiB, so after the last
+- ✅(code, 2026-10-03 — owner chose option 1) **The padding tail is minutes of "100 %" with no sign of
+  life on a slow link — seen 2026-10-02 on the Pixel 5 ladder (TESTPLAN B10).** Done as the UI line:
+  `TransferScreen` derives `finishing` (transferring + every declared byte crossed), titles the panel
+  "Finishing" and adds a `role=status` line — "Hiding the file's size — a little extra data goes out /
+  arrives after the file" in Max privacy, "Waiting for the other side to confirm…" / "Saving the file."
+  otherwise (CLAUDE.md § File transfer). No core or protocol change; the ladder is untouched. Visual/a11y
+  scene `transfer-finishing`. Original note: At 2^32 + 1 B the Max-privacy bucket is 4.5 GiB, so after the last
   real byte the sender pushes 512 MiB of filler; progress is deliberately not emitted for it (the UI
   would read > 100 %), so at this LAN's 3.9 MB/s both screens showed "Sending/Receiving … 100 %" for
   ~137 s with the bar full and nothing moving — long enough that the test harness called it a hang. The
@@ -635,8 +644,13 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   file's size" line while filler flows, or a padding ceiling in absolute bytes (a cap of, say, 64 MiB of
   filler buys back the minutes at the cost of a coarser bucket for files over 512 MiB — files that
   size are rarer and their exact size is less telling). Owner's call.
-- 🟡 **A reconnect wait dies on a network change instead of re-taking — found 2026-10-02 on the Pixel 5
-  (TESTPLAN E7 +15 min).** While the phone sat on `ReconnectWaitScreen` the owner switched its Wi-Fi; the
+- ✅(code, 2026-10-03) **A reconnect wait dies on a network change instead of re-taking — found 2026-10-02
+  on the Pixel 5 (TESTPLAN E7 +15 min).** The 1006 itself was already answered with a re-take; what ended
+  the wait was the re-take's socket failing to OPEN on a network still coming up. Now that failure
+  schedules another take after `RECONNECT_RETRY_MS` (3 s) inside the same `RECONNECT_MAX_REJOINS` cap,
+  and the browser's `online` event re-takes at once (not counted). "Signaling connection failed" is kept
+  for the cap running out. Unit-tested in `SessionController.reconnectRendezvous.test.ts` (CLAUDE.md
+  § Reconnect → Rendezvous). Original note: While the phone sat on `ReconnectWaitScreen` the owner switched its Wi-Fi; the
   signaling socket closed with **1006** and the wait ended at once as "Couldn't connect — reconnect:
   signaling connection failed". The wait re-takes the rendezvous on a `room-closed` / server close and on
   the 2-min refresh, but a 1006 (abnormal close — the network under the socket went away) is treated as

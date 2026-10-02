@@ -223,6 +223,15 @@ export const STR = {
   fileMany: { en: 'files' },
   sendingTitle: { en: 'Sending' },
   receivingTitle: { en: 'Receiving' },
+  /** Every declared byte has crossed but the transfer is not over: in Max privacy the sender is still
+   *  pushing the volume padding (up to 12.5% of the file, minutes on a slow link — TESTPLAN B10,
+   *  2026-10-02), in any mode the receiver is still closing its sink and the sender is waiting for
+   *  the `received` confirmation. The bar sits at 100% by design; these lines say why. */
+  finishingTitle: { en: 'Finishing' },
+  finishingPadSend: { en: 'Hiding the file’s size — a little extra data goes out after the file.' },
+  finishingPadReceive: { en: 'The sender is hiding the file’s size — a little extra data arrives after the file.' },
+  finishingConfirm: { en: 'Waiting for the other side to confirm it has everything.' },
+  finishingSave: { en: 'Saving the file.' },
   incomingTitle: { en: 'Incoming file', ru: 'Входящий файл' },
   incomingFrom: { en: 'from', ru: 'от' },
   accept: { en: 'Accept', ru: 'Принять' },
