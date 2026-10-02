@@ -858,14 +858,22 @@ input (`src/ui/screens/ScanScreen.tsx`).
   (`zxing-wasm/reader/zxing_reader.wasm?url` → fingerprinted into `dist/assets/`, same-origin) and
   calls `setZXingModuleOverrides({ locateFile })` to point the loader at that asset **before** the
   detector instantiates. Lazy loading is preserved (only the URL string is in the bundle; the
-  ponyfill JS + WASM still load only on a real scan, now from `'self'`). `zxing-wasm@3.1.0` is pinned
-  as a direct dep (exact, matching barcode-detector's inlined copy) so the import resolves
-  independent of hoisting. The wired `locateFile` is unit-tested in `zxingWasm.test.ts` (resolves to
-  a same-origin asset, never jsdelivr/fastly). ScanScreen calls `createQrDetector()` instead of
+  ponyfill JS + WASM still load only on a real scan, now from `'self'`). **`zxing-wasm@3.1.3`** is pinned
+  as a direct dep (exact, matching the copy `barcode-detector@3.2.2` inlines — since 2026-10-02; it was
+  3.1.0 / 3.2.0 before) so the import resolves independent of hoisting. `zxingWasm.test.ts` tests the
+  wired `locateFile` (resolves to a same-origin asset, never jsdelivr/fastly) AND, since 2026-10-02, is
+  the **ABI gate**: it instantiates the ponyfill's glue with the vendored `zxing_reader.wasm` in Node and
+  decodes a real hushsend-link QR, so a glue/wasm version drift fails `vitest` instead of production. ScanScreen calls `createQrDetector()` instead of
   constructing the ponyfill detector directly. **CSP consequence:** `connect-src` no longer lists any
   CDN (see § Deployment).
-- **⚠️ Version-coupling — re-check the `zxing-wasm` pin on every `barcode-detector` bump.** Our direct
-  `zxing-wasm@3.1.0` pin MUST stay equal to the version `barcode-detector` inlines internally: at scan
+- **⚠️ Version-coupling — re-check the `zxing-wasm` pin on every `barcode-detector` bump. THIS BIT ON
+  2026-10-01:** a dependency refresh (`c5f6e94`) moved `barcode-detector` to 3.2.2 within its `^` range —
+  glue zxing-wasm 3.1.3, 78 imports — while the exact pin kept vendoring the 3.1.0 reader (80 imports);
+  the live site's scanner then died on every frame with `LinkError: Import #78 "a" "ya": function import
+  requires a callable`, swallowed by ScanScreen's per-frame `catch`, on desktop Chrome and on a Pixel 5
+  alike, with `tsc` / `vite build` / the e2e all green (found by the 2026-10-02 handset pass, TESTPLAN
+  A2/B3). The vitest ABI gate above now catches it; the rule still stands. Our direct
+  `zxing-wasm` pin MUST stay equal to the version `barcode-detector` inlines internally: at scan
   time the ponyfill's JS expects a `zxing_reader.wasm` whose ABI matches ITS inlined copy, but
   `locateFile` now points the loader at OUR vendored asset. If a future `barcode-detector` upgrade
   silently inlines a DIFFERENT zxing-wasm version, our vendored `.wasm` would be ABI-mismatched against

@@ -592,6 +592,49 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
 
 ## UX bugs — found in the manual test pass (Phase 1)
 
+- 🔴→✅(code) **QR scanning dead on the live build since the 2026-10-01 dependency refresh — found
+  2026-10-02 on the Pixel 5, confirmed on desktop Chrome 154 (TESTPLAN A2/B3).** `c5f6e94` moved
+  `barcode-detector` 3.2.0 → 3.2.2 within its `^` range; its inlined zxing glue is now zxing-wasm 3.1.3
+  (78 imports) while the exact direct pin `zxing-wasm: 3.1.0` kept vendoring the 3.1.0 reader (80
+  imports). Every detect call died in `WebAssembly.instantiate` with `LinkError: Import #78 "a" "ya":
+  function import requires a callable`, caught by ScanScreen's per-frame `catch {}` — the viewfinder
+  looked alive and nothing was ever decoded; only the paste fallback worked. This is exactly the coupling
+  CLAUDE.md § QR warns about, and the warning was all there was: `tsc`, `vite build`, the e2e (paste
+  fallback) and the 2026-10-01 dep refresh's own checks were green. **Fixed in the tree 2026-10-02
+  (commit + deploy pending):** pin moved to 3.1.3 (deduped with barcode-detector's copy) and a vitest
+  gate (`zxingWasm.test.ts`) that instantiates the ponyfill's glue with the vendored `.wasm` and decodes a
+  real hushsend-link QR — the negative control with the 3.1.0 bytes reproduces the LinkError. Verified
+  on a local preview with the fake camera (decode in 0.5 s). **Still open:** (a) an e2e that scans a QR
+  through the real camera path (Chromium `--use-fake-device-for-media-stream` +
+  `--use-file-for-fake-video-capture` with a y4m rendered from the live link, as the harness's
+  `qr2y4m.cjs` does) so the WHOLE scan path is in CI, not just the ABI; (b) ScanScreen's silent
+  `catch {}`: a decoder that throws the same error on every frame should surface the paste fallback (or
+  a "scanner unavailable" line) instead of a live-looking viewfinder — the first frames' error is
+  "transient" only if a later frame succeeds.
+- 🟡 **A Max-privacy side that cannot go direct does not always get the "Switch to Reliable" hint — found
+  2026-10-02 on the live build, Mac Chrome (Max) ↔ Pixel 5 (Reliable) across two networks (TESTPLAN C3).**
+  Whose ICE gives up first decides the copy: when the Max side's own ICE reached `failed` first it read
+  "Couldn't connect directly — Switch to Reliable" (the phone as Max on the link method; both room runs);
+  when the Reliable peer's ICE failed ~2 s earlier its socket closed, the `peer-left` arrived first and
+  the Max side ended through the pre-transport `onPeerLeft` branch as **"Couldn't connect — peer left
+  during pairing"** (twice, with the Mac as Max creator on the link method; the two ICE timeouts are both
+  ~15 s from `connecting`, so the order is a photo finish). Fail-closed either way, so not a security
+  finding — but the one actionable line (relay would have saved this) is missing exactly in the mixed
+  pair the hint exists for. Candidate fix: when a pre-transport `peer-left` lands on a Max-privacy pairing
+  whose PeerConnection is still `connecting`/`checking` (ICE not failed, not connected), fail with
+  `DIRECT_FAIL_REASON` (or append the hint) instead of the bare "peer left" — the peer leaving before any
+  transport existed is, in Max privacy, overwhelmingly a direct path that could not be built. Decide
+  with the owner; keep the words branch's guess-counting untouched.
+- 🟡 **A reconnect wait dies on a network change instead of re-taking — found 2026-10-02 on the Pixel 5
+  (TESTPLAN E7 +15 min).** While the phone sat on `ReconnectWaitScreen` the owner switched its Wi-Fi; the
+  signaling socket closed with **1006** and the wait ended at once as "Couldn't connect — reconnect:
+  signaling connection failed". The wait re-takes the rendezvous on a `room-closed` / server close and on
+  the 2-min refresh, but a 1006 (abnormal close — the network under the socket went away) is treated as
+  terminal. A phone walking from Wi-Fi to cellular, or roaming between access points, is exactly the device
+  that waits for a reconnect. Candidate fix: treat a 1006 during the wait like a server close — one more
+  take after a short backoff, inside the existing `RECONNECT_MAX_REJOINS` bound — and keep "signaling
+  connection failed" for the case where the re-take itself cannot open. Owner's call.
+
 - ✅ **Firefox (any site-storage browser): a second big file right after the first is refused with
   "Free up disk space" while the disk is nearly empty — found 2026-09-28 on the live build.** The
   delivered file's copy stays in site storage for `OPFS_HOLD_MS` (10 min) and counts against the site's
