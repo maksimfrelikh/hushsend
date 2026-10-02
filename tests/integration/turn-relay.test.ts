@@ -69,11 +69,20 @@ async function assertPortFree(port: number): Promise<void> {
   });
 }
 
+/**
+ * `Connection: close`, so the probe leaves no idle keep-alive socket in fetch's pool.
+ * `relayAttempt` blocks the event loop (spawnSync) for ~4–6.5 s, Node's HTTP server drops an idle
+ * socket after 5 s, and while blocked nothing on this side can see it go — so when the uclient run
+ * outlasted the server's timeout, the NEXT test's WebSocket handshake was handed that dead socket and
+ * failed (CI from the 2026-10-01 nightly: a bare `error` and no `close` on Node 22.23, a 1006 on
+ * 22.22).
+ */
 async function waitForHealth(port: number, timeoutMs = 10000): Promise<void> {
   const start = Date.now();
+  const probe = { headers: { connection: 'close' } };
   for (;;) {
     try {
-      if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) return;
+      if ((await fetch(`http://127.0.0.1:${port}/health`, probe)).ok) return;
     } catch {
       /* not up yet */
     }
@@ -127,7 +136,13 @@ function mintFromSignalingServer(): Promise<{ urls: string[]; username: string; 
       }
       reject(new Error('timeout waiting for turn-credentials'));
     }, 8000);
-    ws.onerror = () => {};
+    // A failed handshake must fail HERE: Node 22.23's WebSocket reports one with `error` alone (no
+    // `close`), which a no-op handler turned into an 8 s "timeout" that pointed at the server.
+    ws.onerror = (e) => {
+      clearTimeout(timer);
+      const why = (e as ErrorEvent).message || e.type;
+      reject(new Error(`signaling socket error before credentials: ${why}`));
+    };
     ws.onclose = (e) => {
       clearTimeout(timer);
       reject(new Error(`signaling socket closed before credentials: ${e.code}`));

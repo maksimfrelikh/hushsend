@@ -361,8 +361,23 @@ the same pass as CLAUDE.md when items land.
   no commits, which would silently stop the nightly engine matrix — the only thing that exercises
   firefox/webkit/interop, since that job is skipped on push. The rule applies here: the repository is
   PUBLIC (anonymous `git ls-remote` works, checked 2026-09-29), and GitHub's 60-day auto-disable is a
-  public-repository rule. Last commit 2026-09-29, so **the nightly stops around 2026-11-28** unless
+  public-repository rule. Last commit 2026-10-02, so **the nightly stops around 2026-12-01** unless
   something lands before then. Re-enable it (or run the matrix from the Actions tab) before any release.
+- ✅ **CI's relay test red from the 2026-10-01 nightly — fixed 2026-10-02.** The second credential mint in
+  `tests/integration/turn-relay.test.ts` failed — on CI an 8 s "timeout waiting for turn-credentials",
+  on laptop-server a close 1006 (`c5f6e94` noted it as a laptop-server failure; it was the same one) —
+  on a commit that had been green the night before. Engine matrix green both
+  nights; only the integration job. The cause was the test, not the server: the `/health` probe's
+  `fetch` left an idle keep-alive socket in undici's pool, `relayAttempt` then blocks the event loop
+  (`spawnSync`) for ~4–6.5 s, Node's HTTP server closes an idle socket at 5 s, and the blocked client
+  never sees it go and hands the dead socket to the next WebSocket handshake. It bites only when the
+  uclient run outlasts 5 s — most runs on laptop-server; on CI not until that night (what changed on
+  the runner is unreadable: job logs need auth). The probe now sends `Connection: close`, and the mint
+  rejects on the socket's `error`: Node 22.23's WebSocket reports a failed handshake with `error` and
+  no `close`, which the old no-op handler turned into the misleading timeout. Checked on Node 22.22.1
+  and on 22.23.3 (CI's): with an extra forced 6 s block it passes, and without the probe change it
+  fails in under 40 ms naming the network error; 10/10 plain runs green, 8 of them with the relay step
+  over 5 s; full vitest 367/367 on both.
 - ✅ **OBSOLETE 2026-09-29 — no need to finish.** Since 2026-09-28 the RAM (Blob) receive path is capped
   at 200 MiB on every device (the disk paths carry everything bigger), far below both engines' measured
   Blob ceilings, so the unmeasured rungs describe a path no transfer takes any more. Kept for the record:
@@ -1227,8 +1242,9 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   scheduled run `success`, and in each of the 12 the `e2e (firefox · webkit · interop · phone profile)`
   job itself ran and passed — not skipped), across `9b42cca`, `1fac03a` ×7, `35e813a`, `79e3624`,
   `c5a51c4` and `273e9e7`. With the old rate (red 1 night in 5) twelve greens by chance is 0.8¹² ≈ 7 %,
-  and the deterministic reproduction still carries the weight. The only red scheduled run since
-  2026-09-13 is 17 Sep, the night that opened this item.
+  and the deterministic reproduction still carries the weight. The only red scheduled run between
+  2026-09-13 and the closure is 17 Sep, the night that opened this item. (The red nights of 1–2 Oct
+  are the integration job's relay test, not the engine matrix — § Ops / housekeeping.)
 - ✅ **Reconnect spec's patience raised above the app's own deadline (2026-09-17).** The app fails a
   stalled re-auth at 120 s (`DEFAULT_RECONNECT_TIMEOUT_MS`) while the spec waited 60 s, so the test
   gave up first and "the app stalled" was indistinguishable from "the app failed correctly" — the

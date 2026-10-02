@@ -141,8 +141,8 @@ write; plus 2 opt-in cases everywhere, the size ladder and the two-STUN cross-ch
 phone profile and 5 cross-engine pairs — cover the protocol paths; the axe
 gate (`npm run test:a11y`, 112 checks) and the screenshot gate (`npm run visual`, 167 checks — on the
 deploy host, whose renders the baselines are) cover the screens. The vitest, per-engine e2e, phone, axe
-and screenshot counts were re-run 2026-09-28; the cross-engine count is from 2026-09-26. Refresh them
-here whenever the suite grows.
+and screenshot counts were re-run 2026-09-28 (vitest again 2026-10-02, 367 of 367); the cross-engine
+count is from 2026-09-26. Refresh them here whenever the suite grows.
 
 A second internal audit on **2026-09-12** (modelling a fully malicious signaling server, not just a
 passive one) found and fixed three complete breaks — SAS certificate grinding, server-chosen pairing
