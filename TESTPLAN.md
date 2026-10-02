@@ -100,7 +100,15 @@ Last run 2026-09-27 against the bundle fetched over HTTPS from the live host (`i
 ### 0.1 Preconditions
 
 - [x] Frontend redeployed from current `main` (`bash ~/projects/hushsend/deploy/deploy-frontend.sh`)
-      — re-done 2026-09-29 19:44 UTC by the owner (commit `8c9ea59`: a link opened into an already-open
+      — re-done 2026-10-02 ~19:20 UTC (commit `9bdda44`: the QR scanner's zxing glue/wasm ABI fix —
+      `zxing-wasm` 3.1.3 — plus the vitest ABI gate and this pass's records); `/var/www/hushsend/dist` is
+      byte-identical to a clean local build of `9bdda44` (42 files, equal sha256 manifests), the public
+      URL serves `index-CL2avokU.js` and `zxing_reader-BxB2YfIY.wasm`, no `stun.l.google`. Checked live
+      the same minute with real Chrome 154 and its fake camera: the QR decoded and the pair connected in
+      0.5 s, the `.wasm` fetched from our origin only — **a browser that had the site open keeps the OLD
+      bundle until a hard refresh / cache clear (`index.html` is cached), so every test device needs one
+      before re-testing.** Before it, the owner's 2026-10-01 deploy of `c5f6e94` (`index-6QS8zIWA.js`),
+      which is the build the scanner was found dead on. Before that, 2026-09-29 19:44 UTC (commit `8c9ea59`: a link opened into an already-open
       tab joins via `hashchange`; honest failure copy — a waiting side's own expired room, the mismatch
       description by cause; the macOS Local Network hint; the STUN probe window 12 s);
       `/var/www/hushsend/dist` is byte-identical to a clean local build of `8c9ea59` (42 files, equal
@@ -318,7 +326,7 @@ Both peers on the home Wi-Fi, default **Max-privacy**. Baseline: if these fail, 
 - [ ] **A1 · link** *(AND-1 half ✅ 2026-10-02 — Pixel 5 Chrome ×3; the named IPH run pending)* — MBP-A (Chrome) creates a one-time link → send it to IPH (Safari) out of band →
       IPH opens it. Expected: auto-join, pairing, `connected` with **no SAS screen** (link/QR
       authenticate over the link secret), URL fragment scrubbed from the address bar.
-- [ ] **A2 · QR** *(FAIL on the live build 2026-10-02 on the Pixel 5 AND on desktop Chrome: the zxing glue/wasm ABI drift from the 2026-10-01 dep refresh, fixed in the tree — re-run after the deploy; § Result log)* — MBP-A shows the QR, IPH scans it with the in-app scanner. Expected: same as A1.
+- [ ] **A2 · QR** *(AND-1 half ✅ 2026-10-02 on the fixed live build `9bdda44` — the Pixel 5 decoded the QR off the Mac's screen and connected in 8.5 s; before the fix the scanner was dead on every engine, § Result log. IPH pending)* — MBP-A shows the QR, IPH scans it with the in-app scanner. Expected: same as A1.
       Note which decoder ran (§ B3).
 - [ ] **A3 · words** *(AND-1 half ✅ 2026-10-02; IPH pending)* — MBP-A creates, IPH enters the rendezvous + the 4 secret words. Expected: `connected`
       after CPace + key confirmation, no SAS screen.
@@ -409,7 +417,7 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       Downloads (expect a 1 GiB file to complete there, nothing in site storage); Firefox private has no
       site storage (`getDirectory()` → SecurityError, measured) — expect the RAM path, a refusal before
       accept above 200 MiB; Safari private — by hand (safaridriver cannot open one).
-- [ ] **B3 · QR scan + self-hosted WASM** *(2026-10-02: self-hosting half PASS on the Pixel 5 — ponyfill + `.wasm` from our origin only; decoding half FAIL on the live build, see A2 — re-run after the deploy)* — scan on IPH Safari and AND-2 Firefox (the ponyfill path).
+- [ ] **B3 · QR scan + self-hosted WASM** *(AND-1 half ✅ 2026-10-02 on `9bdda44`: the scan fetched the ponyfill + `zxing_reader-BxB2YfIY.wasm` from our origin only and decoded; IPH Safari + AND-2 Firefox pending)* — scan on IPH Safari and AND-2 Firefox (the ponyfill path).
       Expected: scanning works, and in Network the WASM is fetched from
       `https://hushsend.frelikh.dev/assets/zxing_reader-*.wasm` with `Content-Type: application/wasm`.
       **Nothing may be requested from `jsdelivr` / `fastly` / any third-party host** — that is the whole
@@ -485,7 +493,7 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       an srflx there, that is a real-world limit to state in the README, not a defect to fix: the
       strict model is doing exactly what it promises.
 - [ ] **B10 · size ladder up to 5 GB — every receive path, every engine as sender — NEW 2026-09-27
-      (owner's request).** Limits differ by OS, browser and device, and § 0.3's ceilings come from
+      (owner's request).** *(Handset half of the site-storage row ✅ 2026-10-02: Pixel 5 Chrome, 1 / 2 / 3 / 4 GiB + 1 B / 5 GiB all PASS at 3.0–5.5 MB/s, Chrome PSS flat 201–264 MB — § Result log. Still open: the RAM rung and past-the-quota on a phone, and an iPhone.)* Limits differ by OS, browser and device, and § 0.3's ceilings come from
       Playwright builds on one Mac (Chromium and WebKit only: no Gecko, no real Safari, no phone). So
       walk each receive path up its ladder on the REAL engines and devices:
 
@@ -617,7 +625,7 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       (the dedup) — a reconnect from that new row works. **Never a silent auto-accept.** (The
       key-changed hard stop itself — a peer presenting a DIFFERENT key under the SAME pairing — cannot
       be produced on real devices without the DEV forge knob; it is covered by the e2e.)
-- [ ] **E7 · clock skew — NEW 2026-09-25.** The rendezvous is derived from each device's OWN clock in
+- [x] **E7 · clock skew — NEW 2026-09-25.** *(PASS 2026-10-02 on the Pixel 5: +4 min met in 4.1 s; +15 min never met, both sides "did not show up" at 603 s with six rendezvous takes each — § Result log)* The rendezvous is derived from each device's OWN clock in
       10-minute buckets. Set IPH's clock **+4 minutes** by hand (disable automatic time), then E2.
       Expected: they still meet — at worst after a delay of up to the skew (each side re-derives at
       its own bucket boundary), never a failure. Then set it **+15 minutes** (more than a bucket):
@@ -1311,11 +1319,15 @@ F8 on, the phone on a **second Wi-Fi that exits through a VPN in France** ("enli
 - **E7 · T2 · phone clock +4 min (`cmd alarm set-time`, auto time off) · PASS** — met in 4.1 s.
   **+15 min:** see the line below this entry (ran in the background).
 
-- **E7 +15 min — partial.** Observed 200 s (the driver's 170 s command limit cut the wait): neither side
-  met, both re-took the rendezvous on schedule (Mac at 122 s and 242 s; phone at 122 s and, at a skewed
-  bucket boundary, 138 s). Then the owner switched the phone's Wi-Fi mid-wait and its socket died with
-  **1006 → the phone ended at once with "Couldn't connect — reconnect: signaling connection failed"**
-  (no re-take on a network-change close; the Mac kept waiting). A full 10-minute run is still owed.
+- **E7 +15 min · PASS — the stated limit, observed in full (second run, later that evening, phone on the
+  LAN over wireless adb).** Phone clock +15 min, both tapped Reconnect within a second: neither side ever
+  met the other; each re-took the rendezvous on its own schedule (6 sockets each over the wait — the
+  2-min refresh plus each side's own bucket boundary, the phone's 15 min ahead of the Mac's), and **both
+  ended at 603 s with "The other device did not show up"** — the Mac and the phone within the same 10 s
+  poll. No hang, no SAS, no handshake mismatch. (A first attempt earlier in the evening observed only
+  200 s — the driver's 170 s command limit — and then the owner switched the phone's Wi-Fi mid-wait: its
+  socket died with **1006 and the phone ended at once with "Couldn't connect — reconnect: signaling
+  connection failed"** instead of re-taking — BACKLOG § UX bugs.)
 
 **Back on the LAN (phone on ROSTELECOM again, both Max).**
 - **B2 (phone half) · T2 · Mac → Pixel 1 GiB · PASS** — **site storage, no dialog**: 197 s = 5.5 MB/s
@@ -1334,6 +1346,30 @@ F8 on, the phone on a **second Wi-Fi that exits through a VPN in France** ("enli
   "Save file": the download was started at once (`download click` in the log). Whether a download
   started under a locked screen lands cannot be checked under CDP (Playwright cancels downloads in a
   browser it is attached to — nothing in `/sdcard/Download`); needs one run by hand, Chrome detached.
+- **B10 (phone, site-storage ladder) · T2 · Mac → Pixel 5 over USB, Max, one pair:** **2 GiB PASS** (510 s
+  = 4.2 MB/s, every block verified, Chrome PSS 223–264 MB over 99 samples, site storage then 2048 MB of a
+  12.3 GB quota), **3 GiB PASS** (1062 s = 3.0 MB/s, verified, PSS 211–229 MB; usage 3072 MB — the 2 GiB
+  copy had already given way), **4 GiB + 1 B · INCONCLUSIVE — the harness called a stall that was the
+  padding tail.** Every declared byte arrived (both counters at 4 294 967 297 / 4 294 967 297 after
+  ~1040 s = 3.9 MB/s, PSS 201–231 MB), and in Max privacy the sender then pushes the filler: at 2^32 + 1 the
+  bucket is 4.5 GiB, so **512 MiB of filler, ~137 s at this speed, during which both sides sit at "100 %"
+  by design** (progress is not emitted for filler). The harness's stall detector fires after 60 s without
+  receiver progress, declared `stalled` at 1100 s, and the next rung's set-up tore the session down — so
+  whether the receive would have completed ~1 min later was not observed. (A snapshot taken in that
+  window showed the OPFS `incoming/` folder with the writable's `.crswap` pre-sized to 4 294 967 297
+  bytes next to a 0-byte target, both sides `transferring`, PeerConnection `connected` — consistent with
+  the filler still in flight; a first reading of it as "close() hung for 46 min" was wrong: the 46 min
+  was the page's uptime since pairing.) Two probes exonerate OPFS itself on this phone: sparse files of
+  2^32 − 1 / 2^32 / 2^32 + 1 bytes and a REAL 4 GiB + 1 B write (28 s, ~150 MB/s) all `close()` in ≤ 5 ms
+  with the right size. **Re-run with a 400 s stall window (`STALL_S`), fresh pair, Max: 4 GiB + 1 B PASS**
+  — done in 1144 s = 3.8 MB/s, every block verified (verify 32 s on the phone), PSS 238–249 MB over 221
+  samples, "Received … 4.0 GB" + New transfer; **5 GiB PASS** — 1279 s = 4.2 MB/s (no filler: 5 GiB is a
+  bucket edge), verified (40 s), PSS 240–243 MB over 247 samples, site storage then 5120 MB of a 15.4 GB
+  quota (the 4 GiB copy had given way). **So the phone's site-storage ladder is 1 · 2 · 3 · 4+1 B · 5 GiB,
+  all PASS, memory flat throughout — the handset half of B10's OPFS row is closed.** Not walked on the
+  phone: the RAM rung (incognito is not reachable over this CDP socket) and past-the-quota (would need
+  > 15 GB). Product note for BACKLOG: on a slow link a big file's padding tail is minutes of "100 %"
+  with no sign of life — the UI should say what it is doing.
 - **B4 (Android half) · T2 · PASS, deny half** — the owner tapped Block on Chrome's camera prompt: the
   viewfinder gave way to "Camera unavailable — paste the link below instead." with the paste field under
   it, no crash, `permissions.query({name:'camera'})` = `denied`. ("Never allow" is what Chrome offered,
@@ -1357,7 +1393,19 @@ F8 on, the phone on a **second Wi-Fi that exits through a VPN in France** ("enli
   reader and decodes a real hushsend-link QR (its negative control — the same glue with the old 3.1.0
   bytes — reproduces the LinkError). Verified on a local `vite preview` of the fixed build with the
   fake camera: decoded in 0.5 s, `zxing_reader-BxB2YfIY.wasm` fetched same-origin, no console error.
-  **A2 / B3 on the phone are re-run after the deploy.**
+  **Committed and deployed as `9bdda44` the same evening (§ 0.1); the desktop fake-camera scan on the
+  LIVE build then decoded + connected in 0.5 s — A2's desktop rehearsal and B3's desktop half PASS
+  again.**
+- **A2 · T2 · Pixel 5 scans the QR on the Mac's screen · PASS on the fixed live build (`9bdda44`)** —
+  the phone's Chrome cache cleared over CDP (it had the old bundle open; the entry chunk then read
+  `index-CL2avokU.js`), the owner pointed the camera at the Mac's Share screen: the scanner left the
+  viewfinder 7.3 s after opening (decode), `connected` at 8.5 s, both sides "one-time secret verified",
+  fragment scrubbed, `host ↔ host`. The phone's Chrome was **154.0.8037.126** by then — the owner updated
+  it mid-pass (everything above A2 ran on 152). **B3 (Android half) · PASS** in the same run: the scan
+  fetched `ponyfill-BuxwROcg.js` (15 KB) and `zxing_reader-BxB2YfIY.wasm` (1068 KB) from
+  `hushsend.frelikh.dev` only — nothing from jsdelivr / fastly / any third party. (Stand note: the USB
+  cable comes loose when the phone is lifted to the screen; Wireless debugging works without pairing —
+  `adb mdns services` → `adb connect <ip>:<port>` — but Android switched it off when the screen slept.)
 
 **The trap this session hit — record the phone's privacy mode AND its SSID with every run.** The phone's
 stored pref was Reliable from an earlier session, so the first A1/A3/A4/A5 runs were mixed-privacy on the

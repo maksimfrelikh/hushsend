@@ -625,6 +625,16 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   `DIRECT_FAIL_REASON` (or append the hint) instead of the bare "peer left" — the peer leaving before any
   transport existed is, in Max privacy, overwhelmingly a direct path that could not be built. Decide
   with the owner; keep the words branch's guess-counting untouched.
+- 🟡 **The padding tail is minutes of "100 %" with no sign of life on a slow link — seen 2026-10-02 on
+  the Pixel 5 ladder (TESTPLAN B10).** At 2^32 + 1 B the Max-privacy bucket is 4.5 GiB, so after the last
+  real byte the sender pushes 512 MiB of filler; progress is deliberately not emitted for it (the UI
+  would read > 100 %), so at this LAN's 3.9 MB/s both screens showed "Sending/Receiving … 100 %" for
+  ~137 s with the bar full and nothing moving — long enough that the test harness called it a hang. The
+  arithmetic is right (padding.ts: ≤ 12.5 % above 1 MiB) and headless tests cover it; the cost of the
+  2026-09-17 decision shows only on a real device on a real link. Options: a "finishing — hiding the
+  file's size" line while filler flows, or a padding ceiling in absolute bytes (a cap of, say, 64 MiB of
+  filler buys back the minutes at the cost of a coarser bucket for files over 512 MiB — files that
+  size are rarer and their exact size is less telling). Owner's call.
 - 🟡 **A reconnect wait dies on a network change instead of re-taking — found 2026-10-02 on the Pixel 5
   (TESTPLAN E7 +15 min).** While the phone sat on `ReconnectWaitScreen` the owner switched its Wi-Fi; the
   signaling socket closed with **1006** and the wait ended at once as "Couldn't connect — reconnect:
