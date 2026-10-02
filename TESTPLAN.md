@@ -634,7 +634,7 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
 
 ## Phase F — real-world robustness · mixed: F3/F5/F6/F7 are T1, the rest need a radio or a dialog
 
-- [ ] **F1 · phone screen lock / app switch mid-transfer** — start a ≈200 MB transfer to IPH, then lock
+- [ ] **F1 · phone screen lock / app switch mid-transfer** *(Android half ✅ 2026-10-02/03 on the Pixel 5: the 200 MB receive ran on under the locked screen, the finished row showed "arrived in the background — Save file", one tap landed it in Downloads with the right SHA-256; IPH pending)* — start a ≈200 MB transfer to IPH, then lock
       the screen / switch apps for ~30 s and come back. Expected: either it keeps going or it fails
       visibly with a recoverable state — **iOS suspends background tabs**, so record exactly what
       happens; this is the single most likely real-world surprise. **Since 2026-09-28:** if the file
@@ -1346,6 +1346,16 @@ F8 on, the phone on a **second Wi-Fi that exits through a VPN in France** ("enli
   "Save file": the download was started at once (`download click` in the log). Whether a download
   started under a locked screen lands cannot be checked under CDP (Playwright cancels downloads in a
   browser it is attached to — nothing in `/sdcard/Download`); needs one run by hand, Chrome detached.
+  **Done by hand, Chrome NOT attached (00:05, after the ladder) — F1 Android half · PASS, and the
+  `visible` above was a CDP artefact.** Chrome force-stopped and the link opened by `am start`; the owner
+  tapped Accept; `keyevent 26` locked the screen 6 s later; the owner left it locked ~40 s. The sender
+  reached "Delivered" 43 s after the lock (the transfer ran on under the locked screen, 200 MB in ~49 s).
+  On the phone, nothing in Downloads yet — instead the finished row "Received … 191 MB ✓" with **"It
+  arrived while this page was in the background. Tap to save it." and the Save file pill** (screenshot
+  `f1_after.png`): the page DID go hidden for real, and the hold worked as designed (2026-09-28). One
+  tap on Save file (a real `input tap`): `/sdcard/Download/hs-f1-manual-200000000.bin`, 200 000 000
+  bytes, **SHA-256 equal to the generator's**. So on Android Chrome: a receive survives the screen lock,
+  the download is held rather than lost, and a single tap lands it intact.
 - **B10 (phone, site-storage ladder) · T2 · Mac → Pixel 5 over USB, Max, one pair:** **2 GiB PASS** (510 s
   = 4.2 MB/s, every block verified, Chrome PSS 223–264 MB over 99 samples, site storage then 2048 MB of a
   12.3 GB quota), **3 GiB PASS** (1062 s = 3.0 MB/s, verified, PSS 211–229 MB; usage 3072 MB — the 2 GiB
