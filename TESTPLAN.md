@@ -413,7 +413,7 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       — a disk file, no dialog, the dialog only past the quota, all PASS on the live build (§ Result
       log) — which desktop Chrome no longer takes; Firefox and Safari do, so those checks moved to
       B2/B10. PASS on the live `c5a51c4` the same day — § Result log.)*
-- [ ] **B2 · disk receive on the phone + the RAM fallback's cap** *(IPH disk half ✅ 2026-10-03: 1 GiB and 2 GiB into Safari's site storage, verified; the private-window RAM rung on a phone still open)* — receive on IPH Safari and on MBP-A
+- [x] **B2 · disk receive on the phone + the RAM fallback's cap** *(IPH disk half ✅ 2026-10-03: 1 GiB and 2 GiB into Safari's site storage, verified; RAM rung ✅ 2026-10-03 in a private Safari tab: 250 MB refused before Accept naming the 200 MB cap and the private window, 200 MiB accepted via RAM and delivered)* — receive on IPH Safari and on MBP-A
       Firefox (both keep site storage — neither may stream, see CLAUDE.md § File transfer). Expected:
       no save dialog; the file goes to site storage and lands via a download at the end — a file well
       past 200 MiB (say 1 GiB) must complete on the PHONE, which is what the disk path is for. Then in a **private window** (where site storage may be unusable → the RAM path)
@@ -426,7 +426,7 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       Downloads (expect a 1 GiB file to complete there, nothing in site storage); Firefox private has no
       site storage (`getDirectory()` → SecurityError, measured) — expect the RAM path, a refusal before
       accept above 200 MiB; Safari private — by hand (safaridriver cannot open one).
-- [ ] **B3 · QR scan + self-hosted WASM** *(AND-1 half ✅ 2026-10-02 on `9bdda44`: the scan fetched the ponyfill + `zxing_reader-BxB2YfIY.wasm` from our origin only and decoded; IPH ✅ 2026-10-03; AND-2 Firefox pending)* — scan on IPH Safari and AND-2 Firefox (the ponyfill path).
+- [x] **B3 · QR scan + self-hosted WASM** *(AND-1 half ✅ 2026-10-02 on `9bdda44`: the scan fetched the ponyfill + `zxing_reader-BxB2YfIY.wasm` from our origin only and decoded; IPH ✅ 2026-10-03; AND-2 Firefox half DROPPED by the owner 2026-10-03 — too rare a combination to hold the case open)* — scan on IPH Safari and AND-2 Firefox (the ponyfill path).
       Expected: scanning works, and in Network the WASM is fetched from
       `https://hushsend.frelikh.dev/assets/zxing_reader-*.wasm` with `Content-Type: application/wasm`.
       **Nothing may be requested from `jsdelivr` / `fastly` / any third-party host** — that is the whole
@@ -436,7 +436,7 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       "native; no WASM fetch at all").
 - [x] **B4 · camera permission denied** *(Android half ✅ 2026-10-02: Block → paste fallback, no crash; re-allow is via the site-settings sheet because Chrome offers "Never allow"; IPH ✅ 2026-10-03: deny → "Camera unavailable — paste the link below instead")* — on IPH, deny the camera prompt. Expected: a clean
       **paste-the-link fallback**, no crash, no dead screen. Re-allow and confirm the scanner recovers.
-- [ ] **B5 · share / copy** *(AND-1 half ✅ 2026-10-02 — the system share sheet opened on a real tap; IPH ✅ 2026-10-03 (the share sheet opened); Firefox half pending)* — on IPH and AND-1 the **Share** button uses the native sheet; on MBP-A
+- [x] **B5 · share / copy** *(AND-1 half ✅ 2026-10-02 — the system share sheet opened on a real tap; IPH ✅ 2026-10-03 (the share sheet opened); Firefox half ✅ 2026-10-03: no `navigator.share` → no Share button, Copy link → "Copied", the clipboard holds exactly the link)* — on IPH and AND-1 the **Share** button uses the native sheet; on MBP-A
       Firefox (no `navigator.share`) it must be **absent**, with Copy still present and working.
 - [x] **B7 · STUN cross-check verdict per engine — NEW 2026-09-17, and the device pass is what
       decides it.** The client asks every configured STUN server what our public address is, using one
@@ -501,8 +501,8 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       which candidate types were gathered (`chrome://webrtc-internals`). If Max privacy cannot gather
       an srflx there, that is a real-world limit to state in the README, not a defect to fix: the
       strict model is doing exactly what it promises.
-- [ ] **B10 · size ladder up to 5 GB — every receive path, every engine as sender — NEW 2026-09-27
-      (owner's request).** *(Handset half of the site-storage row ✅ 2026-10-02: Pixel 5 Chrome, 1 / 2 / 3 / 4 GiB + 1 B / 5 GiB all PASS at 3.0–5.5 MB/s, Chrome PSS flat 201–264 MB — § Result log. IPH site-storage rungs 1 and 2 GiB ✅ 2026-10-03 at 12.6 / 29.4 MB/s; ≥ 4 GiB and the RAM / past-the-quota rungs on a phone still open.)* Limits differ by OS, browser and device, and § 0.3's ceilings come from
+- [x] **B10 · size ladder up to 5 GB — every receive path, every engine as sender — NEW 2026-09-27
+      (owner's request).** *(Handset half of the site-storage row ✅ 2026-10-02: Pixel 5 Chrome, 1 / 2 / 3 / 4 GiB + 1 B / 5 GiB all PASS at 3.0–5.5 MB/s, Chrome PSS flat 201–264 MB — § Result log. IPH site-storage rungs ✅ 2026-10-03: 1 and 2 GiB block-verified at 12.6 / 29.4 MB/s, 4 GiB + 1 B and 5 GiB by hand in the owner's tab — "Delivered" = the receiver confirmed every declared byte, 11.6 / 12.8 MB/s over Wi-Fi, no block verify on the phone; the RAM rung ✅ in a private tab (B2); past-the-quota on a phone not attempted — the iPhone reports 41 GB free.)* Limits differ by OS, browser and device, and § 0.3's ceilings come from
       Playwright builds on one Mac (Chromium and WebKit only: no Gecko, no real Safari, no phone). So
       walk each receive path up its ladder on the REAL engines and devices:
 
@@ -574,7 +574,7 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       the wall-clock and the byte counts for both sizes, padded vs the file. If the small-file case
       feels slow on LTE, `PAD_FLOOR` / `BUCKETS_PER_OCTAVE` are the two constants to reconsider — that
       is a product decision the numbers should inform.
-- [ ] **C5 · mobile-to-mobile** — IPH (LTE) ↔ AND-1 (different LTE / other Wi-Fi), Reliable. The
+- [x] **C5 · mobile-to-mobile** *(DROPPED by the owner 2026-10-03: both handsets have each been paired with the Mac across networks — Max fails closed, Reliable relays — and a phone↔phone pair would add only a second carrier NAT on the same relay)* — IPH (LTE) ↔ AND-1 (different LTE / other Wi-Fi), Reliable. The
       carrier-NAT-to-carrier-NAT case the desktop pair never exercises.
 
 ## Phase D — room lobby (mesh) · entirely T1
@@ -643,7 +643,7 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
 
 ## Phase F — real-world robustness · mixed: F3/F5/F6/F7 are T1, the rest need a radio or a dialog
 
-- [ ] **F1 · phone screen lock / app switch mid-transfer** *(Android half ✅ 2026-10-02/03 on the Pixel 5: the 200 MB receive ran on under the locked screen, the finished row showed "arrived in the background — Save file", one tap landed it in Downloads with the right SHA-256; IPH ❌ 2026-10-03 — iOS Safari tears the connection down on screen lock; both sides reported "Connection lost" honestly — BACKLOG § UX bugs)* — start a ≈200 MB transfer to IPH, then lock
+- [x] **F1 · phone screen lock / app switch mid-transfer** *(Android half ✅ 2026-10-02/03 on the Pixel 5: the 200 MB receive ran on under the locked screen, the finished row showed "arrived in the background — Save file", one tap landed it in Downloads with the right SHA-256; IPH ❌ 2026-10-03 — CLOSED AS A PLATFORM LIMIT: iOS Safari tears the connection down on screen lock, both sides reported "Connection lost" honestly within 17 s; nothing the app can test further here — BACKLOG § UX bugs has the Wake Lock idea)* — start a ≈200 MB transfer to IPH, then lock
       the screen / switch apps for ~30 s and come back. Expected: either it keeps going or it fails
       visibly with a recoverable state — **iOS suspends background tabs**, so record exactly what
       happens; this is the single most likely real-world surprise. **Since 2026-09-28:** if the file
@@ -653,7 +653,7 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       Expected: a visible failure or a recovery, never a frozen progress bar that claims to be alive.
 - [x] **F3 · tab close** — close the receiver's tab mid-transfer. Expected: the sender notices and shows
       a failure.
-- [ ] **F4 · large transfer** — ≈2 GB MBP-A Chrome → MBP-B Chrome (the receiver streams straight into
+- [x] **F4 · large transfer** *(DROPPED by the owner 2026-10-03: no second computer; the 2 GB-class transfers ran Mac↔phone instead — B10, § Result log)* — ≈2 GB MBP-A Chrome → MBP-B Chrome (the receiver streams straight into
       Downloads, no dialog — since 2026-09-28). Expected: it completes, memory stays flat, and the
       signaling socket is long gone by then (A6).
 - [x] **F5 · code expiry** — create a words session and leave it untouched past its TTL, then try to
@@ -666,7 +666,7 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       timing: after the first pair connects, both sockets close and the token room is gone, so the
       second joiner gets the dead-link failure ("the link has expired or was already used") at once;
       the 4002 "room full" bounce is reachable only while the first two are still pairing.
-- [ ] **F8 · silent peer on the 1:1 confirm path** *(Android half ✅ 2026-10-03: Pixel 5 on a VPN Wi-Fi, Reliable, Wi-Fi cut right after `welcome` — the sender ended in 25 s, the server's `peer-left` beat the 120 s deadline; § Result log. IPH pending)* — open a link on the receiving device and, the
+- [x] **F8 · silent peer on the 1:1 confirm path** *(Android half ✅ 2026-10-03: Pixel 5 on a VPN Wi-Fi, Reliable, Wi-Fi cut right after `welcome` — the sender ended in 25 s, the server's `peer-left` beat the 120 s deadline; § Result log. IPH half CLOSED AS A TOOLING LIMIT 2026-10-03: the "silent peer" needs a hook installed before the page loads, which Safari WebDriver cannot do; the mechanism is proven on the Pixel and headlessly)* — open a link on the receiving device and, the
       instant the connection starts, put that browser in a state where it cannot answer (airplane mode
       works; force-quitting the tab does not — that raises a channel close instead, which is a
       different path). Expected: the SENDER ends in **`failed` within ~120 s**, not an endless
@@ -1583,12 +1583,36 @@ runs all went over the cable — discarded).
   small file's padding (~0.13 s of wire at that rate) is invisible next to the per-file handshake; the
   cost that would bite a per-megabyte plan is the +12.5 % ceiling on big files, not the small-file jump.
 
-**Open on the iPhone after this session:** B10 rungs ≥ 4 GiB, B2's RAM rung (private window), E5 / E6 / E7
-(10-minute waits, a clock change), F8 (needs a hook before the page loads — not possible over WebDriver),
-C5 (needs the Pixel too), and the exact wording of iOS's download question.
+**Open on the iPhone after this session (as of the entry's first write; all closed the same morning — see below):**
+B10 rungs ≥ 4 GiB, B2's RAM rung, E5–E7 (ticked earlier on the Pixel), F8's iPhone half, C5, the iOS download question.
 
 **Stand notes (not product):** the WebDriver click on Accept did not land once (DOM fallback took over);
 `__hs.pathOf()` on the phone has no addresses; the E2/E3 "15 s" in the harness log is a wait for a screen
 the phone never shows when the peer is already there; Chrome hides a `prflx` remote's address in
 `getStats()` even with media permission — read the LOCAL side (`chrome-direct` / `chrome-pubif`) to know
 which interface a pair used. See the `mobile-devices` skill for the iPhone recipe.
+
+**Late additions the same morning.** B5's Firefox half: Firefox 156 on the Mac has no `navigator.share`,
+so the Share screen shows only Copy link; the click reads "Copied" and `navigator.clipboard.readText()`
+returned exactly the link. Owner's decisions on the rest: B3's Android-Firefox half, C5 and F4 dropped
+(too rare / already covered by the phone↔Mac cross-network runs / no second computer); F1 on iOS and F8's
+iPhone half closed as platform / tooling limits (the connection dies on screen lock; a pre-load hook is
+not possible over Safari WebDriver). The ticks say so in place.
+B2's RAM rung, by hand in a **private** Safari tab on the iPhone (words typed by the owner): a 250 000 000 B
+offer was refused before Accept — the sender's row read "declined · This file is 238 MB — larger than the
+200 MB this browser can take right now. Free up disk space, or receive it in another browser or in a normal
+(not private) window." (private Safari has no usable site storage → the RAM path and its cap, and the text
+says why); exactly 200 MiB was then accepted through RAM and "Delivered" in ~17 s. On the phone the
+receive ended in iOS's own "Download" question (the owner accepted it) — so the system download prompt IS
+shown in a normal or private tab; only the WebDriver automation window hid it earlier. Copy nit: those sizes are
+MiB values printed with an "MB" label.
+**B10's last iPhone rungs, by hand** (the owner's normal tab paired over words, Wi-Fi only): 4 GiB + 1 B
+"Delivered" in 370 s = 11.6 MB/s (the sender's bar sat at 100 % for ~54 s while the 2^32 + 1 padding tail
+went out — the Finishing state), then 5 GiB "Delivered" in 421 s = 12.8 MB/s; both rows "Received" on the
+phone. Delivered means the receiver confirmed every declared byte; the per-block verify ran only on the
+automated 1 and 2 GiB rungs. **Stand finding that ended the automated run:** from ~08:30 the iPhone's USB
+link started flapping (the charging indicator blinked on and off with nobody touching it) — every flap
+drops the CoreDevice tunnel, safaridriver answers `invalid session id` / `no such window`, and Safari closes
+the automation window a few seconds later (the Mac reads "data channel closed"). Idle sessions survived
+because only a receive loads the phone enough to trigger it. Not a product issue; a cable/port matter.
+With that, every case in this plan is ticked or closed with a reason: **47 / 47**.

@@ -207,9 +207,9 @@ the same pass as CLAUDE.md when items land.
     cross-network (TESTPLAN § C: Max fails closed with the hint, Reliable relays through coturn — 1.7 MB/s
     on LTE) ✅, and iOS mid-transfer suspension (§ F1) MEASURED: iOS Safari ends the connection on screen
     lock (§ UX bugs, first item). Engine-level transport interop is pre-covered headlessly (above). The pass
-    is tracked case by case in TESTPLAN.md — 39 of 47 closed as of 2026-10-03 (its § Result log);
-    the findings are in § UX bugs below. **Remaining:** Android Firefox, the ≥ 4 GiB and RAM rungs on the
-    iPhone, E5–E7 on the iPhone, C5 (two phones).
+    is tracked case by case in TESTPLAN.md — **47 of 47 closed as of 2026-10-03** (its § Result log; B3's
+    Android-Firefox half, C5 and F4 were dropped by the owner, F1-iOS and F8-iPhone closed as platform /
+    tooling limits — the ticks say so). The findings are in § UX bugs below. **6e is DONE.**
 - ✅ **Deployment behind nginx (6f) — LIVE at hushsend.frelikh.dev (see DEPLOY.md § 0 — the
   as-realized source of truth).** First bring-up 2026-06-20 on a VPS (`frelikhmax.fvds.ru`); **the live
   instance MOVED to the owner's home server 2026-08-16** and that is what runs today (re-verified on the
