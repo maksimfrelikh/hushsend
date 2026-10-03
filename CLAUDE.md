@@ -664,7 +664,11 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
   `transferInFlight(phase)` (`offered` / `transferring`) and the page is visible, re-requests it when the
   page comes back into view (the browser releases it on hide), gives it back on done / cancel / fail, and
   treats a missing API or a refused request as nothing (no store field, no UI change — the live sentinel
-  never leaves the lock object). Driven by `App.tsx` `WakeLockDuringTransfer` from `transfer.phase`. It
+  never leaves the lock object). ONE shared instance (`transferWakeLock()`): `App.tsx`
+  `WakeLockDuringTransfer` says WHEN it is wanted from `transfer.phase`, and the Accept / Send handlers in
+  `TransferScreen` call `poke()` synchronously inside the tap — **iOS Safari grants the lock only with user
+  activation** (measured 2026-10-03: requested from the phase-change effect alone it was refused silently
+  and the screen locked at 30 s; the gesture that starts the transfer is the one moment we have it). It
   prevents ONLY the idle-timer lock; a deliberate lock, an app switch or a closed tab still end the
   session, so `TransferScreen` adds the line `keepScreenOn` (testid `transfer-keep-on`) during
   `transferring` on coarse-pointer devices only (`platform.onCoarsePointer`) — desktops sleeping do not

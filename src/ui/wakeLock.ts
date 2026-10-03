@@ -36,6 +36,13 @@ export interface WakeLockEnv {
 export interface TransferWakeLock {
   /** Want the lock (true) or not (false). Idempotent. */
   set(active: boolean): void;
+  /**
+   * Ask for the lock NOW if it is wanted and not held — to be called synchronously inside a user
+   * gesture (the Accept / Send tap). iOS Safari grants a screen wake lock only with user activation
+   * (measured 2026-10-03: a request made from the phase-change effect was refused silently and the
+   * screen locked at 30 s); the gesture that starts the transfer is the one moment we have it.
+   */
+  poke(): void;
   /** A sentinel is currently held. */
   readonly held: boolean;
   dispose(): void;
@@ -98,6 +105,9 @@ export function createTransferWakeLock(env: WakeLockEnv): TransferWakeLock {
         void release();
       }
     },
+    poke(): void {
+      if (wanted) void acquire();
+    },
     get held(): boolean {
       return sentinel !== null;
     },
@@ -105,6 +115,13 @@ export function createTransferWakeLock(env: WakeLockEnv): TransferWakeLock {
       this.set(false);
     },
   };
+}
+
+/** The app's single lock, shared by the phase-driven effect (App.tsx) and the gesture handlers (TransferScreen). */
+let shared: TransferWakeLock | null = null;
+export function transferWakeLock(): TransferWakeLock {
+  if (!shared) shared = createTransferWakeLock(browserWakeLockEnv());
+  return shared;
 }
 
 /** The real browser as a `WakeLockEnv`; `request` is null where the Screen Wake Lock API is absent. */

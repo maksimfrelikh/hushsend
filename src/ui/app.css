@@ -947,7 +947,11 @@
   line-height: 1.4;
 }
 .hs-box__aside {
-  flex: none;
+  /* the reason may be a sentence (a refusal names the cap and what to do): let it wrap instead of
+     running off the phone's edge (owner's screenshot, 2026-10-03) */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
   text-align: right;
   font-family: var(--font-mono);
   font-size: var(--t-meta);

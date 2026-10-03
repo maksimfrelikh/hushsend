@@ -9,7 +9,7 @@ import { usePacedScreen } from './screens/usePacedScreen';
 import { TopBar, StatusBeacon } from './ui';
 import { Diagnostics } from './components/Diagnostics';
 import { historyActions } from '../store/historySlice';
-import { browserWakeLockEnv, createTransferWakeLock, transferInFlight } from './wakeLock';
+import { transferInFlight, transferWakeLock } from './wakeLock';
 
 /**
  * The real, status-driven app. The single SessionController instance lives outside render and is
@@ -77,16 +77,17 @@ function PageHideGoodbye(): null {
  * Keeps the screen on while a transfer is in flight (an offer on the table or bytes crossing) — the
  * Screen Wake Lock of `ui/wakeLock.ts`. iOS Safari ends the connection the moment the screen locks
  * (TESTPLAN F1, 2026-10-03), and a phone left alone while a file arrives locks by its own timer; this
- * is the one case the app can prevent. The live sentinel stays inside the lock object, never in the
- * store. Renders nothing.
+ * is the one case the app can prevent. The lock is the shared `transferWakeLock()`: this effect says
+ * WHEN it is wanted; the Accept / Send handlers in TransferScreen `poke()` it inside the user gesture,
+ * which is what iOS Safari requires to grant it. The live sentinel stays inside the lock object, never
+ * in the store. Renders nothing.
  */
 function WakeLockDuringTransfer(): null {
   const phase = useAppSelector((s) => s.transfer.phase);
-  const lock = useMemo(() => createTransferWakeLock(browserWakeLockEnv()), []);
   useEffect(() => {
-    lock.set(transferInFlight(phase));
-  }, [lock, phase]);
-  useEffect(() => () => lock.dispose(), [lock]);
+    transferWakeLock().set(transferInFlight(phase));
+  }, [phase]);
+  useEffect(() => () => transferWakeLock().set(false), []);
   return null;
 }
 

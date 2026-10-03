@@ -127,3 +127,33 @@ describe('createTransferWakeLock', () => {
     expect(lock.held).toBe(false);
   });
 });
+
+describe('poke (the user-gesture request)', () => {
+  it('is a no-op before the lock is wanted, and never requests twice while held', async () => {
+    const g = fakeEnv();
+    const lock = createTransferWakeLock(g.env);
+    lock.poke();
+    await tick();
+    expect(g.request).not.toHaveBeenCalled();
+    lock.set(true);
+    await tick();
+    lock.poke();
+    await tick();
+    expect(g.request).toHaveBeenCalledTimes(1);
+    expect(lock.held).toBe(true);
+  });
+
+  it('a refused effect-time request followed by a granted gesture-time request ends held', async () => {
+    let allow = false;
+    const g = fakeEnv();
+    const env: WakeLockEnv = { ...g.env, request: async () => { if (!allow) throw new DOMException('denied', 'NotAllowedError'); return g.request(); } };
+    const lock = createTransferWakeLock(env);
+    lock.set(true);
+    await tick();
+    expect(lock.held).toBe(false);
+    allow = true;
+    lock.poke();
+    await tick();
+    expect(lock.held).toBe(true);
+  });
+});

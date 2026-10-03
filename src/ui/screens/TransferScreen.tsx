@@ -1,5 +1,6 @@
 import { useRef, useState, type DragEvent, type ReactElement } from 'react';
 import { onCoarsePointer } from '../platform';
+import { transferWakeLock } from '../wakeLock';
 import { useSession } from '../SessionProvider';
 import { useAppSelector } from '../../store/hooks';
 import { formatBytes } from '../../core/transfer/fileTransfer';
@@ -200,7 +201,10 @@ function Picker(): ReactElement {
             ))}
           </div>
           <Space h={16} />
-          <Pill variant="primary" block testId="send-btn" onClick={() => session.sendFiles(files)}>
+          <Pill variant="primary" block testId="send-btn" onClick={() => {
+              transferWakeLock().poke();
+              session.sendFiles(files);
+            }}>
             {label}
           </Pill>
         </>
@@ -353,7 +357,10 @@ function TransferPanel({
             variant="primary"
             block
             testId="accept-btn"
-            onClick={() => void session.acceptIncoming()}
+            onClick={() => {
+              transferWakeLock().poke();
+              void session.acceptIncoming();
+            }}
           >
             {t('accept')}
           </Pill>
