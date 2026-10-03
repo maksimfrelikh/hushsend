@@ -21,7 +21,7 @@ vi.mock('./opfs', async (importOriginal) => ({
   evictHeld: () => store.evict(),
 }));
 
-import { CHUNK_MAX, CHUNK_MIN, MAX_BYTES_BLOB, chunkSize, formatBytes, planReceive } from './fileTransfer';
+import { CHUNK_MAX, CHUNK_MIN, MAX_BYTES_BLOB, READ_WINDOW, Rechunker, chunkSize, formatBytes, planReceive, readInWindows } from './fileTransfer';
 
 /**
  * The receive-path POLICY (owner's rules, 2026-09-27 and -28): disk wherever possible — straight into
@@ -231,5 +231,63 @@ describe('chunk sizing against the SCTP limit', () => {
 
   it('falls back to the maximum when the negotiated size is unknown (0)', () => {
     expect(chunkSize(0)).toBe(CHUNK_MAX);
+  });
+});
+
+describe('reading the file for the wire (2026-10-03 — WebKit streams a Blob as ONE chunk)', () => {
+  const bytes = (n: number, seed = 1) => Uint8Array.from({ length: n }, (_, i) => (i * seed + 7) & 255);
+  const collect = async (s: ReadableStream<Uint8Array>) => {
+    const r = s.getReader();
+    const chunks: Uint8Array[] = [];
+    for (;;) {
+      const { value, done } = await r.read();
+      if (done) break;
+      chunks.push(value);
+    }
+    return chunks;
+  };
+
+  it('readInWindows yields windows of the given size and an exact last one, never more than one window of the file at a time', async () => {
+    const data = bytes(10 * 1024 + 123);
+    const chunks = await collect(readInWindows(new Blob([data]), 4096));
+    expect(chunks.map((c) => c.length)).toEqual([4096, 4096, 2048 + 123]);
+    const joined = new Uint8Array(data.length);
+    let off = 0;
+    for (const c of chunks) {
+      joined.set(c, off);
+      off += c.length;
+    }
+    expect(joined).toEqual(data);
+  });
+
+  it('an empty file closes at once; a file exactly one window long yields exactly one window', async () => {
+    expect(await collect(readInWindows(new Blob([]), 4096))).toEqual([]);
+    const one = await collect(readInWindows(new Blob([bytes(4096)]), 4096));
+    expect(one.map((c) => c.length)).toEqual([4096]);
+  });
+
+  it('the default window is 4 MiB — 16 wire chunks of CHUNK_MAX', () => {
+    expect(READ_WINDOW).toBe(16 * CHUNK_MAX);
+  });
+
+  it('Rechunker returns VIEWS of a window that covers the request (no copy) and copies only to coalesce', () => {
+    const rc = new Rechunker();
+    const win = bytes(1000);
+    rc.push(win);
+    const a = rc.pull(400, false)!;
+    const b = rc.pull(400, false)!;
+    expect(a.buffer).toBe(win.buffer); // a view, not a copy
+    expect(b.buffer).toBe(win.buffer);
+    expect(a.byteOffset).toBe(0);
+    expect(b.byteOffset).toBe(400);
+    expect(rc.pull(400, false)).toBeNull(); // 200 left, no flush
+    rc.push(bytes(300, 3));
+    const c = rc.pull(400, false)!; // 200 from the first window + 200 from the second: a copy
+    expect(c.length).toBe(400);
+    expect(c.buffer).not.toBe(win.buffer);
+    expect(Array.from(c.subarray(0, 200))).toEqual(Array.from(win.subarray(800)));
+    const tail = rc.pull(400, true)!; // flush: the last 100 of the second chunk, as a view
+    expect(tail.length).toBe(100);
+    expect(rc.pull(400, true)).toBeNull();
   });
 });

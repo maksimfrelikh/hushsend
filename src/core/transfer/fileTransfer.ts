@@ -19,9 +19,13 @@
  * left the sender saying "Delivered" about a file that never arrived. A sender whose peer never
  * confirms (a tab still running an older build) ends as the connection-lost path says: not delivered.
  *
- * Send: one file → `file.stream()`; many files → a single store (no compression) zip
- * stream built on the fly with client-zip (streams; never held whole in RAM). Bytes are
- * re-chunked to CHUNK_SIZE and pushed through the backpressure-aware wire.send().
+ * Send: the file is read in WINDOWS of READ_WINDOW bytes (`file.slice(a, b).arrayBuffer()`, see
+ * readInWindows) — NEVER `file.stream()`: WebKit's Blob stream hands the WHOLE file over as ONE
+ * chunk (measured 2026-10-03 on Safari 26.6: a 1 GiB File → a single 1 GiB read; a 5 GiB send grew the
+ * WebContent process from ~300 to ~940 MiB, TESTPLAN B10 — a tab kill on a phone), while Chrome and
+ * Firefox chunk it finely. Many files → a single store (no compression) zip built on the fly with
+ * client-zip, each entry fed from the same windowed reader. Windows are re-chunked to CHUNK_SIZE
+ * without copying (Rechunker returns views) and pushed through the backpressure-aware wire.send().
  *
  * Receive — to DISK wherever possible, in this order (owner's rules, 2026-09-27 and -28: disk before
  * RAM, no dialog where disk needs none, and straight into Downloads with no copy where that is possible
@@ -259,7 +263,7 @@ export interface TransferWire {
 }
 
 // ── re-chunker: coalesce/split arbitrary source chunks into fixed-size pieces ─
-class Rechunker {
+export class Rechunker {
   private queue: Uint8Array[] = [];
   private queued = 0;
 
@@ -270,10 +274,20 @@ class Rechunker {
     }
   }
 
-  /** Pull up to `size` bytes; null unless ≥ `size` queued (or `flush` and any remain). */
+  /** Pull up to `size` bytes; null unless ≥ `size` queued (or `flush` and any remain).
+   *  Zero-copy when the head chunk alone covers the request (a VIEW of it is returned — callers must
+   *  not mutate it); a copy only to coalesce small chunks. For a 5 GiB send that is ~20 000 fresh
+   *  256 KiB buffers not allocated (the garbage WebKit collected lazily, 2026-10-03). */
   pull(size: number, flush: boolean): Uint8Array | null {
     if (this.queued === 0 || (this.queued < size && !flush)) return null;
     const take = Math.min(size, this.queued);
+    const first = this.queue[0];
+    if (first.length >= take) {
+      if (first.length === take) this.queue.shift();
+      else this.queue[0] = first.subarray(take);
+      this.queued -= take;
+      return first.length === take ? first : first.subarray(0, take);
+    }
     const out = new Uint8Array(take);
     let off = 0;
     while (off < take) {
@@ -303,15 +317,46 @@ interface Source {
   open(): ReadableStream<Uint8Array>;
 }
 
+/** How much of a file is in memory at once on the send side: one window (plus one in the SCTP
+ *  buffer, bounded by the wire's high-water mark). 4 MiB = 16 wire chunks; large enough that
+ *  `slice().arrayBuffer()` round-trips do not bind the throughput, small enough for a phone. */
+export const READ_WINDOW = 4 * 1024 * 1024;
+
+/**
+ * Read a Blob in bounded windows — `blob.slice(off, off + window).arrayBuffer()`, one window
+ * at a time, pulled by the consumer. The portable way to stream a File without trusting the
+ * engine's own `Blob.stream()` chunking: WebKit's yields the WHOLE blob as one chunk (Safari
+ * 26.6, measured 2026-10-03), which for a multi-GiB file is the sender's memory. Chrome and
+ * Firefox lose nothing here — a slice read is what their stream does internally.
+ */
+export function readInWindows(blob: Blob, window = READ_WINDOW): ReadableStream<Uint8Array> {
+  let off = 0;
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      if (off >= blob.size) {
+        controller.close();
+        return;
+      }
+      const end = Math.min(blob.size, off + window);
+      const buf = await blob.slice(off, end).arrayBuffer();
+      off = end;
+      controller.enqueue(new Uint8Array(buf));
+    },
+  });
+}
+
 function prepareSource(files: File[]): Source {
   if (files.length === 1) {
     const f = files[0];
-    return { name: f.name, size: f.size, isZip: false, open: () => f.stream() as ReadableStream<Uint8Array> };
+    return { name: f.name, size: f.size, isZip: false, open: () => readInWindows(f) };
   }
   // Many files → one store-mode zip, streamed. predictLength is exact for store mode,
-  // so the receiver gets a real total for the progress bar before any byte is sent.
+  // so the receiver gets a real total for the progress bar before any byte is sent. Each entry
+  // is fed from the windowed reader too — client-zip would otherwise call file.stream() itself.
   const size = Number(predictLength(files));
-  return { name: 'hushsend-files.zip', size, isZip: true, open: () => makeZip(files) };
+  const entries = () =>
+    files.map((f) => ({ name: f.name, lastModified: f.lastModified, size: f.size, input: readInWindows(f) }));
+  return { name: 'hushsend-files.zip', size, isZip: true, open: () => makeZip(entries()) };
 }
 
 function errMsg(e: unknown): string {

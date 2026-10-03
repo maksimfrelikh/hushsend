@@ -429,7 +429,8 @@ the same pass as CLAUDE.md when items land.
   (a small "stop" biases toward confirming; the confirm is the only gate on the reader side), briefly
   lost in the first cut of the redesign and restored the same day. The old HTML prototype under
   `uploads/design-reference/` was deleted in that follow-up; the canvas is the only reference.
-- **Russian copy — DEFERRED (owner, 2026-09-26).** English only for now. `i18n.ts` keeps an optional
+- **Russian copy — DEFERRED (owner, 2026-09-26; reaffirmed 2026-10-03: English only until the release, other
+  languages after it).** English only for now. `i18n.ts` keeps an optional
   `ru` column with an `en` fallback (`translate`), new strings are added with `en` only, and the header
   shows no language switch (`prefs.tsx` still holds `lang` / `setLang`). When the Russian copy is
   written: fill the `ru` column for every key (the redesign added `modeMax` / `modeReliable` and their
@@ -963,7 +964,14 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
 - ✅ **Multi-file sends are one `hushsend-files.zip` (stored) — DOCUMENTED 2026-09-27.** Owner's decision:
   keep the behaviour (design since `1082b7d`), describe it. TESTPLAN A7 was reworded and re-ticked (three
   members unzip byte-identical), CLAUDE.md § File transfer and README now say so.
-- [ ] **The Safari SENDER's memory grows during a very large send (found 2026-09-27, TESTPLAN B10).**
+- ✅(code) **The Safari SENDER's memory grows during a very large send (found 2026-09-27, TESTPLAN B10) — ROOT
+  CAUSE FOUND AND FIXED 2026-10-03: WebKit's `File.stream()` yields the WHOLE file as ONE chunk** (a 1 GiB
+  File → a single 1 GiB read, measured on Safari 26.6), so the "stream" was the file in memory; Chrome and
+  Firefox chunk finely. The sender now reads in 4 MiB windows via `slice().arrayBuffer()` (`readInWindows`,
+  also fed to client-zip per entry) and re-chunks without copying (CLAUDE.md § File transfer). Before /
+  after numbers on real Safari below.
+  **Before** (live `a4bc62a`, Safari 26.6 → Chrome on the Mac, 2 GiB from a Blob of shared parts, `ps` every
+  3 s): WebContent 250 → **394 MiB peak** (+144) at 28.8 MB/s. **After:** pending the deploy. The original note follows for the record.**
   Sending 5 GiB from Safari 26.6 to Chrome, its WebContent process grew from ~300 MiB to ~940 MiB by
   the end and fell back afterwards; Chrome and Firefox senders stayed flat. The source was a Blob built
   from shared parts, so the growth is in the read path (`File.stream()` → chunking → DataChannel), not

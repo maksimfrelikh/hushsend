@@ -675,6 +675,18 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
   drop the connection. Unit: `wakeLock.test.ts`. Verified on the iPhone 15 (2026-10-03, TESTPLAN F1): a 3 GiB receive with
   Auto-Lock at 30 s ran to Delivered with the phone untouched; the first build, which asked from the effect
   alone, was refused and the screen locked. An app switch still ends the connection within ~15 s (measured).
+- **The sender reads the file in windows, never through `File.stream()` (2026-10-03).** WebKit's Blob
+  stream hands the WHOLE file over as ONE chunk (measured on Safari 26.6: a 1 GiB File → a single 1 GiB
+  read, WebContent +130 MiB even on a blob of shared parts), which is why a 5 GiB send from Safari grew the
+  process to ~940 MiB (TESTPLAN B10) and would kill a tab on a phone; Chrome and Firefox chunk finely.
+  `readInWindows(blob)` (`fileTransfer.ts`) pulls `blob.slice(off, off + READ_WINDOW).arrayBuffer()` one
+  window at a time (`READ_WINDOW` = 4 MiB = 16 wire chunks), for single files AND for every zip entry
+  (client-zip is given `{ input: readInWindows(f), name, lastModified, size }` instead of the File, or it
+  would call `file.stream()` itself). `Rechunker.pull` is zero-copy when the head window covers the
+  request (it returns a VIEW — callers never mutate pieces) and copies only to coalesce. Memory on the
+  send side is thus one window + the wire's high-water mark, on every engine. Unit:
+  `fileTransfer.test.ts` ("reading the file for the wire"). Measured before / after on real Safari: see
+  BACKLOG § UX bugs.
 - **"Finishing" — the 100 % that is not the end (2026-10-03, owner's choice "option 1").** Once every
   declared byte has crossed, the sender still pushes the volume padding (Max privacy, up to 12.5 % of
   the file — 512 MiB at 2^32 + 1 B, ~137 s at the Pixel 5's 3.9 MB/s, TESTPLAN B10) and then waits for
@@ -1548,7 +1560,11 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   26.6, TESTPLAN F1).** An 800 MB receive stopped at 14 % the moment the phone locked; ICE went
   `disconnected` in ~7 s and `failed` ~10 s later, and both sides showed "Connection lost" — the loss
   path works, but a receive on an iPhone survives only while the screen stays on (the Pixel 5 ran on
-  under its lock). No mitigation yet; the Screen Wake Lock idea is in BACKLOG § UX bugs.
+  under its lock). Mitigated for the idle-timer case by the Screen Wake Lock requested inside the
+  Accept / Send tap (§ File transfer, live `bf485ae`, verified: 3 GiB with Auto-Lock 30 s). **Not mitigable:
+  a deliberate lock, or switching apps — measured 2026-10-03, Home for 30 s ended the connection within
+  ~15 s** — so the transfer screen says to keep the screen on and stay on the page. Recorded here so it does
+  not quietly disappear (owner, 2026-10-03).
 - **`pairingId` — the pairing secret (restated 2026-09-25).** Earlier text called it "an identifier,
   not a secret"; that stopped being true on 2026-09-18 (the blinded announcement was keyed by it) and
   is the opposite of true now: the codeless reconnect derives the rendezvous token and the hello MAC
