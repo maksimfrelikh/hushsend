@@ -1,4 +1,5 @@
 import { useRef, useState, type DragEvent, type ReactElement } from 'react';
+import { onCoarsePointer } from '../platform';
 import { useSession } from '../SessionProvider';
 import { useAppSelector } from '../../store/hooks';
 import { formatBytes } from '../../core/transfer/fileTransfer';
@@ -231,6 +232,10 @@ function TransferPanel({
   const { phase, direction, fileName, totalBytes, transferredBytes, error } = transfer;
 
   const { privacyMode } = usePrefs();
+  // The keep-the-screen-on line is for phones (a coarse pointer): a desktop that sleeps does not drop
+  // its WebRTC connection the way iOS Safari does on lock (TESTPLAN F1), and the wake lock in App.tsx
+  // covers the idle timer; this line covers what it cannot — a deliberate lock or an app switch.
+  const [coarsePointer] = useState(onCoarsePointer);
   const pct = totalBytes > 0 ? Math.min(100, Math.round((transferredBytes / totalBytes) * 100)) : 0;
   const incoming = phase === 'offered' && direction === 'receive';
   const inFlight = phase === 'offered' || phase === 'transferring';
@@ -269,6 +274,11 @@ function TransferPanel({
       {finishingHint && (
         <p className="hs-meta hs-send__finishing" data-testid="transfer-finishing" role="status">
           {finishingHint}
+        </p>
+      )}
+      {phase === 'transferring' && coarsePointer && (
+        <p className="hs-meta hs-send__finishing" data-testid="transfer-keep-on">
+          {t('keepScreenOn')}
         </p>
       )}
     </div>

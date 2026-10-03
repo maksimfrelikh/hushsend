@@ -13,3 +13,9 @@ export function onMacDesktop(): boolean {
   if (typeof navigator === 'undefined') return false;
   return isMacDesktop(navigator.userAgent ?? '', navigator.maxTouchPoints ?? 0);
 }
+
+/** A touch-first device (phone / tablet): the primary pointer is coarse. False where `matchMedia` is absent. */
+export function onCoarsePointer(): boolean {
+  if (typeof matchMedia === 'undefined') return false;
+  return matchMedia('(pointer: coarse)').matches;
+}

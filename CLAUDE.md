@@ -656,6 +656,19 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
   browser stops the transfer and tells the sender; site storage, forced with the DEV-only
   `?noStream=1`: no dialog, bytes intact; hidden page → Save file) and `connection-lost.spec.ts` (a
   started stream download must end FAILED) / `mobile.spec.ts`, which run on the real path.
+- **Screen Wake Lock while a transfer is in flight (2026-10-03, owner's choice "option c").** iOS Safari
+  tears the WebRTC connection down the moment the screen locks (TESTPLAN F1 on the iPhone 15: an 800 MB
+  receive died at 14 %, both sides "Connection lost" within 17 s), and a phone left alone while a file
+  arrives locks by its own idle timer. `src/ui/wakeLock.ts` (`createTransferWakeLock`, environment
+  injected; `browserWakeLockEnv` for the app) holds `navigator.wakeLock.request('screen')` while
+  `transferInFlight(phase)` (`offered` / `transferring`) and the page is visible, re-requests it when the
+  page comes back into view (the browser releases it on hide), gives it back on done / cancel / fail, and
+  treats a missing API or a refused request as nothing (no store field, no UI change — the live sentinel
+  never leaves the lock object). Driven by `App.tsx` `WakeLockDuringTransfer` from `transfer.phase`. It
+  prevents ONLY the idle-timer lock; a deliberate lock, an app switch or a closed tab still end the
+  session, so `TransferScreen` adds the line `keepScreenOn` (testid `transfer-keep-on`) during
+  `transferring` on coarse-pointer devices only (`platform.onCoarsePointer`) — desktops sleeping do not
+  drop the connection. Unit: `wakeLock.test.ts`. Real-device check: pending (TESTPLAN F1).
 - **"Finishing" — the 100 % that is not the end (2026-10-03, owner's choice "option 1").** Once every
   declared byte has crossed, the sender still pushes the volume padding (Max privacy, up to 12.5 % of
   the file — 512 MiB at 2^32 + 1 B, ~137 s at the Pixel 5's 3.9 MB/s, TESTPLAN B10) and then waits for

@@ -232,6 +232,9 @@ export const STR = {
   finishingPadReceive: { en: 'The sender is hiding the file’s size — a little extra data arrives after the file.' },
   finishingConfirm: { en: 'Waiting for the other side to confirm it has everything.' },
   finishingSave: { en: 'Saving the file.' },
+  keepScreenOn: {
+    en: 'Keep the screen on and stay on this page until it finishes — a phone that locks or switches apps drops the connection.',
+  },
   incomingTitle: { en: 'Incoming file', ru: 'Входящий файл' },
   incomingFrom: { en: 'from', ru: 'от' },
   accept: { en: 'Accept', ru: 'Принять' },
