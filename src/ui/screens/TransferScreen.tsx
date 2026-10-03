@@ -281,7 +281,7 @@ function TransferPanel({
         </p>
       )}
       {phase === 'transferring' && coarsePointer && (
-        <p className="hs-meta hs-send__finishing" data-testid="transfer-keep-on">
+        <p className="hs-meta hs-send__keepon" data-testid="transfer-keep-on">
           {t('keepScreenOn')}
         </p>
       )}
@@ -327,15 +327,19 @@ function TransferPanel({
         )}
         {ended && (
           <>
-            <div className="hs-box__head" data-testid="transfer-reason">
-              <span className="hs-box__label">{endedLabel(phase, t)}</span>
-              <span className="hs-box__aside">
-                {error
-                  ? error
-                  : phase === 'cancelled' && transferredBytes > 0
+            {/* the label + a SHORT aside ("stopped at 12 MB") share one line; a reason that is a sentence
+                (a refusal names the cap and what to do) gets its own line — on a phone it ran off the
+                right edge of the row (owner's screenshot, 2026-10-03). `transfer-reason` wraps both. */}
+            <div data-testid="transfer-reason">
+              <div className="hs-box__head">
+                <span className="hs-box__label">{endedLabel(phase, t)}</span>
+                <span className="hs-box__aside">
+                  {phase === 'cancelled' && transferredBytes > 0
                     ? `${t('stoppedAt')} ${formatBytes(transferredBytes)}`
                     : ''}
-              </span>
+                </span>
+              </div>
+              {error && <p className="hs-meta hs-box__reason">{error}</p>}
             </div>
             {transferredBytes > 0 ? (
               progress

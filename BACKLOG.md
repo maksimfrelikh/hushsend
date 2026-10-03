@@ -603,9 +603,12 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   to Delivered untouched (CLAUDE.md § File transfer). An app switch still ends the connection (measured).**
 - ✅(code, LIVE `bf485ae`) **The ended row clipped its reason on a phone (2026-10-03, owner's screenshot):**
   "declined · This file is 5.0 GB — larger than the…" ran off the right edge at 393 px, so the actionable
-  part (free up space / use a normal window) was unreadable. `.hs-box__aside` now wraps (`flex: 0 1 auto`,
-  `min-width: 0`, `overflow-wrap: anywhere`). The visual baselines of the ended-row scenes at 375 may shift —
-  re-record on the deploy host with this as the reason. An 800 MB receive stopped at 14 % the moment the owner locked the phone: ICE
+  part (free up space / use a normal window) was unreadable. A reason that is a sentence now gets its own
+  line under the label (`.hs-box__reason`); the short "stopped at 12 MB" aside stays on the right. The same
+  pass put a hairline between the Finishing explanation and the keep-the-screen-on line on the transfer
+  screen (`.hs-send__keepon`) — the two grey sentences read as one (owner's screenshot). The visual baselines
+  of `transfer-declined` / `transfer-error` / `transfer-finishing` at 375 shift — re-record on the deploy
+  host with this as the reason. An 800 MB receive stopped at 14 % the moment the owner locked the phone: ICE
   went `disconnected` ~7 s later and `failed` ~10 s after that, and both sides showed "Connection lost"
   (the Mac: "not delivered · stopped at 109 MB · ICE failed"). The loss path is honest, but on an iPhone a
   receive survives only while the screen stays on — the Pixel 5 ran on under the lock (F1 Android half),
