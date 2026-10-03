@@ -106,10 +106,12 @@
 }
 
 /* ---------- The column ---------- */
-/* .wrap (kit layout.css) gives padding-inline: var(--gut) and max-width: var(--maxw); the column
-   itself is the design's ~520px single column. */
+/* .wrap (kit layout.css) gives padding-inline: var(--gut) and max-width: var(--maxw) on a border-box,
+   so the gutters sit INSIDE --maxw. The design's column is 520px of CONTENT with the gutter outside it
+   (MainDesktop: main padding 72, inner column max-width 520) — hence 520 + 2·gut. With a bare 520px the
+   content was 376px at 1440 and 452px at 680 (2026-10-03, the owner's "tablet version" on a MacBook). */
 .hs-main {
-  --maxw: 520px;
+  --maxw: calc(520px + 2 * var(--gut));
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;

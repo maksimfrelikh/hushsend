@@ -601,6 +601,13 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   with user activation (the first build asked from the phase-change effect and was refused silently) — and the
   transfer screen says to keep the screen on. Verified on the phone: a 3 GiB receive with Auto-Lock at 30 s ran
   to Delivered untouched (CLAUDE.md § File transfer). An app switch still ends the connection (measured).**
+- ✅(code) **The column was 144 px narrower than the boards on a desktop — found 2026-10-03 by the owner ("looks
+  like a small tablet version on my MacBook").** `.hs-main` set `--maxw: 520px` on the kit's `.wrap`, a
+  border-box whose `padding-inline: var(--gut)` sits INSIDE that max-width — so the content column was 376 px
+  at 1440 (gutter 72) and 452 px at 680 (gutter 34), while MainDesktop / MainTablet draw a 520 px column with
+  the gutter outside it; the h1 wrapped to two lines where the board has one. Now
+  `--maxw: calc(520px + 2 * var(--gut))`: content 520 at 680 and 1440, measured; 375 unchanged (the viewport
+  binds). Every visual baseline at 680 and 1440 shifts — re-record on the deploy host with this reason.
 - ✅(code, LIVE `bf485ae`) **The ended row clipped its reason on a phone (2026-10-03, owner's screenshot):**
   "declined · This file is 5.0 GB — larger than the…" ran off the right edge at 393 px, so the actionable
   part (free up space / use a normal window) was unreadable. A reason that is a sentence now gets its own

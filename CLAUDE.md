@@ -962,7 +962,9 @@ travels live in the kit's own `CLAUDE.md`; its `README.md` is the consumer contr
   (`.theme-toggle`, the half-filled circle; `app.css` sets `--theme-toggle-flip: 180deg` on
   `[data-theme="light"]` and the button keeps `aria-pressed` = light active), `layout.css` (`.wrap`: the
   column — its `padding-inline: var(--gut)` IS the design's 20 / 34 / 72 gutter at 375 / 680 / 1440;
-  `.hs-main` narrows `--maxw` to the design's ~520px single column) — then `src/ui/app.css` (the app
+  `.hs-main` sets `--maxw` to `calc(520px + 2 * var(--gut))` — the design's 520px column of CONTENT with the
+  gutter outside it; `.wrap` is a border-box, so a bare `520px` had put the gutters inside and left 376px at
+  1440 / 452px at 680 until 2026-10-03) — then `src/ui/app.css` (the app
   component layer). A colour or font value is changed in the kit and arrives here by a pin bump, never
   by an override in this repo. `links.css`, `lang-switch.css`, `prose.css`, `command-palette.css` are
   not imported (nothing renders them). Nothing was promoted INTO the kit (kit rule 5: two consumers).
