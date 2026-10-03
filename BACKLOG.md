@@ -201,12 +201,15 @@ the same pass as CLAUDE.md when items land.
     no-navigator fallback, the exact refusal wording `512 MB` / `1.0 GB`, chunk clamping).
     **Not a handset:** Playwright's WebKit is WebKitGTK wearing an iPhone UA — real iOS memory
     pressure, background-tab suspension, camera permissions and cellular NAT stay unproven.
-  - **Remaining (real devices, post-deploy):** what only hardware shows — QR scan + camera permissions
-    on actual iOS Safari, the FSA→Blob cap on real hardware, everything cross-network (TESTPLAN § C),
-    and iOS background-tab suspension mid-transfer (§ F1). Engine-level transport interop is now
-    pre-covered headlessly (above). The pass itself is tracked case by case in TESTPLAN.md — 21 of 47
-    closed as of 2026-09-28, with iPhone/iPad-simulator and Android-emulator rehearsals of the handset
-    cases the same evening (its § Result log); the findings are in § UX bugs below.
+  - **Real devices (post-deploy) — DONE for Android Chrome (Pixel 5, 2026-10-02) and iOS Safari (iPhone 15,
+    2026-10-03, driven by WebDriver):** QR scan + camera permissions on actual iOS Safari ✅, the disk/RAM
+    receive paths on real hardware ✅ (site storage to 2 GiB on the iPhone, 5 GiB on the Pixel), everything
+    cross-network (TESTPLAN § C: Max fails closed with the hint, Reliable relays through coturn — 1.7 MB/s
+    on LTE) ✅, and iOS mid-transfer suspension (§ F1) MEASURED: iOS Safari ends the connection on screen
+    lock (§ UX bugs, first item). Engine-level transport interop is pre-covered headlessly (above). The pass
+    is tracked case by case in TESTPLAN.md — 39 of 47 closed as of 2026-10-03 (its § Result log);
+    the findings are in § UX bugs below. **Remaining:** Android Firefox, the ≥ 4 GiB and RAM rungs on the
+    iPhone, E5–E7 on the iPhone, C5 (two phones).
 - ✅ **Deployment behind nginx (6f) — LIVE at hushsend.frelikh.dev (see DEPLOY.md § 0 — the
   as-realized source of truth).** First bring-up 2026-06-20 on a VPS (`frelikhmax.fvds.ru`); **the live
   instance MOVED to the owner's home server 2026-08-16** and that is what runs today (re-verified on the
@@ -592,6 +595,17 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
 
 ## UX bugs — found in the manual test pass (Phase 1)
 
+- 🔴 **iOS Safari ends the WebRTC connection when the screen locks — found 2026-10-03 on the iPhone 15
+  (iOS 26.6), TESTPLAN F1.** An 800 MB receive stopped at 14 % the moment the owner locked the phone: ICE
+  went `disconnected` ~7 s later and `failed` ~10 s after that, and both sides showed "Connection lost"
+  (the Mac: "not delivered · stopped at 109 MB · ICE failed"). The loss path is honest, but on an iPhone a
+  receive survives only while the screen stays on — the Pixel 5 ran on under the lock (F1 Android half),
+  so this is iOS suspending the page, not the app. Nothing in the hidden-page / Save-file logic helps,
+  because the connection itself is gone. **Mitigation candidates for the owner:** (a) hold a **Screen
+  Wake Lock** (`navigator.wakeLock.request('screen')`, Safari ≥ 16.4, Chrome, Firefox) while a transfer
+  is in flight on either side — the lock by timeout then never happens (a deliberate button press still
+  ends it), released on done / cancel / fail; (b) a one-line hint on the phone's transfer screen
+  ("keep the screen on"); (c) both. Measured, not assumed: § Result log 2026-10-03.
 - 🔴→✅(code) **QR scanning dead on the live build since the 2026-10-01 dependency refresh — found
   2026-10-02 on the Pixel 5, confirmed on desktop Chrome 154 (TESTPLAN A2/B3).** `c5f6e94` moved
   `barcode-detector` 3.2.0 → 3.2.2 within its `^` range; its inlined zxing glue is now zxing-wasm 3.1.3
@@ -819,7 +833,10 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   pending, no file was in Files, no error was shown. The same transfer unlocked (control) prompted and
   saved a byte-identical file. On a real iPhone this is the likeliest shape of F1; the receiver should
   re-offer the save (a "Save file" button on the finished row) when the page was hidden at the
-  hand-off. Needs the real-phone run to confirm.
+  hand-off. Needs the real-phone run to confirm. **Real iPhone 15, 2026-10-03: the shape is different —
+  the CONNECTION dies on lock (the item at the top of this section), so the hand-off never comes into
+  play; Save file after a lock mid-transfer is therefore untestable on iOS, and the hidden-page fix
+  stays relevant for an app switch that does not lock (not measured).**
 - ✅ **The lobby device label — REMOVED from the protocol 2026-09-27 (owner's decision); client and
   server (`hush-signaling-server` `3d96125`) LIVE 2026-09-28, the client first.** Since the 2026-09-26 redesign a roster row was
   the readable id + join time and `peer.device` (`Desktop`/`Mobile`) was sent, capped and relayed but

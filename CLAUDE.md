@@ -1292,8 +1292,11 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
      `navigator.mediaDevices?.getUserMedia` guard), file save (no FSA `showSaveFilePicker` → Blob
      fallback + size cap, rejected pre-accept), `navigator.locks` (cross-tab keystore lock → degrade
      to direct call), `navigator.share`/`crypto.subtle`/`indexedDB` (all guarded with fallbacks).
-     **Remaining (after deploy, real devices):** transport + FSA→Blob + QR scan + camera permissions
-     verified on actual iOS Safari / Firefox.
+     **Real-device status:** Android Chrome verified 2026-10-02 (Pixel 5); **iOS Safari verified 2026-10-03
+     on an iPhone 15** (iOS 26.6, driven by WebDriver): transport on the LAN, on LTE (Max fails closed with
+     the hint, Reliable relays through coturn at 1.7 MB/s), site-storage receive to 2 GiB, QR scan + camera
+     deny, share sheet, reconnect — TESTPLAN § Result log 2026-10-03. One platform limit found: iOS Safari
+     ends the connection on screen lock (§ Known residuals). **Remaining:** Android Firefox.
    - ✅ **6f — nginx deployment — LIVE at hushsend.frelikh.dev** — the config
      templates + runbook are built and committed: `deploy/nginx.conf.example` (TLS, 80→443, SPA
      `try_files $uri /index.html`, the `/ws` proxy with `proxy_set_header X-Real-IP $remote_addr;` +
@@ -1514,6 +1517,11 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   launch.
 
 ## Known residuals / deferred
+- **iOS Safari ends the WebRTC connection when the screen locks (measured 2026-10-03, iPhone 15 / iOS
+  26.6, TESTPLAN F1).** An 800 MB receive stopped at 14 % the moment the phone locked; ICE went
+  `disconnected` in ~7 s and `failed` ~10 s later, and both sides showed "Connection lost" — the loss
+  path works, but a receive on an iPhone survives only while the screen stays on (the Pixel 5 ran on
+  under its lock). No mitigation yet; the Screen Wake Lock idea is in BACKLOG § UX bugs.
 - **`pairingId` — the pairing secret (restated 2026-09-25).** Earlier text called it "an identifier,
   not a secret"; that stopped being true on 2026-09-18 (the blinded announcement was keyed by it) and
   is the opposite of true now: the codeless reconnect derives the rendezvous token and the hello MAC

@@ -332,14 +332,14 @@ at a real phone screen (B6).
 
 Both peers on the home Wi-Fi, default **Max-privacy**. Baseline: if these fail, nothing below matters.
 
-- [ ] **A1 · link** *(AND-1 half ✅ 2026-10-02 — Pixel 5 Chrome ×3; the named IPH run pending)* — MBP-A (Chrome) creates a one-time link → send it to IPH (Safari) out of band →
+- [x] **A1 · link** *(AND-1 half ✅ 2026-10-02 — Pixel 5 Chrome ×3; IPH half ✅ 2026-10-03 — iPhone 15 Safari, 2.0 / 1.7 s, host↔host)* — MBP-A (Chrome) creates a one-time link → send it to IPH (Safari) out of band →
       IPH opens it. Expected: auto-join, pairing, `connected` with **no SAS screen** (link/QR
       authenticate over the link secret), URL fragment scrubbed from the address bar.
-- [ ] **A2 · QR** *(AND-1 half ✅ 2026-10-02 on the fixed live build `9bdda44` — the Pixel 5 decoded the QR off the Mac's screen and connected in 8.5 s; before the fix the scanner was dead on every engine, § Result log. IPH pending)* — MBP-A shows the QR, IPH scans it with the in-app scanner. Expected: same as A1.
+- [x] **A2 · QR** *(AND-1 half ✅ 2026-10-02 on the fixed live build `9bdda44` — the Pixel 5 decoded the QR off the Mac's screen and connected in 8.5 s; before the fix the scanner was dead on every engine, § Result log. IPH ✅ 2026-10-03: the iPhone's camera read the QR off the Mac's screen, connected in 29 s)* — MBP-A shows the QR, IPH scans it with the in-app scanner. Expected: same as A1.
       Note which decoder ran (§ B3).
-- [ ] **A3 · words** *(AND-1 half ✅ 2026-10-02; IPH pending)* — MBP-A creates, IPH enters the rendezvous + the 4 secret words. Expected: `connected`
+- [x] **A3 · words** *(AND-1 half ✅ 2026-10-02; IPH ✅ 2026-10-03)* — MBP-A creates, IPH enters the rendezvous + the 4 secret words. Expected: `connected`
       after CPace + key confirmation, no SAS screen.
-- [ ] **A4 · room / SAS** *(AND-1 half ✅ 2026-10-02, 8 rooms, reader 5× creator / 3× phone; IPH pending)* — MBP-A creates a 4-digit room, IPH joins → both land in the **lobby**, MBP-A
+- [x] **A4 · room / SAS** *(AND-1 half ✅ 2026-10-02, 8 rooms, reader 5× creator / 3× phone; IPH ✅ 2026-10-03, 2 rooms, roles both ways)* — MBP-A creates a 4-digit room, IPH joins → both land in the **lobby**, MBP-A
       presses Connect on the IPH row. Expected: **SAS screen is asymmetric** — one side shows its
       phrase (reader), the other picks blind among 3 (real + 2 decoys). **Which side reads is not
       predictable and must not be** (changed 2026-09-12): it is derived from the SAS material, not
@@ -359,7 +359,7 @@ Both peers on the home Wi-Fi, default **Max-privacy**. Baseline: if these fail, 
       fails closed. (A reject is accepted even after our own approval, up to settle — a reader who
       clicked too early must not be trapped.) *(PASS on the live build 2026-09-28 — the "Stop" pill on
       "Verifying…" ends both sides in the hard stop; § Result log.)*
-- [ ] **A5 · transfer both ways** *(AND-1 half ✅ 2026-10-02: site storage on the phone, the stream path on the Mac, both verified; IPH pending)* — over the A1 connection send a small file (≈5 MB) MBP-A → IPH, then
+- [x] **A5 · transfer both ways** *(AND-1 half ✅ 2026-10-02: site storage on the phone, the stream path on the Mac, both verified; IPH ✅ 2026-10-03: site storage on the phone, the stream path on the Mac, both verified)* — over the A1 connection send a small file (≈5 MB) MBP-A → IPH, then
       IPH → MBP-A. Expected: progress advances monotonically, file arrives intact (**check the size and
       open it**), receiver's terminal plaque shows a **"New transfer"** button.
 - [x] **A6 · WS closes on connect** — in devtools Network → WS, confirm the signaling socket **closes
@@ -367,7 +367,7 @@ Both peers on the home Wi-Fi, default **Max-privacy**. Baseline: if these fail, 
       keeps working afterwards. This is the per-pair privacy close: the server must not observe the
       session duration. Reconnect was the last exemption and was folded in on 2026-09-12 — if its
       socket stays open, that regression is the whole point of checking it here.
-- [ ] **A6a · path attestation never blocks a transfer** — it is ADVISORY. On every pair, especially
+- [x] **A6a · path attestation never blocks a transfer** *(✅ 2026-10-03: Chrome ↔ iPhone Safari read `mismatch` on the Mac and the 3 MB send completed — § Result log)* — it is ADVISORY. On every pair, especially
       a Safari↔non-Safari one, confirm the transfer completes regardless of the verdict. A `mismatch`
       here is EXPECTED between engines (see § Phase B) and must stay cosmetic; if a transfer is ever
       refused or torn down because of it, that is a bug, not a detection.
@@ -413,7 +413,7 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       — a disk file, no dialog, the dialog only past the quota, all PASS on the live build (§ Result
       log) — which desktop Chrome no longer takes; Firefox and Safari do, so those checks moved to
       B2/B10. PASS on the live `c5a51c4` the same day — § Result log.)*
-- [ ] **B2 · disk receive on the phone + the RAM fallback's cap** — receive on IPH Safari and on MBP-A
+- [ ] **B2 · disk receive on the phone + the RAM fallback's cap** *(IPH disk half ✅ 2026-10-03: 1 GiB and 2 GiB into Safari's site storage, verified; the private-window RAM rung on a phone still open)* — receive on IPH Safari and on MBP-A
       Firefox (both keep site storage — neither may stream, see CLAUDE.md § File transfer). Expected:
       no save dialog; the file goes to site storage and lands via a download at the end — a file well
       past 200 MiB (say 1 GiB) must complete on the PHONE, which is what the disk path is for. Then in a **private window** (where site storage may be unusable → the RAM path)
@@ -426,7 +426,7 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       Downloads (expect a 1 GiB file to complete there, nothing in site storage); Firefox private has no
       site storage (`getDirectory()` → SecurityError, measured) — expect the RAM path, a refusal before
       accept above 200 MiB; Safari private — by hand (safaridriver cannot open one).
-- [ ] **B3 · QR scan + self-hosted WASM** *(AND-1 half ✅ 2026-10-02 on `9bdda44`: the scan fetched the ponyfill + `zxing_reader-BxB2YfIY.wasm` from our origin only and decoded; IPH Safari + AND-2 Firefox pending)* — scan on IPH Safari and AND-2 Firefox (the ponyfill path).
+- [ ] **B3 · QR scan + self-hosted WASM** *(AND-1 half ✅ 2026-10-02 on `9bdda44`: the scan fetched the ponyfill + `zxing_reader-BxB2YfIY.wasm` from our origin only and decoded; IPH ✅ 2026-10-03; AND-2 Firefox pending)* — scan on IPH Safari and AND-2 Firefox (the ponyfill path).
       Expected: scanning works, and in Network the WASM is fetched from
       `https://hushsend.frelikh.dev/assets/zxing_reader-*.wasm` with `Content-Type: application/wasm`.
       **Nothing may be requested from `jsdelivr` / `fastly` / any third-party host** — that is the whole
@@ -434,9 +434,9 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       `barcode-detector/ponyfill`, which is always the zxing implementation and never delegates to a
       native `BarcodeDetector` (measured 2026-09-27 on desktop Chrome, which has one; corrected from
       "native; no WASM fetch at all").
-- [ ] **B4 · camera permission denied** *(Android half ✅ 2026-10-02: Block → paste fallback, no crash; re-allow is via the site-settings sheet because Chrome offers "Never allow"; IPH pending)* — on IPH, deny the camera prompt. Expected: a clean
+- [x] **B4 · camera permission denied** *(Android half ✅ 2026-10-02: Block → paste fallback, no crash; re-allow is via the site-settings sheet because Chrome offers "Never allow"; IPH ✅ 2026-10-03: deny → "Camera unavailable — paste the link below instead")* — on IPH, deny the camera prompt. Expected: a clean
       **paste-the-link fallback**, no crash, no dead screen. Re-allow and confirm the scanner recovers.
-- [ ] **B5 · share / copy** *(AND-1 half ✅ 2026-10-02 — the system share sheet opened on a real tap; IPH + Firefox halves pending)* — on IPH and AND-1 the **Share** button uses the native sheet; on MBP-A
+- [ ] **B5 · share / copy** *(AND-1 half ✅ 2026-10-02 — the system share sheet opened on a real tap; IPH ✅ 2026-10-03 (the share sheet opened); Firefox half pending)* — on IPH and AND-1 the **Share** button uses the native sheet; on MBP-A
       Firefox (no `navigator.share`) it must be **absent**, with Copy still present and working.
 - [x] **B7 · STUN cross-check verdict per engine — NEW 2026-09-17, and the device pass is what
       decides it.** The client asks every configured STUN server what our public address is, using one
@@ -487,7 +487,7 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       cryptography does not hide (cleartext SNI; the direct connection to your correspondent) and the
       Tor/VPN-on-both-sides advice. Check the text is not clipped at 390 px — it is the longest prose
       in the app.
-- [ ] **B6 · theme / language / layout** *(Android half ✅ 2026-10-02 — both themes, no clipping, 44 px targets; iPhone pending)* — check the app in light+dark and EN+RU on the iPhone and on a
+- [x] **B6 · theme / language / layout** *(Android half ✅ 2026-10-02 — both themes, no clipping, 44 px targets; iPhone ✅ 2026-10-03: both themes, 44 px targets, no overflow at 393 px)* — check the app in light+dark and EN+RU on the iPhone and on a
       MacBook: no clipped text, no horizontal scroll, tap targets reachable, the 4-digit code and word
       slots legible.
 - [x] **B9 · privacy-hardened browser (Brave, shields up) — NEW 2026-09-19.** Brave is Blink, so it
@@ -502,7 +502,7 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       an srflx there, that is a real-world limit to state in the README, not a defect to fix: the
       strict model is doing exactly what it promises.
 - [ ] **B10 · size ladder up to 5 GB — every receive path, every engine as sender — NEW 2026-09-27
-      (owner's request).** *(Handset half of the site-storage row ✅ 2026-10-02: Pixel 5 Chrome, 1 / 2 / 3 / 4 GiB + 1 B / 5 GiB all PASS at 3.0–5.5 MB/s, Chrome PSS flat 201–264 MB — § Result log. Still open: the RAM rung and past-the-quota on a phone, and an iPhone.)* Limits differ by OS, browser and device, and § 0.3's ceilings come from
+      (owner's request).** *(Handset half of the site-storage row ✅ 2026-10-02: Pixel 5 Chrome, 1 / 2 / 3 / 4 GiB + 1 B / 5 GiB all PASS at 3.0–5.5 MB/s, Chrome PSS flat 201–264 MB — § Result log. IPH site-storage rungs 1 and 2 GiB ✅ 2026-10-03 at 12.6 / 29.4 MB/s; ≥ 4 GiB and the RAM / past-the-quota rungs on a phone still open.)* Limits differ by OS, browser and device, and § 0.3's ceilings come from
       Playwright builds on one Mac (Chromium and WebKit only: no Gecko, no real Safari, no phone). So
       walk each receive path up its ladder on the REAL engines and devices:
 
@@ -562,7 +562,7 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       table and reopen BACKLOG § Security audit / Findings.
       Worth pairing with a control: the same Max ↔ Reliable run where the direct path DOES work must
       still connect normally (the gate must not reject a legitimate `prflx` from a NAT mapping).
-- [ ] **C6 · volume padding, and what it costs on a real link — NEW 2026-09-17.** In Max privacy the
+- [x] **C6 · volume padding, and what it costs on a real link — NEW 2026-09-17.** *(✅ 2026-10-03 on the iPhone over LTE: 300 KiB → 524 371 B on the wire (+70.7 %), 50 MB → +0.7 % at 4.0 MB/s, files the real size — § Result log)* In Max privacy the
       transfer is padded so its byte count lands on a bucket edge instead of naming the file
       (`core/transfer/padding.ts`): powers of two below 1 MiB, then ≤12.5% overhead. Send a **300 KiB**
       file (ladder: → 512 KiB, a 70% jump no chunking accident could produce) and a **~50 MB** file
@@ -643,7 +643,7 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
 
 ## Phase F — real-world robustness · mixed: F3/F5/F6/F7 are T1, the rest need a radio or a dialog
 
-- [ ] **F1 · phone screen lock / app switch mid-transfer** *(Android half ✅ 2026-10-02/03 on the Pixel 5: the 200 MB receive ran on under the locked screen, the finished row showed "arrived in the background — Save file", one tap landed it in Downloads with the right SHA-256; IPH pending)* — start a ≈200 MB transfer to IPH, then lock
+- [ ] **F1 · phone screen lock / app switch mid-transfer** *(Android half ✅ 2026-10-02/03 on the Pixel 5: the 200 MB receive ran on under the locked screen, the finished row showed "arrived in the background — Save file", one tap landed it in Downloads with the right SHA-256; IPH ❌ 2026-10-03 — iOS Safari tears the connection down on screen lock; both sides reported "Connection lost" honestly — BACKLOG § UX bugs)* — start a ≈200 MB transfer to IPH, then lock
       the screen / switch apps for ~30 s and come back. Expected: either it keeps going or it fails
       visibly with a recoverable state — **iOS suspends background tabs**, so record exactly what
       happens; this is the single most likely real-world surprise. **Since 2026-09-28:** if the file
@@ -1484,3 +1484,111 @@ so from F8 on every run was cross-network until the roster dump said so. Read th
 SAME pass — doc drift is a bug (CLAUDE.md § Keep this file in sync). Bugs found here become new
 BACKLOG items under "UX bugs — found in the manual test pass"; anything security-shaped goes to
 § Security audit instead of being fixed ad hoc.
+
+### 2026-10-03 · the FIRST real iPhone · Chrome 154 (the Mac) ↔ **iPhone 15** (iOS 26.6, Safari 26.6) over USB — Phase A/B/E on the LAN, Phase C on LTE
+
+Setup: live `981f8df` (`index-DkYJ-hTt.js`, § 0.1 unchanged). The phone is the owner's iPhone 15
+(`iPhone15,4`, iOS 26.6 / 23G71), attached over USB and — for the first time — **driven by WebDriver**
+(`safaridriver` 26.6 → the phone's Safari with Remote Automation on; caps and gotchas in the
+`mobile-devices` skill). Three stand facts shape everything below: (1) **each automation session is a
+clean, ephemeral profile** (no pins, no prefs; pins live for one session), (2) **locking the phone — or
+pausing Remote Automation — ends the session**, so the lock / camera / share / download-question cases ran
+in the owner's normal Safari tab with Claude reading the Mac side, and (3) **the USB cable is a network**:
+the Mac gets an `iPhone USB` link-local interface AND Apple's CoreDevice developer tunnel (`utun6`, an
+IPv6 ULA both devices share), and ICE happily picks either — every "cross-network" pair connected over the
+cable until the interface was taken down (`sudo ifconfig en9 down`) and the Mac's Chrome was started
+with `--webrtc-ip-handling-policy=default_public_interface_only` (harness engine `chrome-pubif`). Desktop
+side: the installed Chrome 154 through Playwright (`chromeA`; `chromeD` = real local IPs; `chromeP` =
+the public-interface-only one for Phase C). Networks: **home LAN** for A/B/E (Mac 192.168.1.38, phone
+192.168.1.37); for Phase C the **phone on LTE with Wi-Fi off** (after a first try on a VPN Wi-Fi whose
+runs all went over the cable — discarded).
+
+**Phase A on the LAN (Max privacy on both unless said).**
+- **A1 · T2 · Mac Chrome → IPH Safari · PASS** — connected 2.0 s / 1.7 s (two runs), fragment scrubbed, no
+  SAS screen, "one-time secret verified", selected pair `host ↔ host` udp (the phone's LAN address
+  192.168.1.37 seen on the Mac). The phone's socket closed 1005 at connect.
+- **A2 · T2 · IPH scans the Mac's QR · PASS** (by hand: the owner allowed the camera and pointed it at the
+  Mac's Chrome window) — connected 29 s after the handover started (token socket open +0.5 s, closed at
+  connect +55.7 s). Closes **B3's iPhone half** too: the ponyfill + the self-hosted zxing WASM decoded on a
+  real iPhone.
+- **A3 · T2 · Mac creates words, IPH types them (touch mode) · PASS** — "code words verified" on both;
+  the phone's `room=<word>&codeType=word` socket closed 1005 right at connect.
+- **A4 · T2 · Mac creates a room, IPH joins, Mac picks the IPH row · PASS** — 2 rooms (4670, 6352): one
+  reader + one picker each time, the split landed BOTH ways (creator reader, then creator picker), the
+  real phrase among the picker's three, both "verified — SAS confirmed".
+- **A5 · T2 · both ways · PASS** — 5 MB Mac → IPH: the phone took the **site-storage path** (no dialog),
+  every block verified (37 ms), "Received" + New transfer; 5 MB IPH → Mac: desktop Chrome streamed it into
+  Downloads, SHA-256 right. Both sides read "direct path not confirmed".
+- **A6a · T2 · PASS — the first real `mismatch`.** After the QR pairing the Mac's badge read "route did
+  not match": its selected remote is the phone's real address, learned peer-reflexively, while WebKit can
+  attest only its mDNS names (CLAUDE.md § Path attestation predicted exactly this). A 3 MB send completed
+  regardless — "Delivered" 7 s after the owner's Accept. Verdict table row: Chrome-desktop ↔ Safari-iOS
+  on one LAN = `mismatch` (Mac) / `unknown` (phone). Advisory, as it must be.
+
+**Phase B / F on the phone.**
+- **B2 (phone, disk half) · PASS** — 1 GiB Mac → IPH into Safari's site storage: 85 s = **12.6 MB/s** over
+  Wi-Fi, monotonic, verified; no dialog, the download at the end is a blob URL of the stored file. **B10
+  rung 2 GiB: 73 s = 29.4 MB/s** (over the USB link), verified. The 4 GiB + 1 B rung was cut at ~2.95 GB by
+  the stand (the owner paused Remote Automation to switch to LTE) — still open, with the RAM rung in a
+  private window (by hand; safaridriver cannot open one). Safari's `storage.estimate()` is erratic on
+  iOS (quota 41 → 77 → 41 GB across reads) — a number, not a fact.
+- **The iOS download** — in the owner's normal tab the 3 MB file reached the phone's Downloads folder
+  (owner); in the automation window the anchor click produced no visible question (that window shows
+  no system sheets to WebDriver).
+- **B4 · IPH · PASS** (by hand) — camera denied → "Camera unavailable — paste the link below instead", no crash.
+- **B5 · IPH · PASS** (by hand) — Share opened the iOS share sheet.
+- **B6 (iPhone half) · PASS** — home / method picker / words-read in light + dark: no control under 44×44
+  CSS px, no horizontal overflow at 393 px (`scrollWidth` = `innerWidth`). RU half n/a (English only).
+- **F1 · IPH · FAIL (platform)** — 800 MB Mac → IPH in the owner's tab: Accept, 114 MB in ~6 s, the owner
+  locked the phone → the receive stopped at 14 %; the Mac showed the `interrupted` line 7 s later (ICE
+  `disconnected`) and "Connection lost · not delivered · stopped at 109 MB · ICE failed" 17 s after the
+  stall; the phone, unlocked, showed "Connection lost" too. **iOS Safari tears the WebRTC connection down
+  on screen lock** (the Pixel 5 ran on under the lock). The app's loss path reported it honestly on both
+  sides within 17 s; the hand-off / Save file logic never came into play. → BACKLOG § UX bugs (Screen
+  Wake Lock while a transfer is in flight).
+
+**Phase E (within one automation session — pins are per session).**
+- **E2 · T2 · PASS** — Mac taps Reconnect first, phone 5 s later: both "reconnect — verified via pinned
+  key"; the Mac's socket was a 22-char token room, closed 1005 at connect (~4 s after the phone's tap).
+- **E3 · T2 · PASS** — phone first (its wait screen shows no code), Mac 20 s later: both verified via
+  pinned key within ~1 s of the Mac's tap.
+- **E1 (phone half)** — after A1 / A3 / A4 the phone's Reconnect section listed the Mac **once**
+  (`device db:85:ec:5b`).
+
+**Phase C — Mac Chrome (Wi-Fi only) on the home LAN ↔ IPH Safari on LTE.**
+- **C1 · T2 · Max↔Max · link · PASS, outcome (b)** — both sides terminal `failed` with the direct-fail hint
+  ("Couldn't connect directly. Switch to Reliable to allow relaying through a server."; the Mac adds the
+  macOS Local Network line, the phone correctly does not) 15.9 s / 16.1 s after the join (ICE `failed`
+  at +18.5 s on the Mac). No hang, no relay. The LTE carrier NAT + the home NAT did not traverse — the
+  same outcome as the Pixel 5 behind its VPN.
+- **C2 · T2 · Reliable↔Reliable · PASS** — connected 2.2 s; ICE chose the relay by itself: the Mac's
+  selected pair local = `relay udp 94.46.199.61` (our coturn), both screens "relayed through the server"
+  (the `relayed` verdict works on Safari); **50 MB in 29.7 s = 1.7 MB/s on LTE**, monotonic, verified.
+  (Earlier, over the cable, a relay-forced run gave `relay ↔ relay` and 1.0 MB/s with the phone behind a
+  VPN Wi-Fi — same relay, slower uplink.) coturn's `external-ip` / port-forwarding proven with a real
+  iPhone on a carrier NAT.
+- **C3 · T2 · both directions × link, plus room · PASS** — Mac Max ↔ phone Reliable (link): both terminal
+  in 17.0 / 17.2 s, the Max side keeps its hint, the Reliable side reads "Couldn't connect — channel
+  closed during pairing". Mac Reliable ↔ phone Max (link): the same shape, the phone (Max) showing the
+  hint. Room, Mac Max creates / phone Reliable joins / Mac picks: 15.9 / 16.0 s, Mac hint, phone
+  "channel closed during SAS pairing". No deadlock, no "agreeing on keys" hang anywhere — and the
+  2026-10-03 "Max hint survives the peer-left race" fix held on a real iPhone.
+- **C4 · T2 · PASS** — a `WebSocket.send` hook on the Mac: as the Max side it sent **0** `turn-request`
+  frames (C1 and the C3 Max run); as the Reliable side **1**. Every Max side ended `failed` + hint; nothing
+  relayed. (The phone's frames are not observable over WebDriver — the hook can only be installed after
+  the join.)
+- **C6 · T2 · PASS** — Max privacy over LTE: a 300 KiB file went on the wire as 524 371 B (the 512 KiB
+  bucket, **+70.7 %**), a 50 MB file as 50 331 735 B (the 48 MiB bucket, **+0.7 %**), 18.9 s =
+  **4.0 MB/s**; both received files are the REAL size and verified — the filler is never written. The
+  small file's padding (~0.13 s of wire at that rate) is invisible next to the per-file handshake; the
+  cost that would bite a per-megabyte plan is the +12.5 % ceiling on big files, not the small-file jump.
+
+**Open on the iPhone after this session:** B10 rungs ≥ 4 GiB, B2's RAM rung (private window), E5 / E6 / E7
+(10-minute waits, a clock change), F8 (needs a hook before the page loads — not possible over WebDriver),
+C5 (needs the Pixel too), and the exact wording of iOS's download question.
+
+**Stand notes (not product):** the WebDriver click on Accept did not land once (DOM fallback took over);
+`__hs.pathOf()` on the phone has no addresses; the E2/E3 "15 s" in the harness log is a wait for a screen
+the phone never shows when the peer is already there; Chrome hides a `prflx` remote's address in
+`getStats()` even with media permission — read the LOCAL side (`chrome-direct` / `chrome-pubif`) to know
+which interface a pair used. See the `mobile-devices` skill for the iPhone recipe.
