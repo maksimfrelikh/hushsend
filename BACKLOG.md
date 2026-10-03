@@ -609,8 +609,10 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   Hover rules were NOT the cause: kit and app already gate them with ` (hover: hover)`. Fix in
   `app.css`: the system highlight is off on the app's controls (they all carry their own feedback), and on
   `(pointer: coarse)` a quiet pill press — wash one step darker, no transition — replaces the inversion
-  (option (b) of the three put to the owner). **Kit follow-up:** the same two rules belong in
-  `controls.css` / `tokens.css` so frelikh gets them (stark-ui-kit CLAUDE.md § How a change travels).
+  (option (b) of the three put to the owner). **Folded into the kit the same day — stark-ui-kit 0.3.2
+  (`f9d9250`): `theme-mono.css` sets `--brand-tap-highlight: transparent`, `controls.css` gives `.pill` / `.btn` the
+  quiet press under `(hover: none)`; hushsend pins it and dropped its own copy. frelikh still pins 0.3.0 —
+  bump it to get the same (kit CLAUDE.md § How a change travels).
 - ✅(code) **The column was 144 px narrower than the boards on a desktop — found 2026-10-03 by the owner ("looks
   like a small tablet version on my MacBook").** `.hs-main` set `--maxw: 520px` on the kit's `.wrap`, a
   border-box whose `padding-inline: var(--gut)` sits INSIDE that max-width — so the content column was 376 px

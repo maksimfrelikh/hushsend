@@ -935,7 +935,8 @@ input (`src/ui/screens/ScanScreen.tsx`).
 ## UI / styling — stark-ui-kit (required)
 Dependency: `"stark-ui-kit": "github:maksimfrelikh/stark-ui-kit#<sha>"` — a private GitHub repo, pinned by
 commit (NOT on the npm registry: `npm install stark-ui-kit` fetches an unrelated package). **Current pin:
-`2a3f7ec` = kit 0.3.0** (since 2026-09-25; the same sha frelikh pins). Bumping the pin needs `npm install`
+`f9d9250` = kit 0.3.2** (since 2026-10-03 — quiet touch feedback, § UI → *Touch press*; frelikh still pins
+`2a3f7ec` = 0.3.0 and should bump next). Bumping the pin needs `npm install`
 with the TPM SSH agent (`SSH_AUTH_SOCK=/run/user/1000/ssh-tpm-agent.sock` in a non-interactive shell) —
 npm caches a git dep by sha, so the bump IS the install. The rules for changing the kit and how a change
 travels live in the kit's own `CLAUDE.md`; its `README.md` is the consumer contract.
@@ -997,10 +998,11 @@ travels live in the kit's own `CLAUDE.md`; its `README.md` is the consumer contr
   counts 19px text as large only when bold). Control geometry (heights, paddings, gaps) is literal px
   following the boards — the kit has no spacing scale. `prefers-contrast: more` is the kit's palette;
   the app carries no contrast overrides.
-- **Touch press (2026-10-03):** the system tap highlight is OFF on every app control (`-webkit-tap-highlight-color:
-  transparent` — iOS painted the kit's fg-10 % highlight across whole rows), and on `(pointer: coarse)` a
-  pill press is the wash one step darker with no transition instead of the kit's ink inversion (that is the
-  hover language; on a finger it was a black flash). Primary pills are ink already. Owner's option (b).
+- **Touch press (2026-10-03, kit 0.3.2):** the KIT owns it — `theme-mono.css` sets the house
+  `--brand-tap-highlight: transparent` (iOS painted the fg-10 % highlight across whole rows), and
+  `controls.css` gives `.pill` / `.btn` a quiet fg-10 % press with no transition under `(hover: none)` instead
+  of the ink inversion (the hover language; on a finger it was a black flash). This app adds nothing of its
+  own for touch — the first fix (`ff862a4`, app-level) was folded into the kit the same day. Owner's option (b).
 - **Control edges:** `--fg` at rest where the edge alone identifies the control (text inputs, the room
   code input, the five word fields, phrase cards, the file zone); `--line-2` where a label identifies it
   (pills, method / device / peer rows). Focus is the kit's 2px ring; on fields it sits ON the edge

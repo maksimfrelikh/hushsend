@@ -295,34 +295,6 @@
   transform: rotateY(360deg);
 }
 
-/* ---------- Touch press feedback (owner, 2026-10-03) ---------- */
-/* iOS paints its own tap highlight (the kit's --tap-highlight, fg at 10 %) over any tappable element the
-   moment a finger lands; on a full-width row (the path disclosure, a details summary) or on a control
-   that already carries a press state it reads as a flash across the whole element. Every control here
-   has its own feedback — the chevron turns, the panel opens, the pill presses — so the system one is off. */
-.hs-pill,
-.hs-tlink,
-.hs-iconbtn,
-.hs-row,
-.hs-card,
-.hs-mode__radio,
-.hs-fold__summary,
-.hs-disc__btn,
-.theme-toggle {
-  -webkit-tap-highlight-color: transparent;
-}
-/* On a finger the kit's .pill:active (the full ink inversion, faded in and out over --dur-fast) is a
-   black flash — the inversion is the HOVER language, and hover does not exist here. A quiet press
-   instead: the wash one step darker, no transition. The primary pill is ink already and keeps it. */
- (pointer: coarse) {
-  .hs-pill:active:not(:disabled):not(.hs-pill--primary) {
-    background: color-mix(in srgb, var(--fg) 10%, transparent);
-    color: var(--fg);
-    border-color: var(--line-2);
-    transition: none;
-  }
-}
-
 /* ---------- Tertiary action ---------- */
 .hs-tlink {
   display: flex;
