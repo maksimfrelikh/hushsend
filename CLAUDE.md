@@ -997,6 +997,10 @@ travels live in the kit's own `CLAUDE.md`; its `README.md` is the consumer contr
   counts 19px text as large only when bold). Control geometry (heights, paddings, gaps) is literal px
   following the boards — the kit has no spacing scale. `prefers-contrast: more` is the kit's palette;
   the app carries no contrast overrides.
+- **Touch press (2026-10-03):** the system tap highlight is OFF on every app control (`-webkit-tap-highlight-color:
+  transparent` — iOS painted the kit's fg-10 % highlight across whole rows), and on `(pointer: coarse)` a
+  pill press is the wash one step darker with no transition instead of the kit's ink inversion (that is the
+  hover language; on a finger it was a black flash). Primary pills are ink already. Owner's option (b).
 - **Control edges:** `--fg` at rest where the edge alone identifies the control (text inputs, the room
   code input, the five word fields, phrase cards, the file zone); `--line-2` where a label identifies it
   (pills, method / device / peer rows). Focus is the kit's 2px ring; on fields it sits ON the edge

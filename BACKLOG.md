@@ -601,6 +601,16 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   with user activation (the first build asked from the phase-change effect and was refused silently) — and the
   transfer screen says to keep the screen on. Verified on the phone: a 3 GiB receive with Auto-Lock at 30 s ran
   to Delivered untouched (CLAUDE.md § File transfer). An app switch still ends the connection (measured).**
+- ✅(code) **Controls "blink" on a tap on the phone — found 2026-10-03 by the owner (screen recording).** Two
+  things stacked: iOS's own tap highlight (the kit sets `-webkit-tap-highlight-color` to fg 10 % on `:root`)
+  flashed across the whole path-disclosure row and the details summaries the moment a finger landed, and the
+  kit's `.pill:active` — the full ink inversion with a `--dur-fast` fade — turned every pill black for the
+  length of the touch (on a mouse the hover already holds the inversion, so a press is invisible there).
+  Hover rules were NOT the cause: kit and app already gate them with ` (hover: hover)`. Fix in
+  `app.css`: the system highlight is off on the app's controls (they all carry their own feedback), and on
+  `(pointer: coarse)` a quiet pill press — wash one step darker, no transition — replaces the inversion
+  (option (b) of the three put to the owner). **Kit follow-up:** the same two rules belong in
+  `controls.css` / `tokens.css` so frelikh gets them (stark-ui-kit CLAUDE.md § How a change travels).
 - ✅(code) **The column was 144 px narrower than the boards on a desktop — found 2026-10-03 by the owner ("looks
   like a small tablet version on my MacBook").** `.hs-main` set `--maxw: 520px` on the kit's `.wrap`, a
   border-box whose `padding-inline: var(--gut)` sits INSIDE that max-width — so the content column was 376 px
