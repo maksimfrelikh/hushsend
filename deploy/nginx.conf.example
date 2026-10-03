@@ -2,7 +2,7 @@
 # hushsend — nginx site template (TLS termination + SPA + WS reverse proxy)
 # ============================================================================
 # Serves the static SPA (Vite `dist/`) AND reverse-proxies the WebSocket
-# signaling server (server/signaling-server.js, bound to 127.0.0.1:8080).
+# signaling server (repo hush-signaling-server, bound to 127.0.0.1:8080).
 # The signaling server is UNTRUSTED by design — all confidentiality/authenticity
 # is established client-side (SAS / PAKE / DTLS). nginx here is plumbing +
 # transport security (TLS) + abuse-hygiene plumbing (X-Real-IP), NOT auth.

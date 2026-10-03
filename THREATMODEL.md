@@ -135,10 +135,12 @@ server's reply. An adversary holding **both** signaling and STUN can inject a ca
 the peer to attest that same address, and the check passes. Today both are the same host.
 
 **Status: started.** The deployment lives in
-[`hushsend-stun-server`](https://github.com/maksimfrelikh/hushsend-stun-server) — not wired in yet,
-and during development all three services share one machine, which buys nothing. The strong form is
-**several independent STUN servers cross-checked by the client**, because it requires trusting no
-single operator; `VITE_STUN_URLS` is already a list, the comparison is not written.
+[`hushsend-stun-server`](https://github.com/maksimfrelikh/hushsend-stun-server) — not wired in yet
+(checked 2026-10-03; its first deployment, on the same home server as everything else, is prepared),
+and one operator on one machine buys nothing. The strong form is **several independent STUN servers
+cross-checked by the client**, because it requires trusting no single operator: `VITE_STUN_URLS` is
+a list and the comparison is built (`core/stunCheck.ts`, 2026-09-17; this line said "not written"
+until 2026-10-03), but it says nothing until two different operators answer.
 
 ### 3b. That you used hushsend at all is visible to your network (new, 2026-09-13)
 

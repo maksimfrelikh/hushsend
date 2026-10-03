@@ -137,7 +137,8 @@ be verified without a reference hash.
 
 **Feature-complete and deployed.** All four methods, the codeless reconnect, the mesh lobby, TURN,
 light/dark, the Claude Design screen set (English only for now; the RU table is kept, the switch
-hidden), and the deployment are built and live. **377 vitest tests** and a
+hidden), and the deployment are built and live. **368 vitest tests** (the client; the signaling
+server's 28 run in its own repository) and a
 Playwright e2e suite — **53 cases per engine: 51 run on chromium** (2026-10-01; firefox and webkit last measured 2026-09-28 at 45 and 43 of 50) (the
 silent-peer case needs CDP, and the two straight-into-Downloads cases apply only where the stream path
 does — desktop Chromium; the two site-storage cases skip on Playwright's WebKit, whose storage cannot
@@ -145,7 +146,8 @@ write; plus 2 opt-in cases everywhere, the size ladder and the two-STUN cross-ch
 phone profile and 5 cross-engine pairs — cover the protocol paths; the axe
 gate (`npm run test:a11y`, 112 checks) and the screenshot gate (`npm run visual`, 167 checks — on the
 deploy host, whose renders the baselines are) cover the screens. The vitest, per-engine e2e, phone, axe
-and screenshot counts were re-run 2026-09-28 (vitest again 2026-10-03, 377 of 377 — 375 passed + 2 skipped — after the zxing ABI gate and the Pixel 5 pass's four fixes); the cross-engine
+and screenshot counts were re-run 2026-09-28 (vitest again 2026-10-03: 368 of 368, after the server's
+integration tests moved to hush-signaling-server); the cross-engine
 count is from 2026-09-26. Refresh them here whenever the suite grows.
 
 A second internal audit on **2026-09-12** (modelling a fully malicious signaling server, not just a
@@ -179,19 +181,27 @@ user. In short:
 npm install
 npm run dev        # vite dev server
 npm run typecheck  # tsc --noEmit
-npx vitest run     # unit + integration (integration needs `cd server && npm ci` for `ws`)
+npx vitest run     # unit tests (the signaling server's own tests run in its repository)
 npm run test:e2e   # playwright (drives two real browser tabs through a live DataChannel)
 npm run build      # typecheck + vite build
 ```
 
-CI runs the cheap checks (typecheck, lint, unit + integration) on every push and the Chromium e2e
-alongside them; the full engine matrix — Firefox, WebKit, the phone profile and the cross-engine
+CI runs the cheap checks (typecheck, lint, unit) on every push and the Chromium e2e alongside
+them; the full engine matrix — Firefox, WebKit, the phone profile and the cross-engine
 pairs — runs nightly or on demand, because it takes ~12 minutes.
 See [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
-The signaling server for local work lives in [`server/`](server/signaling-server.js)
-(`node server/signaling-server.js`). Production uses the separate, multi-app
-[`hush-signaling-server`](https://github.com/maksimfrelikh/hush-signaling-server) repo.
+hushsend runs as three services, each in its own repository:
+
+| Repository | What |
+|---|---|
+| **hushsend** (this) | the client, the nginx vhost, the frontend deploy — [`deploy/DEPLOY.md`](deploy/DEPLOY.md) |
+| [hush-signaling-server](https://github.com/maksimfrelikh/hush-signaling-server) | signaling + the TURN relay for Reliable mode, with their own tests and deploy |
+| [hushsend-stun-server](https://github.com/maksimfrelikh/hushsend-stun-server) | STUN for clients, meant to be run by a different operator |
+
+The signaling server is a devDependency pinned by commit, so `npm ci` installs it and the e2e suite
+runs exactly that version; for local work start it with `node node_modules/hush-signaling-server/signaling-server.js`
+(127.0.0.1:8080; `NODE_ENV≠production` allows `http://localhost:5173`).
 
 Build-time configuration (Vite bakes these in — there is no runtime client config):
 

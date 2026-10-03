@@ -95,19 +95,18 @@ export default defineConfig({
   ],
   webServer: [
     {
-      // `server/` is its OWN npm package (it depends on `ws`), and the root `npm ci` does not touch
-      // it — so a fresh clone fails here with a bare ERR_MODULE_NOT_FOUND from a WebServer process,
-      // which reads like a broken repo rather than a missing install. Install it on demand, once:
-      // the guard keeps the cost at a single `existsSync` on every later run.
-      command:
-        "node -e \"require('fs').existsSync('server/node_modules/ws')||require('child_process').execSync('npm --prefix server ci --omit=dev',{stdio:'inherit'})\" && node server/signaling-server.js",
+      // The real signaling server, from its own repository: hush-signaling-server is a devDependency
+      // pinned by commit (package.json), so `npm ci` installs it — and `ws` with it — and the e2e runs
+      // against exactly that version. Bump the pin when the server changes. (Until 2026-10-03 this
+      // ran a copy kept in `server/`, which had drifted from the deployed server.)
+      command: 'node node_modules/hush-signaling-server/signaling-server.js',
       url: `http://127.0.0.1:${SIGNALING_PORT}/health`,
       reuseExistingServer: !process.env.CI,
       timeout: 30_000,
       // All Playwright tabs share the loopback IP (no TRUST_PROXY here). The per-IP-per-room anti-squat
       // cap now DEFAULTS to the room cap (8), so 3 same-IP lobby tabs already fit; we pin it to 8
       // explicitly so this test stays robust to a future default change. Server CODE/defaults are
-      // unchanged; this is purely the test environment, mirroring how the integration suite passes caps.
+      // unchanged; this is purely the test environment, mirroring how the server's own integration tests pass caps.
       //
       // TURN_SECRET + TURN_URLS configure the coturn-credential minting so the Reliable-mode e2e
       // (privacy.spec) can fetch real creds via `turn-request` and assert the client built the TURN

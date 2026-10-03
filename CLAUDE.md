@@ -5,10 +5,13 @@ server only does **signaling** (rendezvous + relaying opaque SDP/ICE). The signa
 is **untrusted** — all confidentiality and authenticity are established client-side
 (PAKE / SAS + DTLS), with TOFU key pinning.
 
-Repo layout: the Vite frontend is at the repo root; the signaling server lives in `server/`
-(own `package.json`, dep `ws`) so it can be split into its own repo later. Keep it
-self-contained; do **not** create a shared types package between client and server —
-duplicate the small signaling protocol instead.
+Repo layout: this repo is the CLIENT (the Vite SPA at the root) plus the nginx vhost and the frontend
+deploy (`deploy/`). The other two services are sibling repos (since 2026-10-03 — before that a drifting
+copy of the server lived in `server/`): **`hush-signaling-server`** — signaling AND the TURN relay for
+Reliable mode, with their tests and deploy; pinned here by commit as a devDependency, so the e2e suite
+runs exactly that server from `node_modules/hush-signaling-server/` — and **`hushsend-stun-server`** —
+STUN for clients (`VITE_STUN_URLS`), meant for a different operator. Do **not** create a shared types
+package between client and server — duplicate the small signaling protocol instead.
 
 ## Keep this file in sync (read this first)
 This file + the repo are the ONLY context a fresh session has — sessions do not remember prior
@@ -25,10 +28,13 @@ work. So whenever a change alters the app's actual state, update this file in th
 - **recorded numbers are claims too** — test counts (README § Status, BACKLOG's per-engine matrix),
   measured ceilings, live-host specifics. Re-run the thing and refresh the number, do not copy it
   forward.
-- **the signaling server is a SIBLING REPO** (`hush-signaling-server`, next to this one; `server/`
-  here is the local-dev copy) and the running checkout is `/var/www/hush-signaling-server`. A change
-  to any of the three has to reach the other two's docs in the same pass — `.env.example` there is
-  the env-var reference and must list every var the code reads.
+- **the signaling server is a SIBLING REPO** (`hush-signaling-server`, next to this one — the only
+  copy) and its running checkout is `/var/www/hush-signaling-server`. A protocol change lands in both
+  repos in the same pass, the devDependency pin here is bumped so the e2e runs against it, and the
+  deploy order goes in the commit message. `.env.example` there lists every var the code reads; its
+  README / CLAUDE.md / `deploy/DEPLOY.md` are the source of truth for server internals, the TURN relay
+  (`deploy/turn/`) and their tests — § Signaling server below is the client-facing summary. STUN is
+  the third repo, `hushsend-stun-server`.
 Stale markers (e.g. a finished step still marked 🚧, or a built module missing from the
 inventory) cause real rework for the next session. Treat doc drift as a bug.
 
@@ -371,7 +377,7 @@ nonces:
   60` / `IP_RL_WINDOW_MS = 60000`; over → **4011 `'too many attempts'`**) to slow enumeration of the
   small 10k space; loopback is EXEMPT (behind nginx a real client always arrives via `X-Real-IP`, never
   loopback). SAS still defeats a MITM regardless — this is abuse hygiene. See **Signaling server**
-  below; tested in `tests/integration/room-server.test.ts`.
+  below; tested in hush-signaling-server `tests/room-server.test.ts`.
 
 ### link / qr method (finalized — 5b)
 A high-entropy ONE-TIME secret in the URL fragment authenticates the channel directly — **no PAKE,
@@ -886,7 +892,7 @@ enforce it in Max-privacy, then a direct failure is **terminal**:
 - **Tests**: `relax.test.ts` (the relay-candidate filter: drops `typ relay` only while filtering, off
   in Reliable, safe on null/empty); `tests/e2e/relax.spec.ts` (`forceIceFail` Max-privacy → both sides
   reach `failed` with the `direct-fail-hint`, no relay offer, no hang). Reliable's relay actually
-  carrying bytes is **`tests/integration/turn-relay.test.ts`** (2026-09-19): it spawns a real coturn
+  carrying bytes is hush-signaling-server's **`tests/turn-relay.test.ts`** (2026-09-19): it spawns a real coturn
   in the production `use-auth-secret` mode, spawns the signaling server with the SAME secret, mints
   over the WebSocket exactly as the client does and drives `turnutils_uclient` with the reply, so the
   one cross-service invariant — `TURN_SECRET` == coturn `static-auth-secret` — is checked rather than
@@ -1098,7 +1104,7 @@ travels live in the kit's own `CLAUDE.md`; its `README.md` is the consumer contr
   dispatching store actions through the DEV-only `window.__hsStore` / `__hsKeystore` hooks `main.tsx`
   exposes (`visual/scenes.ts`) — no peer, no signaling server; the e2e is where the protocol runs.
 
-## Signaling server (`server/signaling-server.js`)
+## Signaling server (sibling repo `hush-signaling-server`)
 Self-contained Node + `ws`; PURE signaling, never carries file data. Already corrected:
 `clientIp()` reads `X-Real-IP` (set by nginx), not the client-controllable leftmost
 X-Forwarded-For; binds to `127.0.0.1` (only the local nginx reaches it). Run with
@@ -1159,7 +1165,7 @@ X-Forwarded-For; binds to `127.0.0.1` (only the local nginx reaches it). Run wit
     many attempts'`** (counts failed joins too, so it bounds enumeration of the 10k space). **Loopback
     is EXEMPT** (`127.0.0.1` / `::1`) — behind nginx a real client always arrives via `X-Real-IP` and
     never looks like loopback, so the local proxy / dev / e2e are never throttled. Defense-in-depth
-    only; SAS / key-confirmation are what actually stop a MITM. (`tests/integration/room-server.test.ts`.)
+    only; SAS / key-confirmation are what actually stop a MITM. (hush-signaling-server `tests/room-server.test.ts`.)
   - **Per-IP-per-room cap — DEFAULTS TO THE ROOM CAP (not a hardcoded 2)**. The per-room anti-squat
     check (`sameIp >= perIpPerRoomCap` → close **4007 `'too many from your network'`**) uses
     `perIpPerRoomCap = MAX_PER_IP_PER_ROOM || maxPeers` — i.e. with `MAX_PER_IP_PER_ROOM` unset it is
@@ -1171,7 +1177,7 @@ X-Forwarded-For; binds to `127.0.0.1` (only the local nginx reaches it). Run wit
     throttled by a small per-IP cap. Set `MAX_PER_IP_PER_ROOM` to a value **below** the room cap to
     RE-tighten anti-domination (one IP can't fill a room → 4007 fires before the room is full) at the
     cost of co-located groups gathering past that value. Global per-IP limits are untouched
-    (`MAX_CONNS_PER_IP` 4006, `IP_RL_MAX` 4011). (`tests/integration/room-server.test.ts`.)
+    (`MAX_CONNS_PER_IP` 4006, `IP_RL_MAX` 4011). (hush-signaling-server `tests/room-server.test.ts`.)
   - The `clipboard` mesh app is NOT `managed` — it keeps its shared-code mesh (`maxPeers` lobby, no
     TTL, no rate-limit), since those are one user's own devices typing the same code on purpose.
 - **TURN credentials for Reliable mode (server side — done; client side — done; Max-privacy is STRICT
@@ -1192,18 +1198,21 @@ X-Forwarded-For; binds to `127.0.0.1` (only the local nginx reaches it). Run wit
   `turn:`/`turns:` URIs → array), `TURN_CRED_TTL_S` (default **3600**). **coturn is deployed
   SEPARATELY** — template + line-by-line hardening (open relay-port range + firewall, `user-quota` /
   `total-quota` / `max-bps`, anti-SSRF `no-multicast-peers` / `no-loopback-peers` / `denied-peer-ip`
-  on RFC1918 + link-local, `fingerprint`, `no-cli`) in **`deploy/coturn.conf.example`**. The client
+  on RFC1918 + link-local, `fingerprint`, `no-cli`, logging off) in hush-signaling-server
+  **`deploy/turn/turnserver.conf.template`**, rendered by its `deploy/turn/install.sh` with the secret
+  taken FROM the signaling `.env` (so the two copies cannot drift). The client
   side (the functional toggle, `requestTurnCredentials`, feeding `iceServers`, Max-privacy never
   requests) is **done** — see **Privacy mode + ICE** §. **Max-privacy is STRICT** — a live Max-privacy
   ICE failure does NOT escalate to relay; it fails terminally with a switch-to-Reliable hint (see
-  **Max-privacy strict model** there). (`tests/integration/turn-credentials.test.ts` for the mint;
-  `tests/integration/turn-relay.test.ts` for the mint ACTUALLY opening a relay on a real coturn —
+  **Max-privacy strict model** there). (hush-signaling-server `tests/turn-credentials.test.ts` for the mint;
+  `tests/turn-relay.test.ts` there for the mint ACTUALLY opening a relay on a real coturn —
   the `TURN_SECRET` == `static-auth-secret` invariant, with a wrong-secret negative control.)
 
 ## Deployment / configuration (step 6f — LIVE at hushsend.frelikh.dev, deployed 2026-06-20)
 One place that ties together every knob needed to run a live instance. The **artifacts** are built
-and committed — `deploy/nginx.conf.example`, `server/.env.example`, `deploy/coturn.conf.example`,
-and the step-by-step `deploy/DEPLOY.md`; the only code change for 6f is an **additive startup
+and committed — `deploy/nginx.conf.example` and the step-by-step `deploy/DEPLOY.md` here; the server
+env (`.env.example`) and the TURN relay (`deploy/turn/`) in hush-signaling-server; the STUN server in
+hushsend-stun-server; the only code change for 6f is an **additive startup
 `[config]` summary log** (no secrets) in `signaling-server.js`. The live deploy itself (nginx/coturn/
 DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in three layers:
 - **Client build-time (`VITE_*`, baked by Vite — no runtime client config):** `VITE_SIGNALING_URL`
@@ -1212,7 +1221,7 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   Max-privacy (the default) is STUN-only, so with it empty two cross-network peers have no ICE server
   and never connect (loopback tabs hide this in dev). Changing either means a **rebuild**, not an
   nginx edit; `VITE_SIGNALING_URL`'s host must match the CSP `connect-src` in the nginx template.
-- **Server env (`server/.env.example`):** `HOST`/`PORT` (loopback `127.0.0.1:8080` behind nginx),
+- **Server env (hush-signaling-server `.env.example`):** `HOST`/`PORT` (loopback `127.0.0.1:8080` behind nginx),
   **`TRUST_PROXY=1` (mandatory behind nginx)**, TURN (`TURN_SECRET` / `TURN_URLS` / `TURN_CRED_TTL_S`),
   and the tunable caps/TTLs/rate-limits (`MAX_CONNS_*`, `FILETRANSFER_MAX_PEERS`, `ROOM_TTL_MS` /
   `WORD_ROOM_TTL_MS` / `TOKEN_ROOM_TTL_MS`, `IP_RL_MAX` / `IP_RL_WINDOW_MS`, message-rate knobs). **`TRUST_PROXY=1` +
@@ -1222,13 +1231,14 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   `IP_RL_MAX` per window → raise it for office/CGNAT deploys (defense-in-depth only — SAS stops a
   MITM). The startup `[config]` log echoes the effective values (TRUST_PROXY, TURN configured/count,
   caps, TTLs, IP_RL_MAX) **without secrets** — eyeball it after each restart.
-- **coturn (`deploy/coturn.conf.example`; MAY be a separate host — the live deploy runs it on the
+- **coturn as TURN (hush-signaling-server `deploy/turn/`; MAY be a separate host — the live deploy runs it on the
   SAME host, `turn:`-only on `:3478`, no `turns:`/5349):** `static-auth-secret` **MUST EQUAL** the
   server's `TURN_SECRET` (the one shared secret; coturn recomputes the HMAC offline). Empty
   `TURN_SECRET` ⇒ relay disabled ⇒ clients stay direct-only (a valid config). Open the firewall for
   3478 udp/tcp (5349 tls only if you enable `turns:`) and the relay-port range.
 - **Cross-dependencies:** `TURN_SECRET` == coturn `static-auth-secret`; `VITE_STUN_URLS` + `TURN_URLS`
-  both name the **coturn host** (DNS: `hushsend.frelikh.dev` → web host, `turn.hushsend.frelikh.dev`
+  both name the **coturn host** today — until hushsend-stun-server goes live (its DEPLOY.md § 6:
+  `stun.hushsend.frelikh.dev:3479`), when `VITE_STUN_URLS` moves to it (DNS: `hushsend.frelikh.dev` → web host, `turn.hushsend.frelikh.dev`
   → coturn). **CSP must be verified against the built app — especially the QR-scan path** (zxing WASM
   needs `'wasm-unsafe-eval'` to COMPILE on iOS/Firefox; the WASM itself is **self-hosted** since step
   6e — vendored into `dist/assets`, served from `'self'` — so `connect-src` is `'self' wss://<host>`
@@ -1282,7 +1292,7 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
    - ✅ **6a — server cap/TTL/rate-limit for `filetransfer` rooms** — `managed: true` (TTL +
      per-IP rate-limit). TTL-until-connected freeing the code (4010 close / 4009 on a later join),
      per-IP create/join rate-limit (4011, loopback-exempt). Server-only change;
-     `tests/integration/room-server.test.ts`. **Correction (later pass):** the seat cap is
+     hush-signaling-server `tests/room-server.test.ts`. **Correction (later pass):** the seat cap is
      codeType-dependent, NOT the `managed` flag — the 4-digit **room** rendezvous is a **mesh LOBBY**
      (`FILETRANSFER_MAX_PEERS`, default 8); the **words** AND (pre-deploy) the link/qr **token**
      rendezvous are strictly 1:1 (`ONE_TO_ONE_MAX_PEERS = 2`). The 4-digit lobby TTL is an **idle
@@ -1317,8 +1327,8 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
      **server side**: the signaling server mints short-lived HMAC coturn credentials on a
      `turn-request` frame (`use-auth-secret` scheme, `TURN_SECRET` shared with coturn + never sent to
      clients, empty-urls when unconfigured → direct-only); env `TURN_SECRET` / `TURN_URLS` /
-     `TURN_CRED_TTL_S`; coturn deploy template `deploy/coturn.conf.example`;
-     `tests/integration/turn-credentials.test.ts`. **Client side:** the home
+     `TURN_CRED_TTL_S`; coturn deploy template — today hush-signaling-server `deploy/turn/`;
+     `tests/turn-credentials.test.ts` there. **Client side:** the home
      **PrivacyToggle is functional** (persisted pref, default Max-privacy) and drives `iceServers` —
      **Max-privacy = STUN-only, never requests creds; Reliable = STUN + TURN**, creds fetched via
      `requestTurnCredentials` (`turn-request`) after `welcome` + before the PC, empty-urls → direct-only.
@@ -1355,7 +1365,7 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
      WS-upgrade + raised `proxy_read_timeout`, and security headers — HSTS / a build-tuned **CSP**
      [`'wasm-unsafe-eval'` for the QR-scan WASM, now **self-hosted** so `connect-src` lists no CDN —
      step 6e] / `Permissions-Policy camera=(self)`),
-     `server/.env.example` (all server env in one place), `deploy/coturn.conf.example` (from 6d), and
+     the server env template and the coturn template (both in hush-signaling-server since 2026-10-03), and
      `deploy/DEPLOY.md` (step-by-step + inline gotchas). The only code change was an **additive startup
      `[config]` summary log** (no secrets) in `signaling-server.js`. Consolidated env reference:
      **§ Deployment / configuration** above. **LIVE — first bring-up 2026-06-20 on a VPS
@@ -1517,9 +1527,9 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   `turn-credentials` mints short-lived HMAC coturn creds (`use-auth-secret`; `TURN_SECRET` shared with
   coturn + never sent to clients; empty-urls when unconfigured → direct-only); env `TURN_SECRET` /
   `TURN_URLS` / `TURN_CRED_TTL_S`. Ready for deployment behind nginx + a separately-deployed coturn
-  (`deploy/coturn.conf.example`).
-  (`tests/integration/{room,word-room,turn-credentials}-server` — see `room-server.test.ts`,
-  `word-room-server.test.ts`, `turn-credentials.test.ts`.)
+  (hush-signaling-server `deploy/turn/`).
+  (hush-signaling-server `tests/` — `room-server.test.ts`, `word-room-server.test.ts`,
+  `turn-credentials.test.ts`, `turn-relay.test.ts`.)
 - ✅ `src/ui/zxingWasm.ts` — self-hosted QR-scan WASM (step 6e): `createQrDetector` lazily imports
   the `barcode-detector` ponyfill and `setZXingModuleOverrides({ locateFile })` it to a Vite `?url`
   asset (`zxing-wasm/reader/zxing_reader.wasm?url`, fingerprinted into `dist/assets`, same-origin)

@@ -159,7 +159,7 @@ Last run 2026-09-27 against the bundle fetched over HTTPS from the live host (`i
       device runs the cached old bundle. Confirm the asset hash in devtools matches the deployed one.
 - [x] `curl -s https://hushsend.frelikh.dev/health` → `ok`; nginx / hushsend-signaling / coturn all
       `active` — 2026-09-27 (curl from the Mac; `systemctl is-active` over SSH). Worth the date only.
-- [x] **The relay actually relays:** `bash deploy/verify-relay.sh` → OK — 2026-09-27 on the server:
+- [x] **The relay actually relays:** `bash /var/www/hush-signaling-server/deploy/turn/verify-relay.sh` (the script lived in this repo's `deploy/` until 2026-10-03) → OK — 2026-09-27 on the server:
       16 messages relayed, 0 lost, average RTT 30 ms. Worth the date only. `coturn` being `active` does
       NOT mean Reliable mode works — if its `static-auth-secret` and the signaling server's
       `TURN_SECRET` have drifted, the mint still succeeds and only the allocation fails, so case C5
@@ -459,7 +459,7 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       done
       # 2. a LOCAL signaling server that trusts the dev origin
       NODE_ENV=development HOST=127.0.0.1 PORT=8191 DEV_ORIGINS=http://localhost:5291 \
-        node server/signaling-server.js &
+        node node_modules/hush-signaling-server/signaling-server.js &
       # 3. the dev build, pointed at BOTH of the above
       VITE_SIGNALING_URL=ws://127.0.0.1:8191 \
       VITE_STUN_URLS=stun:127.0.0.1:3479,stun:127.0.0.1:3480 \

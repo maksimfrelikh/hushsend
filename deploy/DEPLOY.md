@@ -1,124 +1,43 @@
-# hushsend — deployment checklist (step 6f) — ✅ LIVE (hushsend.frelikh.dev)
+# hushsend — deployment runbook (frontend + nginx) — ✅ LIVE (hushsend.frelikh.dev)
 
-Live-instance bring-up for **hushsend.frelikh.dev**. The app is feature-complete (6a–6d done);
-this is the ops runbook + the artifacts it needs. The signaling server is **untrusted** — all
-confidentiality/authenticity is client-side (SAS / PAKE / DTLS) — so the steps below are transport
-security (TLS), routing (nginx), and abuse hygiene (X-Real-IP, rate-limits, coturn quotas), **not**
-auth.
+hushsend runs as three services, and each lives in its own repository with its own runbook:
 
-Artifacts referenced here: [`nginx.conf.example`](nginx.conf.example) ·
-[`../server/.env.example`](../server/.env.example) · [`coturn.conf.example`](coturn.conf.example).
-Config cross-reference: **CLAUDE.md § Deployment / configuration**.
+| Service | Repository | Runbook |
+|---|---|---|
+| the static SPA + the nginx vhost (TLS, `/ws` proxy, security headers) | **hushsend** (this) | this file |
+| signaling (Node, loopback `:8080`) + the TURN relay for Reliable mode (coturn) | [hush-signaling-server](https://github.com/maksimfrelikh/hush-signaling-server) | its `deploy/DEPLOY.md` |
+| STUN for clients (coturn, `stun-only`, meant for a different operator) | [hushsend-stun-server](https://github.com/maksimfrelikh/hushsend-stun-server) | its `DEPLOY.md` |
 
-Topology: one web host (nginx + static `dist/` + the loopback Node signaling server) plus coturn —
-generically a **separate** host, though the live deploy runs coturn on the SAME box (see § 0).
-nginx terminates TLS, serves the SPA, and reverse-proxies the WebSocket to `127.0.0.1:8080`.
+The signaling server is **untrusted** — all confidentiality/authenticity is client-side (SAS / PAKE /
+DTLS) — so what is deployed here is transport security (TLS), routing (nginx) and the bundle whose
+integrity anyone can check (§ *Verifying a deploy*). Artifacts: [`nginx.conf.example`](nginx.conf.example),
+[`build-env.sh`](build-env.sh), [`deploy-frontend.sh`](deploy-frontend.sh), [`verify-bundle.sh`](verify-bundle.sh).
 
 ---
 
 ## 0. Live instance — as deployed (hushsend.frelikh.dev)
 
-✅ **LIVE and externally verified.** History in one line: first bring-up **2026-06-20** on a VPS
-(`frelikhmax.fvds.ru`); the live instance **moved to the owner's home server on 2026-08-16** and that
-is what serves hushsend today. Everything below was re-verified on the box on **2026-09-12**. The
-realized layout differs from the generic topology above in three ways, plus the pinned specifics
-table:
-
-- **A home server behind a residential NAT**, not a VPS. The router must forward **80/443 tcp**,
-  **3478 tcp+udp**, and the coturn **relay range 49160–49200/udp** to the box (ufw allows the same
-  set), and coturn MUST set `external-ip=<public-ip>/<lan-ip>` — without it the relay advertises the
-  private address and no remote peer can ever use it.
-- **coturn on the SAME host** as nginx (not a separate host), `turn:`-only on **:3478**, **no
-  `turns:`/TLS** (no 5349, no extra cert). STUN and TURN both come from this one coturn; STUN and the
-  full relay path were verified with `turnutils_stunclient` / `turnutils_uclient` (0% packet loss).
-- **Signaling = its own repo** (`hush-signaling-server`, the universal multi-app server — NOT the
-  `server/` dir in this repo). The repo clone is at `~/projects/hush-signaling-server`; the **running
-  copy is `/var/www/hush-signaling-server`**, which is what the unit points at.
-
-Pinned specifics (ssh-verified 2026-09-12):
+First bring-up **2026-06-20** on a VPS; since **2026-08-16** everything runs on the owner's home server
+(laptop-server), behind a residential NAT. The box itself — network, firewall, other services,
+secrets, deploy history — is described in the owner's private `laptop-server/` notes, not here.
 
 | | |
 |---|---|
-| OS / nginx / Node | Ubuntu 26.04.1 LTS · nginx 1.28.3 (apt) · Node **v22.22.1, system** (`/usr/bin/node` — not nvm, so no absolute nvm path to maintain in the unit) |
-| Frontend | repo `~/projects/hushsend`, built on-server → published to `/var/www/hushsend/dist` |
-| Signaling | systemd `hushsend-signaling.service` on `127.0.0.1:8080` (unit below) |
-| TLS | **wildcard `*.frelikh.dev`** (`/etc/letsencrypt/live/frelikh.dev/`, certbot **DNS-01** via the cloudflare plugin), shared with the box's other sites — NOT a per-host webroot cert |
-| Build-time env | `VITE_SIGNALING_URL=wss://hushsend.frelikh.dev/ws` · `VITE_STUN_URLS=stun:turn.hushsend.frelikh.dev:3478` (both confirmed present in the deployed bundle) |
-| Server env | `HOST=127.0.0.1` · `PORT=8080` · **`TRUST_PROXY=1`** · `TURN_URLS=turn:turn.hushsend.frelikh.dev:3478` · `TURN_CRED_TTL_S=3600` · `FILETRANSFER_MAX_PEERS=8` · `IP_RL_MAX=60` |
-| DNS | `hushsend.frelikh.dev` → the box · `turn.hushsend.frelikh.dev` → the same box (coturn) |
+| OS / nginx / Node | Ubuntu 26.04.1 · nginx 1.28.3 · Node v22 (system `/usr/bin/node`) |
+| Frontend | dev clone `~/projects/hushsend`, built on the server by `deploy-frontend.sh` → `/var/www/hushsend/dist` |
+| nginx vhost | `/etc/nginx/sites-available/hushsend` from [`nginx.conf.example`](nginx.conf.example): static `dist/`, SPA fallback, `/ws` + `/health` → `127.0.0.1:8080` with `X-Real-IP`; security headers repeated in every location (verified 6/6 on HTML, JS and `.wasm`, 2026-09-17); `access_log off` everywhere; HTTP/2 on |
+| TLS | the box's wildcard `*.frelikh.dev` (certbot DNS-01, Cloudflare plugin) |
+| Build-time env | [`build-env.sh`](build-env.sh): `VITE_SIGNALING_URL=wss://hushsend.frelikh.dev/ws`, `VITE_STUN_URLS=stun:turn.hushsend.frelikh.dev:3478` |
+| Signaling + TURN | `hushsend-signaling.service` + `coturn.service` — see hush-signaling-server `deploy/DEPLOY.md` § 0 |
+| STUN | today the TURN relay's coturn answers it (`turn.hushsend.frelikh.dev:3478`); the separate server (`stun.hushsend.frelikh.dev:3479`) is prepared — hushsend-stun-server `DEPLOY.md` § 6 |
+| Router + ufw | 80/443 tcp (nginx), 3478 tcp+udp and 49160–49200 udp (TURN) |
 
-- **HTTP/2 is ON** — corrected 2026-09-12. The earlier note here said it was off, read off the plain
-  `listen 443 ssl;` line while missing the standalone `http2 on;` directive on the next line; `curl`
-  against the live host negotiates HTTP/2. (The old template caveat — `http2 on;` needs nginx ≥1.25.1
-  and the first host ran 1.24 — no longer applies: nginx is 1.28 and both forms work.)
-- **Security headers do NOT reach `/assets/` or `.wasm`.** Verified 2026-09-12: the HTML carries all
-  five (CSP, HSTS, nosniff, Referrer-Policy, X-Frame-Options), the JS bundle carries only
-  `cache-control`. nginx applies inherited `add_header` directives only when the current level defines
-  none, and both of those locations define their own `add_header Cache-Control`. Low impact — the
-  DOCUMENT's CSP is what governs script execution and it is intact — but `nosniff` is lost there and
-  the next server-level header anyone adds will vanish the same way. See BACKLOG § Ops.
-- **`/ws` and `/` use nginx's default `combined` access log**, which writes the client IP, the full
-  User-Agent and the rendezvous code for every connection. That works against the coarse-device-label
-  design; `access_log off;` (or a stripped `log_format`) on both locations closes it. See BACKLOG § Ops.
-- **Ops source of truth for the box itself** — network, firewall, the other services sharing it,
-  secrets, deploy history — lives OUTSIDE this repo, in the owner's `laptop-server/` notes. This file
-  covers only what hushsend needs.
-
-systemd unit actually in use:
-
-```ini
-# /etc/systemd/system/hushsend-signaling.service
-[Unit]
-Description=hushsend signaling server
-After=network.target
-
-[Service]
-Type=simple
-User=frelikh
-Group=frelikh
-WorkingDirectory=/var/www/hush-signaling-server
-EnvironmentFile=/var/www/hush-signaling-server/.env
-Environment=NODE_ENV=production
-ExecStart=/usr/bin/node signaling-server.js
-Restart=on-failure
-RestartSec=2
-
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=read-only
-PrivateTmp=true
-
-[Install]
-WantedBy=multi-user.target
-```
-
-External smoke — all green: security headers (HSTS/CSP/Permissions-Policy/nosniff/Referrer/X-Frame);
-`GET /health` → `ok`; `http` → `301 https`; `/assets/*.js|css` immutable-cached; **`/assets/*.wasm`
-→ `application/wasm`** (the QR-scan compile path); `/ws` → `426 Upgrade Required` (reaches Node, not
-served as static); unknown deep-link → `200` (SPA fallback). Re-checked 2026-09-12: `/` → 200,
-`/health` → `ok`, all three units (`nginx`, `hushsend-signaling`, `coturn`) active; re-checked again
-2026-09-25 after deploying the codeless reconnect (frontend `2eebc0e` via `deploy-frontend.sh`,
-signaling `2b5b913` pulled into the running copy + relaunched — token rooms are join-or-create, and
-the live host was seen opening a token room for its first arrival); and 2026-09-28 after deploying the
-owner's seven decisions (frontend `90fdc15`, byte-identical to a clean local build; signaling `3d96125`
-pulled into the running copy + relaunched 04:32:44 UTC — the roster no longer carries a device label, so
-the frontend had to go first: the previous client required that field). **Still pending:**
-the in-browser P2P/SAS/transfer test on two devices, and a cross-network TURN relay check (only
-provable across different networks).
-
-**Repeat frontend-only redeploys** (new SPA build, signaling/nginx unchanged) are wrapped in
-[`deploy-frontend.sh`](deploy-frontend.sh): `bash ~/projects/hushsend/deploy/deploy-frontend.sh`
+**Repeat frontend redeploys** (signaling/nginx unchanged): `bash ~/projects/hushsend/deploy/deploy-frontend.sh`
 pulls, `npm ci`, builds with the live `VITE_*` baked in, and publishes `dist/` to
-`/var/www/hushsend/dist`. It does NOT restart the signaling service or reload nginx (a static-asset
-swap needs neither).
-
-**No password on this host:** `/var/www/hushsend` belongs to the deploy user, so the script uses
-`sudo` only if it finds the web root unwritable (which it is not here). And it does not delete the
-live directory first — the build is staged beside it and swapped in with a rename, so nobody gets a
-404 mid-deploy, and the previous build stays as `dist.old` until the smoke check passes. Rolling back
-is therefore a rename, not a rebuild:
-`mv dist dist.bad && mv dist.old dist`. The numbered steps below are the full generic runbook; the live deploy followed
-them with the deltas above.
+`/var/www/hushsend/dist`. It restarts nothing (a static-asset swap needs no restart), uses `sudo`
+only if the web root were unwritable (it is not), and swaps the new build in with a rename: the
+previous one stays as `dist.old` until the smoke check passes, so a rollback is
+`mv dist dist.bad && mv dist.old dist`.
 
 ---
 
@@ -192,56 +111,24 @@ Its value is someone else running it from somewhere else. Read the header of
 
 ---
 
-## 2. Run the signaling server (loopback, under a process manager)
+## 2. Signaling server and TURN relay
 
-```sh
-cd server
-npm ci --omit=dev                       # installs `ws`
-cp .env.example .env && $EDITOR .env    # fill in — esp. TRUST_PROXY=1, TURN_SECRET, TURN_URLS
-```
+Both live in [hush-signaling-server](https://github.com/maksimfrelikh/hush-signaling-server) — install,
+updates (`deploy/deploy.sh`), the TURN config (`deploy/turn/install.sh`, which renders coturn's
+`static-auth-secret` from the signaling `TURN_SECRET` so the two cannot drift) and the relay check
+(`deploy/turn/verify-relay.sh`). Until 2026-10-03 this repo carried a copy of the server in `server/`
+and the coturn template in `deploy/`; both had drifted from what ran and were removed.
 
-Run `node signaling-server.js` under **systemd** or **pm2** (auto-restart, boot-start), with the
-env from `.env`, bound to `127.0.0.1:8080`.
+What this side has to get right is the pairing with nginx: `TRUST_PROXY=1` in the signaling `.env`
+needs `proxy_set_header X-Real-IP $remote_addr;` in `location /ws` (§ 4), or every client looks like
+127.0.0.1 and the per-IP limits collapse.
 
-- **`TRUST_PROXY=1` is mandatory behind nginx** (see step 4 — without the paired `X-Real-IP` header
-  every client looks like loopback).
-- **Verify the startup log.** The server prints a one-line `[config]` summary on boot — confirm it at
-  a glance:
-  ```
-  Mesh signaling server listening on 127.0.0.1:8080
-  [config] env=production trustProxy=on turn=configured(2 urls) maxConnsTotal=5000 maxPerIpPerRoom=2 filetransferMaxPeers=8 roomTtlMs=180000 wordRoomTtlMs=180000 tokenRoomTtlMs=180000 ipRlMax=60/60000ms
-  ```
-  `trustProxy=on` and (if you deployed coturn) `turn=configured(N urls)` are the two to eyeball. A
-  `trustProxy=OFF` warning line means caps/rate-limit will be loopback-blind — fix before going live.
-  The secret itself is **never** logged.
+## 3. STUN
 
-> **GOTCHA.** `npm ci` in `server/` not the repo root — the server is self-contained with its own
-> `package.json` (only `ws`).
-
-> **Restarting without sudo** (an agent session / non-interactive shell, where `systemctl restart`
-> fails with "requires interactive authentication"): with `Restart=on-failure` in the unit, after
-> `git pull` in the running copy do `kill -9 "$(systemctl show -p MainPID --value hushsend-signaling)"`
-> — SIGKILL counts as a failure and systemd relaunches from the updated checkout in `RestartSec`
-> (SIGTERM would not; a clean exit is not restarted). Then check `MainPID`/`NRestarts`, `/health` and
-> the `[config]` line. Used for the 2026-09-25 signaling deploy.
-
----
-
-## 3. Deploy coturn (separate host)
-
-Use [`coturn.conf.example`](coturn.conf.example) → `/etc/turnserver.conf`:
-
-- **`static-auth-secret` MUST EQUAL the signaling server's `TURN_SECRET`** (the one shared secret;
-  coturn recomputes the same HMAC offline — no signaling↔coturn round-trip).
-- Set `realm` + `external-ip` (behind 1:1 NAT) + TLS cert for `turns:`.
-- **Open the firewall:** `3478/udp`, `3478/tcp`, `5349/tcp` (TLS), **and the relay-port range**
-  (`min-port`–`max-port`, default `49160-49200/udp`) — relay allocation fails silently without it.
-- Keep the anti-SSRF denies (`no-multicast-peers`, `no-loopback-peers`, RFC1918/link-local
-  `denied-peer-ip`) and quotas (`user-quota`, `total-quota`, `max-bps`).
-
-> Leaving coturn undeployed is a valid config: leave `TURN_SECRET` empty → the server reports relay
-> unavailable and every client stays direct-only (Max-privacy). Reliable mode just has nothing to
-> fall back to.
+[hushsend-stun-server](https://github.com/maksimfrelikh/hushsend-stun-server): coturn with `stun-only`,
+its own unit and installer, meant to end up under a different operator than signaling. Clients are
+pointed at it by `VITE_STUN_URLS` in [`build-env.sh`](build-env.sh) — a build-time value, so switching
+means a rebuild and a frontend redeploy.
 
 ---
 
@@ -279,8 +166,9 @@ Use [`nginx.conf.example`](nginx.conf.example) → `/etc/nginx/sites-available/`
 ## 5. DNS
 
 - `hushsend.frelikh.dev` → the **web host** (nginx).
-- `turn.hushsend.frelikh.dev` (whatever host appears in `TURN_URLS` / `VITE_STUN_URLS`) → the
-  **coturn host**.
+- `turn.hushsend.frelikh.dev` → the **TURN relay** (the host in the signaling `TURN_URLS`).
+- `stun.hushsend.frelikh.dev` → the **STUN server** (the host in `VITE_STUN_URLS`), once it runs.
+  DNS only, no Cloudflare proxy: the proxy carries HTTP, not UDP.
 
 ---
 
@@ -302,7 +190,7 @@ Use [`nginx.conf.example`](nginx.conf.example) → `/etc/nginx/sites-available/`
    > **So confirm the relay itself, separately — one command, and it is not optional:**
    >
    > ```bash
-   > bash deploy/verify-relay.sh
+   > bash /var/www/hush-signaling-server/deploy/turn/verify-relay.sh
    > ```
    >
    > It mints a credential from the LIVE signaling server exactly as a browser does, opens a real
@@ -311,9 +199,9 @@ Use [`nginx.conf.example`](nginx.conf.example) → `/etc/nginx/sites-available/`
    > that leaves every visible symptom green (the mint succeeds, the client builds a TURN iceServer,
    > the UI still says Reliable) and breaks the relay only for the users whose direct path already
    > failed. Run it after every deploy and after touching either config. It never reads or prints the
-   > secret. (The same invariant is pinned in CI by `tests/integration/turn-relay.test.ts`, against a
-   > coturn it spawns itself — but CI cannot see THIS host's config.)
-6. **Per-IP accounting works (not loopback-collapsed):** the step-2 `[config]` line shows
+   > secret. (The same invariant is pinned in hush-signaling-server's CI by `tests/turn-relay.test.ts`,
+   > against a coturn it spawns itself — but CI cannot see THIS host's config.)
+6. **Per-IP accounting works (not loopback-collapsed):** the signaling server's `[config]` line shows
    `trustProxy=on`; confirm distinct clients are counted per-IP (the caps/4011 limiter act
    per-client, not as one global loopback bucket).
 
@@ -334,12 +222,11 @@ Use [`nginx.conf.example`](nginx.conf.example) → `/etc/nginx/sites-available/`
 
 ## Notes
 
-- **Shared-NAT / office networks:** clients behind one public IP divide `IP_RL_MAX` per window. A
-  busy network can hit a spurious `4011 too many attempts`. Raise `IP_RL_MAX` in `server/.env` for
-  such deploys — it's defense-in-depth only (worst case is a retry; SAS stops a MITM). See
-  BACKLOG.md § Deployment behind nginx (6f).
+- **Shared-NAT / office / mobile networks:** clients behind one public IP divide `IP_RL_MAX` per
+  window and can hit a spurious `4011 too many attempts`. The knob is in the signaling `.env`
+  (hush-signaling-server); BACKLOG § Pre-launch review has the open question.
 - **Second app (hushclip):** the same signaling server serves it (distinguished by `?app=`); add an
   analogous nginx site (own cert + `dist/`, same `/ws` proxy) when its frontend exists — see the
   footer of `nginx.conf.example`.
-- **Secrets:** `server/.env` and the real coturn `static-auth-secret` are git-ignored / never
-  committed. Only `server/.env.example` and `coturn.conf.example` (placeholders) are in the repo.
+- **Secrets:** none in this repository. The signaling `.env` (with `TURN_SECRET`) lives in the
+  signaling checkout on the host; coturn's copy is rendered from it there.

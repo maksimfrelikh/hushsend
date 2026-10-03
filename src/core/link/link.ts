@@ -31,7 +31,7 @@ export const LINK_SECRET_BYTES = 16;
 
 /** Rendezvous TOKEN size in bytes (server-allocated, base64url). 16 bytes = 128 bits → the
  *  token is unguessable, so the link/qr rendezvous can't be enumerated/squatted. MUST match the
- *  server's TOKEN_ROOM_BYTES (server/signaling-server.js, codeType=token). */
+ *  server's TOKEN_ROOM_BYTES (hush-signaling-server, signaling-server.js, codeType=token). */
 export const RENDEZVOUS_TOKEN_BYTES = 16;
 /** base64url length (no padding) of a RENDEZVOUS_TOKEN_BYTES token: ceil(16*4/3) = 22 chars. */
 export const RENDEZVOUS_TOKEN_LEN = Math.ceil((RENDEZVOUS_TOKEN_BYTES * 4) / 3);

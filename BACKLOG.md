@@ -17,6 +17,14 @@ address: Chrome on the Mac at 192.168.1.38 gathered `srflx 192.168.1.1` from
 failures say nothing about users elsewhere — **direct connectivity across networks is untested.**
 TESTPLAN C1 carries the caveat and the way to test it.
 
+**Done the same day — the repository split.** The signaling server and its tests, the coturn
+config of the TURN relay and `verify-relay.sh` moved to `hush-signaling-server` (`tests/`,
+`deploy/turn/`); hushsend's `server/` copy and `tests/integration/` are gone, and the e2e suite runs
+the server from a devDependency pinned by commit. `hushsend-stun-server` got `stun-only`, an installer
+with its own unit and a CI check; its deployment on laptop-server (port 3479,
+`stun.hushsend.frelikh.dev`) waits for DNS, the router and ufw — its DEPLOY.md § 6. Older entries in
+this file and in TESTPLAN still name the old paths; they describe what was true when written.
+
 **Agreed — to do:**
 - Test Max privacy across networks from a network OTHER than the server's LAN (above). Then decide on
   a one-tap "retry with relay" on the direct-fail screen and copy for the Reliable side of a mixed pair
@@ -1541,8 +1549,11 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   defeated by one adversary holding BOTH, so this is the precondition for it ever becoming a control.
   The deployment lives in its own repo,
   [`hushsend-stun-server`](https://github.com/maksimfrelikh/hushsend-stun-server) (config + runbook +
-  `verify.sh`; no server code — it is coturn). Relaying is refused structurally there by defining NO
-  authentication, since a TURN allocation must be authenticated and a STUN binding request must not.
+  `verify.sh`; no server code — it is coturn). Relaying is refused there by coturn's `stun-only`.
+  (Corrected 2026-10-03: this line used to say relaying was refused "structurally" by defining NO
+  authentication. Measured on coturn 4.6.1 and 4.18, no authentication means ANONYMOUS relays for
+  anyone; the old verify.sh could not detect it. The config never ran, so nothing was exposed; the
+  repo now carries `stun-only`, an installer and a CI check with a negative control.)
   **Not yet wired in:** `VITE_STUN_URLS` still points at the existing coturn on the app host, and
   during development all three services share one machine — which buys no separation at all, one
   operator. The property only starts to exist when STUN runs under a DIFFERENT party.
