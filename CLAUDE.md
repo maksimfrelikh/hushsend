@@ -685,8 +685,9 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
   would call `file.stream()` itself). `Rechunker.pull` is zero-copy when the head window covers the
   request (it returns a VIEW — callers never mutate pieces) and copies only to coalesce. Memory on the
   send side is thus one window + the wire's high-water mark, on every engine. Unit:
-  `fileTransfer.test.ts` ("reading the file for the wire"). Measured before / after on real Safari: see
-  BACKLOG § UX bugs.
+  `fileTransfer.test.ts` ("reading the file for the wire"). Measured on real Safari 26.6 (2026-10-03): a real 2 GiB file from the owner's own Safari to Chrome in
+  40.5 s (53 MB/s), SHA-256 equal, WebContent memory spiking and falling back within seconds, never growing
+  with the file — BACKLOG § UX bugs has the numbers and the two stand-caused ICE failures on a swap-bound Mac.
 - **"Finishing" — the 100 % that is not the end (2026-10-03, owner's choice "option 1").** Once every
   declared byte has crossed, the sender still pushes the volume padding (Max privacy, up to 12.5 % of
   the file — 512 MiB at 2^32 + 1 B, ~137 s at the Pixel 5's 3.9 MB/s, TESTPLAN B10) and then waits for

@@ -971,7 +971,16 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   also fed to client-zip per entry) and re-chunks without copying (CLAUDE.md § File transfer). Before /
   after numbers on real Safari below.
   **Before** (live `a4bc62a`, Safari 26.6 → Chrome on the Mac, 2 GiB from a Blob of shared parts, `ps` every
-  3 s): WebContent 250 → **394 MiB peak** (+144) at 28.8 MB/s. **After:** pending the deploy. The original note follows for the record.**
+  3 s): WebContent 250 → **394 MiB peak** (+144) at 28.8 MB/s. **After** (live `816046f`): the same synthetic
+  blob is noisy — any Blob read allocates, so WebKit's lazy GC lets a few hundred MiB pile up and fall back
+  whichever way the file is read (per-PID peaks 544 / 397 MiB, 54 MB/s — faster, not smaller). The test that
+  matters is a REAL file: the owner picked a 2 GiB random file in his own Safari (file dialog) and sent it to
+  Chrome on the Mac — **40.5 s = 53 MB/s, SHA-256 equal, progress steady, every WebContent process's memory a
+  transient spike that fell back within seconds (peaks 390–780 MiB), nothing growing with the file**. Two
+  earlier attempts of that run died with "ICE failed" at 1.0–1.2 GB on a swap-bound Mac (4.4 GB of 6 GB swap
+  in use, ~60 MB free) — the stand, not the product: the third run on the unloaded Mac passed. What the fix
+  provably removes is the one-chunk `stream()` read (the 1 GiB probe); a same-stand old-code baseline on a
+  real file does not exist. A phone-side real-file send is still worth one by-hand run. The original note follows for the record.**
   Sending 5 GiB from Safari 26.6 to Chrome, its WebContent process grew from ~300 MiB to ~940 MiB by
   the end and fell back afterwards; Chrome and Firefox senders stayed flat. The source was a Blob built
   from shared parts, so the growth is in the read path (`File.stream()` → chunking → DataChannel), not
