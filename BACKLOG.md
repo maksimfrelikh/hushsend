@@ -1008,7 +1008,12 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   Verified before deploy in real Chrome 154 with the harness's fake camera against the local build: the DEV log
   said "QR: native BarcodeDetector", the QR was decoded and the page went to `joining` (its token-room socket
   opened on the live signaling, which then refused the 127.0.0.1 origin — a stand limit, not the scanner);
-  the live confirmation (connect + no `.wasm` request) follows the deploy. The app
+  **Live, `b73651d` (2026-10-03):** Chrome 154 with the fake camera scanned a QR from the live site and connected
+  1.1 s after the scan tap ("one-time secret verified"); after the tap it requested one font and NOTHING of
+  zxing — no `ponyfill-*.js`, no `.wasm`. Control in a fresh profile with `BarcodeDetector` hidden: the same
+  1.1 s, and it fetched `ponyfill-BuxwROcg.js` + `zxing_reader-BxB2YfIY.wasm` from our origin — so the check
+  sees the WASM when it is fetched, and the fallback path works live. Android (Play Services detector) not
+  re-scanned on a device; the runtime fallback covers a broken one. The app
   imports `barcode-detector/ponyfill`, which is always zxing-wasm; desktop Chrome, which has a native
   detector, still fetched the 1 MB WASM. The docs claimed "native where available" (corrected in
   CLAUDE.md § QR and TESTPLAN). Decide: keep one decoder everywhere (simpler, current) or prefer the

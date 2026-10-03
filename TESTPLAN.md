@@ -1628,4 +1628,22 @@ inside the Accept / Send tap): the same 3 GiB receive with Auto-Lock at 30 s and
 build) ends the connection like a lock does: "Connection lost · stopped at 721 MB · ICE failed" 15 s later —
 which is what the second half of the line warns about. Also seen on the way: a 5 GiB offer refused before
 Accept on a phone with 4.5 GB free (the refusal names the cap and the fix), and its reason clipped at the
-right edge of the ended row on the phone — fixed in `bf485ae` (`.hs-box__aside` wraps).
+right edge of the ended row on the phone — first wrapped in `bf485ae`, then done properly in `eb3c7ad`: a
+sentence-long reason gets its own line under the label (`.hs-box__reason`).
+
+**Afternoon, after the pass — two fixes measured on real browsers.**
+- **Safari as a SENDER (B10's open note) — fixed in `816046f`.** Root cause: WebKit's `File.stream()` hands
+  the whole file over as ONE chunk (a probe on Safari 26.6: a 1 GiB File → one 1 GiB read). The sender now
+  reads 4 MiB windows through `slice().arrayBuffer()`. A real 2 GiB random file picked in the owner's own
+  Safari and sent to Chrome on the Mac: **40.5 s = 53 MB/s, SHA-256 equal**, progress steady, WebContent
+  memory spiking and falling back within seconds, never growing with the file. Two attempts before it
+  ended "ICE failed" at 1.0–1.2 GB on a swap-bound Mac (4.4 of 6 GB swap in use) — the stand: after closing
+  the extra Chrome profiles the third run passed. The harness's synthetic blob is useless for this question
+  (any Blob read allocates), and a WebDriver file upload measures the driver (safaridriver spent 41 s
+  copying the file in).
+- **B3 — the native decoder (`b73651d`, owner's decision: no extra megabyte where the browser decodes QR).**
+  Chrome 154 with the fake camera scanned a QR from the live site and connected 1.1 s after the scan tap,
+  requesting nothing of zxing (no `ponyfill-*.js`, no `.wasm`). Control, `BarcodeDetector` hidden in a fresh
+  profile: the same 1.1 s, with `ponyfill-BuxwROcg.js` + `zxing_reader-BxB2YfIY.wasm` fetched from our origin.
+  iOS Safari and Firefox keep the zxing path (unchanged code; scanned on the iPhone this morning). Android's
+  native detector was not re-scanned on a device — a broken one falls back to zxing on its first throw.
