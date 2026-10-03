@@ -1000,7 +1000,11 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   On a fresh profile Firefox's first srflx from the live STUN took 9.8 s (a 4 s probe got nothing);
   warm probes take 0.26 s. `PROBE_TIMEOUT_MS` is 4 s, so a cold Firefox reads `unknown`. Harmless while
   one STUN operator exists (the check says nothing then anyway); revisit with the second operator.
-- [ ] **QR decoding never uses the native `BarcodeDetector` (found 2026-09-27, TESTPLAN B3).** The app
+- ✅(code) **QR decoding never uses the native `BarcodeDetector` (found 2026-09-27, TESTPLAN B3) — DECIDED
+  2026-10-03 (owner: "where we can, do not download the extra megabyte"): the native detector where it exists
+  and lists `qr_code` (Chrome desktop / Android), the self-hosted zxing ponyfill elsewhere, and a runtime
+  fallback native → zxing on the first native `detect()` that throws (`withZxingFallback`, CLAUDE.md § QR).
+  The original note follows.** The app
   imports `barcode-detector/ponyfill`, which is always zxing-wasm; desktop Chrome, which has a native
   detector, still fetched the 1 MB WASM. The docs claimed "native where available" (corrected in
   CLAUDE.md § QR and TESTPLAN). Decide: keep one decoder everywhere (simpler, current) or prefer the

@@ -431,8 +431,8 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
   to exactly 16 bytes) — the input is attacker-influenced; an old 4-digit-style code is now rejected.
 - **qr**: the SAME link, rendered to an SVG QR locally (`src/ui/qr.ts`, `qrcode`); the joiner SCANS
   it with the camera (`getUserMedia` + the `barcode-detector` ponyfill — always the **self-hosted**
-  zxing-wasm via `src/ui/zxingWasm.ts`, lazily imported; the ponyfill never uses a native
-  `BarcodeDetector`, measured 2026-09-27) → decodes to the link →
+  zxing-wasm via `src/ui/zxingWasm.ts`, lazily imported — since 2026-10-03 only where the browser has no
+  native `BarcodeDetector` for QR; Chrome uses its own, with a runtime fallback to zxing, § QR) → decodes to the link →
   same join path. Camera denial/absence falls back to a **paste-the-link** input (also the
   deterministic e2e injection point). The zxing WASM is served from our own origin, not a CDN — see § QR.
 - **Enrollment**: TOFU pinning runs after `connected` exactly as for words/room (method-agnostic),
@@ -905,10 +905,16 @@ enforce it in Max-privacy, then a direct failure is **terminal**:
 ## QR (built — step 5b; WASM self-hosted — step 6e)
 `barcode-detector` + `qrcode` are installed. Generation: `qrcode` → an SVG QR rendered locally
 (`src/ui/qr.ts`, dark-on-light so it scans in either theme). Scanning: `getUserMedia` for the
-camera + the **`barcode-detector` ponyfill**, which is ALWAYS the zxing-wasm decoder — it never
-delegates to a native `BarcodeDetector` (desktop Chrome has one and still fetched the WASM, measured
-2026-09-27; this line used to say "native where available") — so one path runs everywhere; it is **lazily imported** so its
-WASM never loads unless the user actually scans. Camera denial/absence falls back to a paste-the-link
+camera + a detector chosen at scan time (`createQrDetector`, since 2026-10-03 — owner's decision: no WASM
+download where the platform decodes QR itself): the browser's own **native `BarcodeDetector`** where it
+exists and lists `qr_code` (Chrome on the desktop and on Android), the **`barcode-detector` ponyfill** (the
+self-hosted zxing-wasm decoder) everywhere else (iOS Safari, Firefox) — the ponyfill never delegates to a
+native detector itself, so the choice is ours (measured 2026-09-27). **Runtime fallback inside the detector**
+(`withZxingFallback`): the first native `detect()` that THROWS (an empty frame is not a throw) loads the
+ponyfill, switches to it for the session and retries that frame — on Android the native detector lives in
+Google Play Services and can be absent or broken, and ScanScreen swallows per-frame errors, so the fallback
+cannot live there. The ponyfill is **lazily imported**: its WASM never loads unless a scan needs it. Unit:
+`zxingWasm.test.ts` (the choice + the fallback with fakes, next to the ABI gate). Camera denial/absence falls back to a paste-the-link
 input (`src/ui/screens/ScanScreen.tsx`).
 - **Self-hosted WASM (no CDN — step 6e):** the zxing reader `.wasm` (the decoder on every engine)
   is **vendored into the build** and served from our OWN origin — it is NEVER fetched

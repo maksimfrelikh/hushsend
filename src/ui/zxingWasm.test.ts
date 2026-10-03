@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import * as QRCode from 'qrcode';
-import { locateZxingWasm, ZXING_READER_WASM_URL } from './zxingWasm';
+import { locateZxingWasm, nativeQrDetector, withZxingFallback, ZXING_READER_WASM_URL } from './zxingWasm';
 
 /**
  * ABI gate — the glue `barcode-detector` inlines and the `.wasm` WE vendor must be the same zxing-wasm
@@ -107,5 +107,73 @@ describe('zxing WASM self-hosting (locateFile override)', () => {
 
   it('passes non-wasm requests through to the loader default (scriptDirectory + path)', () => {
     expect(locateZxingWasm('zxing_reader.js', '/base/')).toBe('/base/zxing_reader.js');
+  });
+});
+
+describe('which decoder a scan gets (owner, 2026-10-03: no WASM download where the platform decodes QR itself)', () => {
+  const frame = {} as ImageBitmapSource;
+  const fakeCtor = (formats: string[], detect: (s: ImageBitmapSource) => Promise<Array<{ rawValue: string }>>) =>
+    class {
+      static getSupportedFormats = async () => formats;
+      detect = detect;
+    } as unknown as { new (o?: { formats?: string[] }): { detect: typeof detect }; getSupportedFormats(): Promise<string[]> };
+
+  it('no BarcodeDetector in the browser → null (the caller loads zxing)', async () => {
+    expect(await nativeQrDetector({})).toBeNull();
+  });
+
+  it('a BarcodeDetector that does not list qr_code → null', async () => {
+    expect(await nativeQrDetector({ BarcodeDetector: fakeCtor(['ean_13'], async () => []) })).toBeNull();
+  });
+
+  it('a BarcodeDetector that lists qr_code is used as is', async () => {
+    const d = await nativeQrDetector({ BarcodeDetector: fakeCtor(['qr_code', 'ean_13'], async () => [{ rawValue: 'x' }]) });
+    expect(d).not.toBeNull();
+    expect(await d!.detect(frame)).toEqual([{ rawValue: 'x' }]);
+  });
+
+  it('a getSupportedFormats that throws → null, never a throw', async () => {
+    const Ctor = fakeCtor([], async () => []);
+    (Ctor as unknown as { getSupportedFormats: () => Promise<string[]> }).getSupportedFormats = async () => {
+      throw new Error('no service');
+    };
+    expect(await nativeQrDetector({ BarcodeDetector: Ctor })).toBeNull();
+  });
+
+  it('native stays native while it works — an empty frame is not a failure', async () => {
+    let loads = 0;
+    const d = withZxingFallback({ detect: async () => [] }, async () => { loads++; return { detect: async () => [{ rawValue: 'z' }] }; });
+    expect(await d.detect(frame)).toEqual([]);
+    expect(await d.detect(frame)).toEqual([]);
+    expect(d.kind).toBe('native');
+    expect(loads).toBe(0);
+  });
+
+  it('the first native THROW switches to zxing for good and retries that frame', async () => {
+    let nativeCalls = 0;
+    let loads = 0;
+    const log: string[] = [];
+    const d = withZxingFallback(
+      { detect: async () => { nativeCalls++; throw new DOMException('Barcode detection service unavailable', 'NotSupportedError'); } },
+      async () => { loads++; return { detect: async () => [{ rawValue: 'from-zxing' }] }; },
+      (m) => log.push(m),
+    );
+    expect(await d.detect(frame)).toEqual([{ rawValue: 'from-zxing' }]);
+    expect(await d.detect(frame)).toEqual([{ rawValue: 'from-zxing' }]);
+    expect(d.kind).toBe('zxing');
+    expect(nativeCalls).toBe(1);
+    expect(loads).toBe(1);
+    expect(log[0]).toMatch(/NotSupportedError/);
+  });
+
+  it('a zxing load that fails is rethrown and retried on the next frame', async () => {
+    let attempt = 0;
+    const d = withZxingFallback(
+      { detect: async () => { throw new Error('native down'); } },
+      async () => { attempt++; if (attempt === 1) throw new Error('import failed'); return { detect: async () => [{ rawValue: 'ok' }] }; },
+    );
+    await expect(d.detect(frame)).rejects.toThrow('import failed');
+    expect(await d.detect(frame)).toEqual([{ rawValue: 'ok' }]);
+    expect(attempt).toBe(2);
   });
 });

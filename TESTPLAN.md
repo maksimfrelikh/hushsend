@@ -431,8 +431,10 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       `https://hushsend.frelikh.dev/assets/zxing_reader-*.wasm` with `Content-Type: application/wasm`.
       **Nothing may be requested from `jsdelivr` / `fastly` / any third-party host** — that is the whole
       point of the 6e vendoring. Also scan on AND-1 Chrome — it fetches the SAME WASM: the app imports
-      `barcode-detector/ponyfill`, which is always the zxing implementation and never delegates to a
-      native `BarcodeDetector` (measured 2026-09-27 on desktop Chrome, which has one; corrected from
+      `barcode-detector/ponyfill` where the browser has no native QR detector (iOS Safari, Firefox); since
+      2026-10-03 Chrome desktop / Android use their own `BarcodeDetector` with a runtime fallback to zxing
+      (owner's decision, CLAUDE.md § QR). The ponyfill itself never delegates to a native detector
+      (measured 2026-09-27 on desktop Chrome, which has one; corrected from
       "native; no WASM fetch at all").
 - [x] **B4 · camera permission denied** *(Android half ✅ 2026-10-02: Block → paste fallback, no crash; re-allow is via the site-settings sheet because Chrome offers "Never allow"; IPH ✅ 2026-10-03: deny → "Camera unavailable — paste the link below instead")* — on IPH, deny the camera prompt. Expected: a clean
       **paste-the-link fallback**, no crash, no dead screen. Re-allow and confirm the scanner recovers.
