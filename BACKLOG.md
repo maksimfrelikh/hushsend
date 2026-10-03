@@ -595,10 +595,17 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
 
 ## UX bugs — found in the manual test pass (Phase 1)
 
-- 🔴→✅(code) **iOS Safari ends the WebRTC connection when the screen locks — found 2026-10-03 on the iPhone 15
-  (iOS 26.6), TESTPLAN F1. Owner chose (c) the same day: `ui/wakeLock.ts` holds a Screen Wake Lock while a
-  transfer is in flight and the transfer screen says to keep the screen on (CLAUDE.md § File transfer);
-  real-device check pending.** An 800 MB receive stopped at 14 % the moment the owner locked the phone: ICE
+- ✅ **iOS Safari ends the WebRTC connection when the screen locks — found 2026-10-03 on the iPhone 15
+  (iOS 26.6), TESTPLAN F1. Owner chose (c) the same day, LIVE as `bf485ae`: `ui/wakeLock.ts` holds a Screen
+  Wake Lock while a transfer is in flight — requested INSIDE the Accept / Send tap, because iOS grants it only
+  with user activation (the first build asked from the phase-change effect and was refused silently) — and the
+  transfer screen says to keep the screen on. Verified on the phone: a 3 GiB receive with Auto-Lock at 30 s ran
+  to Delivered untouched (CLAUDE.md § File transfer). An app switch still ends the connection (measured).**
+- ✅(code, LIVE `bf485ae`) **The ended row clipped its reason on a phone (2026-10-03, owner's screenshot):**
+  "declined · This file is 5.0 GB — larger than the…" ran off the right edge at 393 px, so the actionable
+  part (free up space / use a normal window) was unreadable. `.hs-box__aside` now wraps (`flex: 0 1 auto`,
+  `min-width: 0`, `overflow-wrap: anywhere`). The visual baselines of the ended-row scenes at 375 may shift —
+  re-record on the deploy host with this as the reason. An 800 MB receive stopped at 14 % the moment the owner locked the phone: ICE
   went `disconnected` ~7 s later and `failed` ~10 s after that, and both sides showed "Connection lost"
   (the Mac: "not delivered · stopped at 109 MB · ICE failed"). The loss path is honest, but on an iPhone a
   receive survives only while the screen stays on — the Pixel 5 ran on under the lock (F1 Android half),

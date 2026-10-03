@@ -672,7 +672,9 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
   prevents ONLY the idle-timer lock; a deliberate lock, an app switch or a closed tab still end the
   session, so `TransferScreen` adds the line `keepScreenOn` (testid `transfer-keep-on`) during
   `transferring` on coarse-pointer devices only (`platform.onCoarsePointer`) — desktops sleeping do not
-  drop the connection. Unit: `wakeLock.test.ts`. Real-device check: pending (TESTPLAN F1).
+  drop the connection. Unit: `wakeLock.test.ts`. Verified on the iPhone 15 (2026-10-03, TESTPLAN F1): a 3 GiB receive with
+  Auto-Lock at 30 s ran to Delivered with the phone untouched; the first build, which asked from the effect
+  alone, was refused and the screen locked. An app switch still ends the connection within ~15 s (measured).
 - **"Finishing" — the 100 % that is not the end (2026-10-03, owner's choice "option 1").** Once every
   declared byte has crossed, the sender still pushes the volume padding (Max privacy, up to 12.5 % of
   the file — 512 MiB at 2^32 + 1 B, ~137 s at the Pixel 5's 3.9 MB/s, TESTPLAN B10) and then waits for

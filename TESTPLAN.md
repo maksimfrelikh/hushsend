@@ -643,7 +643,7 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
 
 ## Phase F — real-world robustness · mixed: F3/F5/F6/F7 are T1, the rest need a radio or a dialog
 
-- [x] **F1 · phone screen lock / app switch mid-transfer** *(Android half ✅ 2026-10-02/03 on the Pixel 5: the 200 MB receive ran on under the locked screen, the finished row showed "arrived in the background — Save file", one tap landed it in Downloads with the right SHA-256; IPH ❌ 2026-10-03 — CLOSED AS A PLATFORM LIMIT: iOS Safari tears the connection down on screen lock, both sides reported "Connection lost" honestly within 17 s; nothing the app can test further here — BACKLOG § UX bugs has the Wake Lock idea)* — start a ≈200 MB transfer to IPH, then lock
+- [x] **F1 · phone screen lock / app switch mid-transfer** *(Android half ✅ 2026-10-02/03 on the Pixel 5: the 200 MB receive ran on under the locked screen, the finished row showed "arrived in the background — Save file", one tap landed it in Downloads with the right SHA-256; IPH ❌→✅ 2026-10-03: iOS Safari tears the connection down on screen lock (both sides "Connection lost" within 17 s); MITIGATED the same day by a Screen Wake Lock requested inside the Accept / Send tap (`bf485ae`) — a 3 GiB receive with Auto-Lock at 30 s ran to Delivered with the phone untouched; a deliberate lock or an app switch still ends it (measured), and the transfer screen says so)* — start a ≈200 MB transfer to IPH, then lock
       the screen / switch apps for ~30 s and come back. Expected: either it keeps going or it fails
       visibly with a recoverable state — **iOS suspends background tabs**, so record exactly what
       happens; this is the single most likely real-world surprise. **Since 2026-09-28:** if the file
@@ -1616,3 +1616,14 @@ drops the CoreDevice tunnel, safaridriver answers `invalid session id` / `no suc
 the automation window a few seconds later (the Mac reads "data channel closed"). Idle sessions survived
 because only a receive loads the phone enough to trigger it. Not a product issue; a cable/port matter.
 With that, every case in this plan is ticked or closed with a reason: **47 / 47**.
+
+**Screen Wake Lock (the F1 mitigation), same morning, by hand on the iPhone 15.** First build (`93e4c37`):
+the keep-screen-on line showed, but with Auto-Lock at 30 s the screen still went dark and a 3 GiB receive
+died at 633 MB ("Connection lost · ICE failed" at +63 s) — the lock had been requested from the phase-change
+effect, without user activation, and iOS Safari refused it silently. Second build (`bf485ae`, requested
+inside the Accept / Send tap): the same 3 GiB receive with Auto-Lock at 30 s and the phone untouched ran to
+"Delivered" in 149 s (21.7 MB/s) — the owner watched: the screen stayed on and iOS asked to download at the end. An app switch (Home for 30 s, measured on the first
+build) ends the connection like a lock does: "Connection lost · stopped at 721 MB · ICE failed" 15 s later —
+which is what the second half of the line warns about. Also seen on the way: a 5 GiB offer refused before
+Accept on a phone with 4.5 GB free (the refusal names the cap and the fix), and its reason clipped at the
+right edge of the ended row on the phone — fixed in `bf485ae` (`.hs-box__aside` wraps).
