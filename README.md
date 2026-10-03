@@ -45,9 +45,13 @@ indistinguishable from a first link meeting. A key that changed under a known pa
 hard stop, never a dismissable toast.
 
 Several files picked at once travel as **one uncompressed zip, `hushsend-files.zip`**, so the receiver
-accepts one offer and sees one progress bar. Chrome on desktop streams what it receives straight to
-disk; other browsers hold it in memory until the end and cap it (1 GB on desktop, 512 MB on phones),
-refusing a larger file before anything is sent.
+accepts one offer and sees one progress bar. A received file goes to disk, not memory: desktop Chrome
+streams it straight into Downloads (so should Edge and Brave — the same Chromium detection, not yet
+measured on them); Firefox, Safari and phone browsers write it
+into the site's private storage (OPFS) and hand it over as a download at the end. Only where neither
+works — a private window without site storage — does it pass through RAM, capped at 200 MB; a file no
+path can take is refused before anything is sent. (Until 2026-09-28 a browser without the File System
+Access save dialog received into RAM, capped at 1 GB on desktop and 512 MB on phones.)
 
 ## Privacy modes
 
@@ -158,9 +162,12 @@ user. In short:
 1. **Verifiable delivery.** The server this model declares untrusted is the same server that ships
    the JavaScript. That is the largest single gap and it is not a protocol change — it needs a
    reproducible build with published hashes, an independent mirror, or a pre-delivered client.
-2. **A real-device pass** — transport, file-save fallbacks, QR scanning and camera permissions on
-   actual iOS Safari / Firefox / Android, plus a cross-network TURN relay check. The plan is
-   [TESTPLAN.md](TESTPLAN.md); **the pass is under way on real devices — a Pixel 5 (2026-10-02) and an iPhone 15 (2026-10-03); the ticks and the per-run numbers are in its § Result log.**
+2. ✅ **A real-device pass — done 2026-10-03.** Transport, file-save paths, QR scanning and camera
+   permissions on desktop Chrome / Brave / Safari / Firefox, a Pixel 5 (Android 14, Chrome) and an
+   iPhone 15 (iOS 26.6, Safari), plus a cross-network TURN relay check over LTE:
+   [TESTPLAN.md](TESTPLAN.md) has all 47 cases ticked or closed with a reason (Android Firefox was
+   dropped) and the per-run numbers in its § Result log. The one platform limit it found: iOS Safari
+   ends the connection when the screen locks ([CLAUDE.md](CLAUDE.md) § Known residuals).
 3. **STUN under a different operator**, which is the precondition for path attestation becoming an
    enforced control rather than an advisory one.
 4. **An independent security audit.** Two internal passes are done; the second found three complete

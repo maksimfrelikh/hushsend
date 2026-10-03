@@ -178,18 +178,24 @@ fact of a transfer, and how many there were are all still visible.
 **Status: not addressable inside the app.** The honest mitigation is Tor or a VPN on both sides, and
 users for whom this matters should be told so plainly rather than reassured.
 
-### 5. No independent audit, and the device pass has not started
+### 5. No independent audit (the device pass is done)
 
 Two internal audits have run. The second one — modelling an actively malicious server rather than a
 lying one — found three complete breaks in a system the first pass had already reviewed. That is the
 argument for an external audit, not against it: the failure mode here is confident documentation, and
 it has already happened twice.
 
-`TESTPLAN.md` holds 49 cases, of which 2 are ticked — and those two are deployment preconditions
-verified on the server, not device tests. **No testing on a real device has happened at all.** Safari
-and iOS behaviour — the file-save
-fallbacks, QR scanning, camera permissions, cross-network TURN, and the attestation verdict per
-engine — is essentially unverified outside a headless Linux box.
+The real-device pass is DONE (corrected 2026-10-03 — this paragraph used to say no device had been
+tested at all): `TESTPLAN.md`'s 47 cases are ticked or closed with a reason, on the real desktop
+engines (Chrome, Brave, Safari, Firefox on macOS), a Pixel 5 (Android 14, Chrome) and an iPhone 15
+(iOS 26.6, Safari) — file-save paths, QR scanning, camera permissions, cross-network TURN over LTE.
+What it did NOT settle: Android Firefox was dropped, Windows was never run at all and Linux only as
+the headless e2e (Playwright's builds, CI and the deploy host), and the attestation verdict is thin.
+On one LAN the desktop pairs read `unknown` (mDNS hides the addresses), Chrome ↔ Android Chrome read
+`ok` / `unknown`, and Chrome ↔ iOS Safari read a FALSE `mismatch` (WebKit attests only its mDNS
+names); no cross-network pair connected directly in Max privacy — and those runs prove little, because
+the desktop sat on the server's own LAN, where the STUN reply is the router's LAN address (TESTPLAN C1,
+the caveat). So road item 4 still lacks its data.
 
 ### 6. Smaller, tracked
 
@@ -283,8 +289,9 @@ guarantee is worse than an honest limitation: people calibrate their behaviour t
    stated in the interface**, not only in this file, with the Tor/VPN-on-both-sides advice. Cheapest
    honesty available, and it was missing: the privacy toggle only ever said the PEER sees your IP,
    which is a far smaller claim than either of these.
-3. **The real-device pass** — `TESTPLAN.md`, all 49 cases, with the attestation verdict recorded per
-   engine pair.
+3. ✅ **Done 2026-10-03 — the real-device pass** — `TESTPLAN.md`, 47 of 47 cases ticked or closed
+   with a reason. The attestation verdict was recorded on the pairs it met; § 5 says how little that
+   settles for item 4.
 4. **Path attestation as a control**, decided from that data rather than from a loopback run.
 5. **An independent security audit.**
 6. ✅ **Done 2026-09-17 — volume padding.** Was listed as optional; it is now on in Max privacy.

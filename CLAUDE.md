@@ -847,7 +847,8 @@ enforce it in Max-privacy, then a direct failure is **terminal**:
   as unknown NEVER as safe, and the condition is real — `SessionController.verifyPath` needed a 5 s
   poll for exactly this, and runs LATER in the session than the gate. So the rule is now POSITIVE:
   **open only on a path established to be direct.** `relax.classifySelectedPath` polls for a
-  judgement (`SELECTED_PAIR_TIMEOUT_MS` 5 s / `SELECTED_PAIR_POLL_MS` 100 ms), retrying on a null read
+  judgement (`SELECTED_PAIR_TIMEOUT_MS` 15 s — it shipped as 5 s, the constant's comment says why it
+  was raised to match `PATH_ATTEST_TIMEOUT_MS` / `SELECTED_PAIR_POLL_MS` 100 ms), retrying on a null read
   so a transient `getStats()` rejection does not decide the session, and anything still
   `undetermined` at the deadline is refused down the same terminal path as a relay. Measured
   2026-09-13: chromium, firefox and webkit each report a selected pair on the FIRST read at
@@ -1333,7 +1334,7 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
      suspected Firefox mixed-privacy hang — gone by design). `src/core/relax.ts` (filter only,
      `relax.test.ts`), `FailedScreen` hint, `?forceIceFail=1` DEV knob, `tests/e2e/relax.spec.ts`. See
      **Privacy mode + ICE / Max-privacy strict model** §.
-   - 🚧 **6e — cross-browser pass** — the **no-device parts are DONE** (this pass): (1) the QR-scan
+   - ✅ **6e — cross-browser pass** — the **no-device parts are DONE** (this pass): (1) the QR-scan
      WASM is **self-hosted** (vendored, served from `'self'`, no CDN — `src/ui/zxingWasm.ts`
      `createQrDetector` + `setZXingModuleOverrides` over a Vite `?url` asset; `zxingWasm.test.ts`;
      CSP CDN dropped), and (2) a **feature-detection / graceful-degradation review** confirmed every
@@ -1346,7 +1347,8 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
      on an iPhone 15** (iOS 26.6, driven by WebDriver): transport on the LAN, on LTE (Max fails closed with
      the hint, Reliable relays through coturn at 1.7 MB/s), site-storage receive to 2 GiB, QR scan + camera
      deny, share sheet, reconnect — TESTPLAN § Result log 2026-10-03. One platform limit found: iOS Safari
-     ends the connection on screen lock (§ Known residuals). **Remaining:** Android Firefox.
+     ends the connection on screen lock (§ Known residuals). TESTPLAN 47/47 closed 2026-10-03; Android
+     Firefox was dropped by the owner (too rare a combination) and stays untested.
    - ✅ **6f — nginx deployment — LIVE at hushsend.frelikh.dev** — the config
      templates + runbook are built and committed: `deploy/nginx.conf.example` (TLS, 80→443, SPA
      `try_files $uri /index.html`, the `/ws` proxy with `proxy_set_header X-Real-IP $remote_addr;` +
@@ -1370,9 +1372,9 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
      advertises a private address. The old `http2 on;` → `listen … ssl http2;` template fix was for
      the VPS's nginx 1.24 and no longer applies (1.28 accepts both; HTTP/2 is ON now — `curl` from the Mac negotiated `HTTP/2 200`, 2026-09-27;
      this line used to say OFF). External smoke ALL green (security headers/CSP, `/health`,
-     `.wasm` as `application/wasm`, `/ws`→426 reaching Node, SPA fallback). **Remaining (ops, not
-     code):** the in-browser P2P/SAS/transfer test on two devices + a cross-network TURN relay check
-     (overlaps 6e real-device). (link/qr high-entropy rendezvous = codeType=token, done pre-deploy.)
+     `.wasm` as `application/wasm`, `/ws`→426 reaching Node, SPA fallback). The in-browser
+     P2P/SAS/transfer test on two devices and the cross-network TURN relay check are DONE (6e real-device,
+     2026-10-02/03 — TESTPLAN § Result log). (link/qr high-entropy rendezvous = codeType=token, done pre-deploy.)
 
 ## Current state
 - ✅ `src/core/crypto/` — `cpace` (CFRG draft-21 vectors passing), `keyConfirmation` (channel
@@ -1534,9 +1536,9 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   `<uuid>.local` and two of its tabs never pair. plus a `mobile-webkit` project (WebKit + the iPhone device descriptor) that is the ONLY place the
   UA-selected mobile receive cap runs, and an opt-in size ladder, `tests/e2e/limits.spec.ts`); **6f LIVE** — deployed + externally verified at hushsend.frelikh.dev
   (coturn same-host `turn:`-only :3478; signaling = separate repo under systemd; see DEPLOY.md § 0);
-  remaining: in-browser P2P/SAS/transfer on two devices + cross-network TURN relay (6e real-device,
-  post-deploy) — the pass is planned case-by-case in **TESTPLAN.md** — plus nice-to-haves, tracked in
-  **BACKLOG.md**.
+  the real-device pass (in-browser P2P/SAS/transfer on two devices + cross-network TURN relay) is DONE —
+  **TESTPLAN.md** 47/47 as of 2026-10-03; what is left is nice-to-haves and the pre-launch items, tracked
+  in **BACKLOG.md** / **THREATMODEL.md**.
 - 🔒 **SECOND audit pass, 2026-09-12 — fully malicious server. Three complete breaks found and
   FIXED**, plus a persistent pre-auth hole: (1) SAS **certificate grinding** — the commit covered only
   the nonces, so a relay could grind its own certificates after both nonce exchanges and make both

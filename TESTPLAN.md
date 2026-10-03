@@ -6,8 +6,10 @@ e2e across four engine projects, feature-detection review, self-hosted QR WASM);
 
 This used to open "the last open item before the security audit" — the audit has since run twice
 internally (2026-09-12 and 2026-09-13, BACKLOG § Security audit), so that ordering is gone: the
-device pass is now the last open item before a public launch, not before the audit. **Progress: 21 of
-the 47 A–F cases are closed (A4a, A4b, A6, A7, B1, B7, B9, D1–D5, E1–E5, F3, F5–F7 — see § Result log:
+device pass was the last open item before a public launch, not before the audit — and **it is DONE:
+47 of 47 cases ticked or closed with a reason on 2026-10-03** (§ Result log, the 2026-10-02 Pixel 5 and
+2026-10-03 iPhone 15 entries). The rest of this paragraph is the 2026-09-28 snapshot, kept for the
+record: **21 of the 47 A–F cases were closed (A4a, A4b, A6, A7, B1, B7, B9, D1–D5, E1–E5, F3, F5–F7 — see § Result log:
 the four 2026-09-27 entries and the 2026-09-28 ones, where A4b closed on the live build and B1 closed
 twice — on the site-storage path in the morning, and again on the straight-to-Downloads path after
 `c5a51c4` went live); the
@@ -213,7 +215,7 @@ Last run 2026-09-27 against the bundle fetched over HTTPS from the live host (`i
   halves it again because every byte crosses the router twice (client→coturn, coturn→client). C5 is
   a CROSS-NETWORK case, so neither number is the one you will see there: expect the slower peer's
   uplink to bind long before 5 MB/s does. Use these to tell "the relay is slow" apart from "this
-  link is slow". At the loopback figure the 1 GiB desktop cap takes ~4.7 min end to end.
+  link is slow". At the loopback figure 1 GiB takes ~4.7 min end to end.
 - **`TURN_CRED_TTL_S` (3600 s) bounds when a relayed transfer may START, not how long it may RUN**
   — measured 2026-09-19, because the opposite reading is the natural one and would have made every
   transfer slower than ~2.4 Mbit/s unsafe at the 1 GiB cap. Drove a relayed transfer with a
@@ -245,14 +247,14 @@ Last run 2026-09-27 against the bundle fetched over HTTPS from the live host (`i
 
 | Slot | Device | OS version | Browser + version | Engine | Driven by | Expected receive path | Expected QR decoder |
 |---|---|---|---|---|---|---|---|
-| MBP-A | MacBook | macOS 26 | Chrome 154 | Blink | Claude via **Playwright** driving the installed Chrome (`channel:'chrome'`, persistent profiles, since 2026-09-27) | straight into Downloads through the download worker (since 2026-09-28, not yet live); site storage only if the worker cannot come up | zxing ponyfill (never native — see B3) |
+| MBP-A | MacBook | macOS 26 | Chrome 154 | Blink | Claude via **Playwright** driving the installed Chrome (`channel:'chrome'`, persistent profiles, since 2026-09-27) | straight into Downloads through the download worker (since 2026-09-28, live since `c5a51c4`); site storage only if the worker cannot come up | native `BarcodeDetector` since 2026-10-03 (`b73651d`), zxing ponyfill on its first throw — see B3 |
 | MBP-A | MacBook | | Brave 154 (shields up) | Blink | Claude (Claude-in-Chrome extension) | the stream path expected (desktop Chromium; not probed — shields may block the worker, then site storage) — Brave ships no `showSaveFilePicker`, so no dialog fallback | zxing ponyfill |
 | MBP-A | MacBook | macOS 26 | Safari 26.6 | **WebKit (the real one)** | Claude via **WebDriver** (`safaridriver`, since 2026-09-27 — see § 0.5) | OPFS (probed 2026-09-27: writes to disk, quota 76.8 GiB) | zxing ponyfill |
 | MBP-A | MacBook | macOS 26 | Firefox 156 | Gecko | Claude via **WebDriver** (`geckodriver`, since 2026-09-27) | OPFS (probed 2026-09-27: writes to disk, quota 10 GiB) — never the stream path: Firefox fails a streamed download unsafely (2026-09-28) | zxing ponyfill |
 | MBP-A | MacBook | macOS 26 | Claude's built-in Chromium 152 | Blink | Claude (built-in browser) — a SECOND profile next to Brave, so E-cases are honest | the stream path expected (desktop Chromium); before 2026-09-28 its FSA dialog could not be shown in the pane | zxing ponyfill |
 | MBP-B | MacBook | | Chrome | Blink | Claude (Playwright) | straight into Downloads (the stream path) | zxing ponyfill |
 | IPH | iPhone | | Safari (WebKit) | WebKit + phone limits | Claude via Safari Web Inspector (USB) | OPFS expected (not yet probed on a device); Save file if the screen was locked | zxing ponyfill |
-| AND-1 | **Google Pixel 5** (the owner's; attached 2026-10-02) | Android 14, patch 2023-11-05 (EOL) | Chrome 152 | Blink | Claude over CDP via USB (`adb forward … chrome_devtools_remote`, the `android-device` skill) + `adb` for native UI; no SIM — "LTE" is a second Wi-Fi with a VPN exit in France | OPFS expected (mobile Chromium does not stream until a handset proves it — B2/B10) — no dialog while the connection is live; the save dialog only past the quota (Chrome 149 HAS `showSaveFilePicker`, and a dialog left open ~20 s killed the connection — why disk-without-dialog is now first) | zxing ponyfill (never native) |
+| AND-1 | **Google Pixel 5** (the owner's; attached 2026-10-02) | Android 14, patch 2023-11-05 (EOL) | Chrome 152 | Blink | Claude over CDP via USB (`adb forward … chrome_devtools_remote`, the `android-device` skill) + `adb` for native UI; no SIM — "LTE" is a second Wi-Fi with a VPN exit in France | OPFS expected (mobile Chromium does not stream until a handset proves it — B2/B10) — no dialog while the connection is live; the save dialog only past the quota (Chrome 149 HAS `showSaveFilePicker`, and a dialog left open ~20 s killed the connection — why disk-without-dialog is now first) | native `BarcodeDetector` since 2026-10-03, zxing ponyfill on its first throw (the 2026-10-02 scan ran zxing) |
 | SIM-iOS | iPhone 17 **simulator** (rehearsal only) | iOS 27.0 | Safari | WebKit, but the Mac's RAM and network | Claude via simulator taps + screenshots (safaridriver cannot reach it) | OPFS expected (not probed on the simulator) | zxing ponyfill |
 | SIM-iPad | iPad (A16) **simulator** (rehearsal only) | iPadOS 27.0 | Safari | WebKit | as SIM-iOS | OPFS expected; the UA no longer matters (it sent a desktop UA, which picked the 1 GiB cap until 2026-09-27) | zxing ponyfill |
 | EMU-AND | Pixel 9 Pro **emulator** (rehearsal only) | Android 17 (user build) | Chrome 149 | Blink | Claude over CDP (`adb forward … localabstract:chrome_devtools_remote`) + `adb` for native UI | OPFS expected — no dialog any more (it was FSA through the system save dialog) | zxing ponyfill |
@@ -539,6 +541,14 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
 IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
 
 - [x] **C1 · Max-privacy direct across networks** *(PASS 2026-10-02, outcome (b): Mac Chrome ↔ Pixel 5 on a VPN Wi-Fi, both sides terminal `failed` with the hint in 18–48 s — § Result log)* — both sides default Max-privacy, link method.
+      **⚠️ Caveat found 2026-10-03 — the outcome does not generalise.** In every C1 run (and on the Max side of
+      C3) the desktop sat on the SERVER'S OWN LAN, and from there the STUN reply is the ROUTER's LAN address:
+      re-measured 2026-10-03, Chrome on the Mac at 192.168.1.38 gathered `srflx 192.168.1.1` from
+      `stun:turn.hushsend.frelikh.dev:3478` (the router hairpins and rewrites the source). So the home side
+      never advertised its public mapping and the remote peer had nothing to reach — a failure by
+      construction, whatever the phone's NAT. **Direct connectivity across networks is untested for anyone
+      not on the server's LAN.** To test it, put the desktop on any OTHER network (café, office, a friend's
+      Wi-Fi) and pair it with the phone on LTE, both in Max privacy.
       Expected either (a) `connected` via a `srflx` candidate pair — confirm in webrtc-internals that
       the selected pair is **not `relay`** — or (b) if the NATs won't traverse, a **terminal `failed`
       screen with the "switch to Reliable" hint**. Both are correct; a **hang is not**. Record which.
@@ -564,7 +574,7 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       table and reopen BACKLOG § Security audit / Findings.
       Worth pairing with a control: the same Max ↔ Reliable run where the direct path DOES work must
       still connect normally (the gate must not reject a legitimate `prflx` from a NAT mapping).
-- [x] **C6 · volume padding, and what it costs on a real link — NEW 2026-09-17.** *(✅ 2026-10-03 on the iPhone over LTE: 300 KiB → 524 371 B on the wire (+70.7 %), 50 MB → +0.7 % at 4.0 MB/s, files the real size — § Result log)* In Max privacy the
+- [x] **C6 · volume padding, and what it costs on a real link — NEW 2026-09-17.** *(✅ 2026-10-03 on the iPhone: 300 KiB → 524 371 B on the wire (+70.7 %), 50 MB → +0.7 % at 4.0 MB/s, files the real size — but the path was not recorded and was probably the USB cable, not LTE, so the cellular cost is still unmeasured; § Result log, the C6 caveat)* In Max privacy the
       transfer is padded so its byte count lands on a bucket edge instead of naming the file
       (`core/transfer/padding.ts`): powers of two below 1 MiB, then ≤12.5% overhead. Send a **300 KiB**
       file (ladder: → 512 KiB, a 70% jump no chunking accident could produce) and a **~50 MB** file
@@ -1303,14 +1313,17 @@ F8 on, the phone on a **second Wi-Fi that exits through a VPN in France** ("enli
   "Connection lost" 19 s after the cut, i.e. before the Wi-Fi came back; no frozen bar. (By then the
   phone had silently rejoined a DIFFERENT Wi-Fi — see the trap.)
 
-**Phase C — the phone on the VPN Wi-Fi (France), the Mac on the home LAN.**
+**Phase C — the phone on the VPN Wi-Fi (France), the Mac on the home LAN.** *(Caveat added 2026-10-03:
+on the home LAN the STUN reply is the router's LAN address, so the Max-privacy failures below are an
+artefact of the stand — see case C1.)*
 - **C1 · T2 · Max ↔ Max, link · PASS, outcome (b)** — ×2: terminal `failed` with "Couldn't connect
   directly — Switch to Reliable" on BOTH sides (the Mac's also carries the macOS Local Network hint),
   phone 18 s, Mac 18–48 s. No hang.
 - **C2 · T2 · Reliable ↔ Reliable, link · PASS** — connected in 5.2 s, selected pair **`relay ↔ relay`**
   (our coturn, 94.46.199.61) on both sides, both rows read "relayed through the server", sockets closed
   after connect. **50 MB Mac → Pixel over the relay: 165 s = 0.3 MB/s**, intact. That is well under the
-  relay's 5 Mbit/s cap (~0.6 MB/s) and the 1.86 MB/s measured on 2026-09-19; the VPN leg is the likely
+  relay's per-session cap (`max-bps=5000000` counts BYTES — ~5 MB/s; this line used to read it as
+  5 Mbit/s, which the 3.84 MB/s of § 0.3 rules out) and the 1.86 MB/s measured on 2026-09-19; the VPN leg is the likely
   bottleneck. A 600 MB send the other way ran at the same 0.3 MB/s (F2 above).
 - **C3 · T2 · mixed privacy, both directions, link AND room · PASS (no deadlock)** — four runs, every one
   terminal in 16–19 s, never a stuck "agreeing on keys". The Max side's copy depends on a RACE: when its
@@ -1557,7 +1570,9 @@ runs all went over the cable — discarded).
 - **E1 (phone half)** — after A1 / A3 / A4 the phone's Reconnect section listed the Mac **once**
   (`device db:85:ec:5b`).
 
-**Phase C — Mac Chrome (Wi-Fi only) on the home LAN ↔ IPH Safari on LTE.**
+**Phase C — Mac Chrome (Wi-Fi only) on the home LAN ↔ IPH Safari on LTE.** *(Caveat added later on
+2026-10-03: on the home LAN the STUN reply is the router's LAN address, so the Max-privacy failures below
+are an artefact of the stand, not a property of the networks — see case C1.)*
 - **C1 · T2 · Max↔Max · link · PASS, outcome (b)** — both sides terminal `failed` with the direct-fail hint
   ("Couldn't connect directly. Switch to Reliable to allow relaying through a server."; the Mac adds the
   macOS Local Network line, the phone correctly does not) 15.9 s / 16.1 s after the join (ICE `failed`
@@ -1584,6 +1599,14 @@ runs all went over the cable — discarded).
   **4.0 MB/s**; both received files are the REAL size and verified — the filler is never written. The
   small file's padding (~0.13 s of wire at that rate) is invisible next to the per-file handshake; the
   cost that would bite a per-megabyte plan is the +12.5 % ceiling on big files, not the small-file jump.
+  **Caveat added 2026-10-03 (later): the PATH of this run was not recorded, and "over LTE" is doubtful.**
+  It connected in Max ↔ Max, while C1 (Max ↔ Max, same LTE, the Mac on `chrome-pubif`) and every Max side
+  of C3 could not go direct. `sc_iph_c6` defaults the Mac to `chrome-direct`, which per the harness notes
+  pairs over the USB cable's CoreDevice tunnel even with the phone on LTE — so the 4.0 MB/s is probably
+  the cable, not cellular. The byte counts stand regardless (padding is deterministic: the Pixel 5's
+  LAN run gave the identical 524 371 / 50 331 735). What is NOT established is the case's point — the
+  cost on a real cellular link; to settle it, re-run with the Mac on `chrome-pubif` and read the
+  selected pair's local candidate.
 
 **Open on the iPhone after this session (as of the entry's first write; all closed the same morning — see below):**
 B10 rungs ≥ 4 GiB, B2's RAM rung, E5–E7 (ticked earlier on the Pixel), F8's iPhone half, C5, the iOS download question.

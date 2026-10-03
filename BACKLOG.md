@@ -4,6 +4,77 @@ Remaining and deferred work, plus a done-log of the completed hardening. Current
 implementation caveats live in CLAUDE.md (§ Current state, § Known residuals). Update this file in
 the same pass as CLAUDE.md when items land.
 
+## Pre-launch review — 2026-10-03, with the owner's decisions
+
+A review made after the device pass closed: what to check, fix or polish before the launch, and what
+the owner decided on each. The known pre-launch items are not repeated here (independent audit, other
+languages, verifiable delivery, the separate STUN operator, path attestation as a control).
+
+**Finding that changes Phase C (measured 2026-10-03).** Every cross-network Max-privacy run (C1, the
+Max side of C3) had the desktop on the server's own LAN, and there the STUN reply is the ROUTER's LAN
+address: Chrome on the Mac at 192.168.1.38 gathered `srflx 192.168.1.1` from
+`stun:turn.hushsend.frelikh.dev:3478`. The home side never advertised its public mapping, so those
+failures say nothing about users elsewhere — **direct connectivity across networks is untested.**
+TESTPLAN C1 carries the caveat and the way to test it.
+
+**Agreed — to do:**
+- Test Max privacy across networks from a network OTHER than the server's LAN (above). Then decide on
+  a one-tap "retry with relay" on the direct-fail screen and copy for the Reliable side of a mixed pair
+  ("ask your peer to switch to Reliable too"); today it reads "channel closed during pairing".
+- Relay capacity: coturn's 49160–49200 range is ~41 allocations (a fully relayed pair takes two).
+  Widen it (and the router forwarding), add a total cap (`bps-capacity`) and monitoring. No VPS for now.
+- Rate limits vs carrier NAT — to think through: `IP_RL_MAX` (60 create/join per minute per IP) and the
+  per-IP connection cap hit many mobile users behind one carrier IP; IPv6 is not grouped by /64. What
+  the limit protects is JOIN-scanning of the 4-digit rooms and the word rendezvous (10 000 codes /
+  1 296 words); a token join (link, QR, reconnect) cannot be enumerated.
+- A large SEND from a phone: 2–4 GB from the iPhone, picked from Files AND from Photos (compare size
+  and hash with the original — the Photos picker may hand over a prepared copy of a video), and from
+  Android. The windowed reader was measured on Safari on the Mac only.
+- Re-run C6 on real LTE with the Mac on `chrome-pubif` (the iPhone side by the owner).
+- Full test run: the 28 integration tests on a host that may bind ports, the visual gate after
+  `9775117`, the engine matrix. (The nightly CI's 60-day expiry is the owner's to watch.)
+- "No logs" end to end: nginx's error.log (client IPs), journald of the signaling service, coturn,
+  fail2ban, the router — what is written and for how long.
+- Chromium: a closed SENDER tab is noticed by the receiver only after ~16 s (others < 1 s) — find why.
+- Path attestation: an honest Mac ↔ iPhone pair on one Wi-Fi reads "route did not match". Candidate
+  rule: a PRIVATE selected remote address that the peer did not attest (WebKit hides its private
+  addresses behind mDNS) → `unknown`, not `mismatch`; a remote server cannot sit at a private address.
+- Transfer screen: speed and time left, in whole minutes, "less than a minute" at the end.
+- QR scanner that throws on every frame looks alive (ScanScreen's `catch {}`): after N consecutive
+  errors show "scanner unavailable — paste the link"; plus an e2e through Chromium's fake camera (y4m).
+- Units: the RAM cap is 200 MB = 200 000 000 bytes, and sizes are shown in decimal MB / GB (today MiB
+  values carry an "MB" label: the cap was 209 715 200 B, a 250 000 000 B file read "238 MB").
+- `/.well-known/security.txt` — the owner fills it in before the release (today that path is answered
+  by the app's HTML with a 200).
+
+**Waiting for the owner's decision:** the Android save dialog past the site quota (a dialog left open
+~10–20 s killed the connection on the emulator and left a 0-byte file — keep it, replace it with a
+refusal, or warn before it); a line warning about the browser's own download prompts (Safari on macOS
+"allow downloads from this site", iOS "Download?", Brave holding the download — the site-storage copy
+waits 10 minutes for the answer); the in-app advice "use Tor or a VPN on BOTH sides" (Tor users are not
+the audience, and Tor Browser restricts WebRTC) and an up-front "WebRTC is disabled in this browser"
+message — today `new RTCPeerConnection` runs unguarded.
+
+**Decided — not doing / not now:**
+- `index.html` keeps its caching: no urgent hotfixes after the release; a stable version plus a
+  development version without cache.
+- Audience: people who care a great deal about privacy but cannot use Tor right now. Tor users are not
+  the target.
+- Phone ↔ phone: later, only if it becomes meaningful; phone ↔ computer covers the scenarios.
+- Only the current browser versions are supported — no minimum-version work.
+- Windows: no Windows machine available — an untested gap, stated.
+- Legal pages and an FAQ: not now.
+- Product ideas rejected: a relay-only "hide my IP" mode (everything through the server), any
+  store-and-forward (the server never stores files), metadata stripping, a file fingerprint, an offline
+  mode via QR signaling, blocking resistance / a self-host kit, text messages, one-to-many sends.
+- Product ideas to think about: resume after a drop (look at what the code allows — the receiver
+  already writes to site storage), a persistent QR / link "inbox" without storage, a "no traces"
+  source mode, folders, a personal AirDrop between one's own devices.
+- Docs: the restructuring proposed in chat on 2026-10-03 is approved — one topic, one file
+  (COMPATIBILITY.md for the platform matrix, ADRs for decisions, test-run logs split out of TESTPLAN,
+  BACKLOG for open items only, a slim CLAUDE.md) plus CI checks (constants vs code, links, status words
+  only with a date). Not started yet.
+
 ## Step 6 — Hardening (6a–6f DONE; the 6e real-device pass closed 2026-10-03)
 - ✅ **Server cap/TTL/rate-limit for `filetransfer` rooms — DONE (6a)**. The `filetransfer` app is a
   `managed` app, which gives all its rooms (the 4-digit **room**, **word**, and link/QR **token**) a TTL-until-connected that
@@ -221,19 +292,19 @@ the same pass as CLAUDE.md when items land.
   on :3478** (no `turns:`); TLS = the box's **wildcard `*.frelikh.dev`** cert (certbot DNS-01). Home
   server ⇒ **residential NAT**: the router forwards 80/443 tcp + 3478 tcp/udp + relay 49160–49200/udp and
   coturn sets `external-ip=<public>/<lan>`. External smoke green (headers/CSP, /health, `.wasm`→
-  `application/wasm`, /ws→426, SPA fallback); **remaining: in-browser P2P/SAS/transfer + cross-network
-  relay**. The `http2 on;` → `listen … ssl http2;` template fix was for the VPS's nginx 1.24 and no
-  longer applies (1.28 takes both; HTTP/2 is currently off on the vhost — the committed template does
-  enable it, so that vhost drifted from the template). Original deploy-prep artifacts built + committed:
+  `application/wasm`, /ws→426, SPA fallback); the in-browser P2P/SAS/transfer and cross-network relay
+  checks are DONE (6e real-device, 2026-10-02/03). The `http2 on;` → `listen … ssl http2;` template fix was for the VPS's nginx 1.24 and no
+  longer applies (1.28 takes both; HTTP/2 is ON on the live vhost — § Ops, corrected 2026-09-12; this
+  line kept saying "off" until 2026-10-03). Original deploy-prep artifacts built + committed:
   `deploy/nginx.conf.example` (TLS, 80→443, SPA `try_files $uri /index.html`, the `/ws`
   proxy with `X-Real-IP` + WS-upgrade + raised `proxy_read_timeout`, HSTS / build-tuned **CSP**
   [`'wasm-unsafe-eval'` for the QR-scan WASM, now **self-hosted** (step 6e) so `connect-src` lists no
   CDN] / `Permissions-Policy camera=(self)`), `server/.env.example` (all server env + criticality notes),
   `deploy/coturn.conf.example` (from 6d), `deploy/DEPLOY.md` (step-by-step + inline gotchas). Only code
   change: an additive startup `[config]` summary log (no secrets) in `signaling-server.js`. Consolidated
-  env reference in CLAUDE.md § Deployment / configuration. **Remaining (ops, not code):** run
-  nginx/coturn/DNS/TLS on real hosts; **verify the CSP against the deployed build (esp. QR scan on a
-  non-Chromium browser — overlaps 6e).** The X-Real-IP/TRUST_PROXY pairing is documented in all three
+  env reference in CLAUDE.md § Deployment / configuration. The ops half is done too: nginx/coturn/DNS/TLS
+  run on the real host, and the CSP held for a real QR scan on a non-Chromium engine (iOS Safari, the
+  self-hosted zxing WASM, 2026-10-03 — TESTPLAN A2/B3). The X-Real-IP/TRUST_PROXY pairing is documented in all three
   artifacts; the footgun it guards against:
   WS proxy to 127.0.0.1:8080, TLS certs, and **nginx MUST set
   `proxy_set_header X-Real-IP $remote_addr;`** (plus run the server with `TRUST_PROXY=1`). This is not
@@ -621,15 +692,16 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   at 1440 (gutter 72) and 452 px at 680 (gutter 34), while MainDesktop / MainTablet draw a 520 px column with
   the gutter outside it; the h1 wrapped to two lines where the board has one. Now
   `--maxw: calc(520px + 2 * var(--gut))`: content 520 at 680 and 1440, measured; 375 unchanged (the viewport
-  binds). Every visual baseline at 680 and 1440 shifts — re-record on the deploy host with this reason.
+  binds). Every visual baseline at 680 and 1440 shifts — re-recorded 2026-10-03 in `9775117` (the owner, 48
+  files: 24 at 680, 24 at 1440).
 - ✅(code, LIVE `bf485ae`) **The ended row clipped its reason on a phone (2026-10-03, owner's screenshot):**
   "declined · This file is 5.0 GB — larger than the…" ran off the right edge at 393 px, so the actionable
   part (free up space / use a normal window) was unreadable. A reason that is a sentence now gets its own
   line under the label (`.hs-box__reason`); the short "stopped at 12 MB" aside stays on the right. The same
   pass put a hairline between the Finishing explanation and the keep-the-screen-on line on the transfer
   screen (`.hs-send__keepon`) — the two grey sentences read as one (owner's screenshot). The visual baselines
-  of `transfer-declined` / `transfer-error` / `transfer-finishing` at 375 shift — re-record on the deploy
-  host with this as the reason. An 800 MB receive stopped at 14 % the moment the owner locked the phone: ICE
+  of `transfer-declined` / `transfer-error` at 375 were re-recorded 2026-10-03 in `9775117`;
+  `transfer-finishing` is not in that commit (presumably unchanged — not checked). An 800 MB receive stopped at 14 % the moment the owner locked the phone: ICE
   went `disconnected` ~7 s later and `failed` ~10 s after that, and both sides showed "Connection lost"
   (the Mac: "not delivered · stopped at 109 MB · ICE failed"). The loss path is honest, but on an iPhone a
   receive survives only while the screen stays on — the Pixel 5 ran on under the lock (F1 Android half),
