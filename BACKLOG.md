@@ -4,7 +4,7 @@ Remaining and deferred work, plus a done-log of the completed hardening. Current
 implementation caveats live in CLAUDE.md (§ Current state, § Known residuals). Update this file in
 the same pass as CLAUDE.md when items land.
 
-## Step 6 — Hardening (6a–6d + 6f DONE; 6e real-device pass remaining)
+## Step 6 — Hardening (6a–6f DONE; the 6e real-device pass closed 2026-10-03)
 - ✅ **Server cap/TTL/rate-limit for `filetransfer` rooms — DONE (6a)**. The `filetransfer` app is a
   `managed` app, which gives all its rooms (the 4-digit **room**, **word**, and link/QR **token**) a TTL-until-connected that
   frees the code (expiry → 4010 close + later join → 4009 `'room not found'`; the live P2P channel
@@ -125,8 +125,9 @@ the same pass as CLAUDE.md when items land.
     unchanged (STUN + TURN, auto-relay on a direct failure). `?forceIceFail=1` DEV knob drives the e2e.
     `relax.test.ts` (filter only) + `tests/e2e/relax.spec.ts` (Max-privacy ICE failure → `failed` + hint,
     no offer, no hang). See CLAUDE.md § Privacy mode + ICE / Max-privacy strict model.
-- 🚧 **Cross-browser pass (6e)** — the **no-device parts are DONE** (this pass); the real-device
-  test remains (post-deploy).
+- ✅ **Cross-browser pass (6e) — DONE.** The no-device parts landed first (below); the real-device pass ran
+  2026-10-02 (Pixel 5, Android 14 Chrome) and 2026-10-03 (iPhone 15, iOS 26.6 Safari over WebDriver) — TESTPLAN
+  47/47 ticked or closed with a reason (§ Result log). Android Firefox was dropped by the owner.
   - ✅ **Self-hosted QR-scan WASM — DONE.** `barcode-detector@3.2.0`'s default `locateFile` fetched
     `zxing_reader.wasm` from `fastly.jsdelivr.net` at scan time (iOS/Firefox fallback) — a privacy
     (client-IP leak) + supply-chain (executable WASM from an uncontrolled host) risk. Now vendored:
