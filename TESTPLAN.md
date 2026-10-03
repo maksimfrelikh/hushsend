@@ -1645,5 +1645,6 @@ sentence-long reason gets its own line under the label (`.hs-box__reason`).
   Chrome 154 with the fake camera scanned a QR from the live site and connected 1.1 s after the scan tap,
   requesting nothing of zxing (no `ponyfill-*.js`, no `.wasm`). Control, `BarcodeDetector` hidden in a fresh
   profile: the same 1.1 s, with `ponyfill-BuxwROcg.js` + `zxing_reader-BxB2YfIY.wasm` fetched from our origin.
-  iOS Safari and Firefox keep the zxing path (unchanged code; scanned on the iPhone this morning). Android's
-  native detector was not re-scanned on a device — a broken one falls back to zxing on its first throw.
+  iOS Safari and Firefox keep the zxing path (unchanged code; scanned on the iPhone this morning). The owner
+  then reloaded and scanned by hand: **works on the Pixel 5 (Chrome) and the iPhone 15 (Safari)**. Which decoder
+  ran on the Pixel was not observed (no cable) — a broken native one falls back to zxing on its first throw.

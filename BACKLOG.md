@@ -1012,8 +1012,9 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   1.1 s after the scan tap ("one-time secret verified"); after the tap it requested one font and NOTHING of
   zxing — no `ponyfill-*.js`, no `.wasm`. Control in a fresh profile with `BarcodeDetector` hidden: the same
   1.1 s, and it fetched `ponyfill-BuxwROcg.js` + `zxing_reader-BxB2YfIY.wasm` from our origin — so the check
-  sees the WASM when it is fetched, and the fallback path works live. Android (Play Services detector) not
-  re-scanned on a device; the runtime fallback covers a broken one. The app
+  sees the WASM when it is fetched, and the fallback path works live. **Owner, by hand after reloading (2026-10-03): scanning
+  works on the Pixel 5 (Chrome) and the iPhone 15 (Safari).** Which decoder ran on the Pixel was not observed
+  (no cable); a broken native one would have fallen back to zxing. The app
   imports `barcode-detector/ponyfill`, which is always zxing-wasm; desktop Chrome, which has a native
   detector, still fetched the 1 MB WASM. The docs claimed "native where available" (corrected in
   CLAUDE.md § QR and TESTPLAN). Decide: keep one decoder everywhere (simpler, current) or prefer the

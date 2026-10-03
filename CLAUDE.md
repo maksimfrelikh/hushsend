@@ -916,7 +916,9 @@ Google Play Services and can be absent or broken, and ScanScreen swallows per-fr
 cannot live there. The ponyfill is **lazily imported**: its WASM never loads unless a scan needs it. Unit:
 `zxingWasm.test.ts` (the choice + the fallback with fakes, next to the ABI gate). **Verified live** (`b73651d`, Chrome
 154, fake camera): native detector, connected 1.1 s after the scan tap, no ponyfill chunk and no `.wasm`
-requested; with `BarcodeDetector` hidden the ponyfill + the self-hosted `.wasm` loaded and it connected the same. Camera denial/absence falls back to a paste-the-link
+requested; with `BarcodeDetector` hidden the ponyfill + the self-hosted `.wasm` loaded and it connected the same. The
+owner then scanned by hand on the Pixel 5 and the iPhone 15: works on both (which decoder ran on the Pixel
+was not observed). Camera denial/absence falls back to a paste-the-link
 input (`src/ui/screens/ScanScreen.tsx`).
 - **Self-hosted WASM (no CDN — step 6e):** the zxing reader `.wasm` (the decoder on every engine)
   is **vendored into the build** and served from our OWN origin — it is NEVER fetched
