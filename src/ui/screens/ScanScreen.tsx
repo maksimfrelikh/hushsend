@@ -7,9 +7,11 @@ import { createQrDetector } from '../zxingWasm';
 
 /**
  * QR receive (step 5b): point the camera at the host's QR, decode it to the link, then join exactly
- * as the link method does. The decode uses the `barcode-detector` ponyfill (native `BarcodeDetector`
- * where available, SELF-HOSTED zxing-wasm fallback — see `zxingWasm.ts`) over a `getUserMedia` video
- * stream — imported lazily so its WASM never loads unless the user actually scans.
+ * as the link method does. The decoder comes from `createQrDetector` (`zxingWasm.ts`): the browser's
+ * own `BarcodeDetector` where it decodes QR codes (Chrome desktop / Android — no WASM download), the
+ * SELF-HOSTED zxing-wasm ponyfill elsewhere (iOS Safari, Firefox), with a switch to the ponyfill if
+ * the native detector throws. It runs over a `getUserMedia` video stream; the ponyfill is imported
+ * lazily, so its WASM never loads unless a scan actually needs it.
  *
  * Camera denial / absence is handled with a clear, always-present fallback: paste the link instead.
  * That fallback is also the deterministic injection point for the qr e2e (headless cameras can't

@@ -1004,7 +1004,11 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   2026-10-03 (owner: "where we can, do not download the extra megabyte"): the native detector where it exists
   and lists `qr_code` (Chrome desktop / Android), the self-hosted zxing ponyfill elsewhere, and a runtime
   fallback native → zxing on the first native `detect()` that throws (`withZxingFallback`, CLAUDE.md § QR).
-  The original note follows.** The app
+  The original note follows.**
+  Verified before deploy in real Chrome 154 with the harness's fake camera against the local build: the DEV log
+  said "QR: native BarcodeDetector", the QR was decoded and the page went to `joining` (its token-room socket
+  opened on the live signaling, which then refused the 127.0.0.1 origin — a stand limit, not the scanner);
+  the live confirmation (connect + no `.wasm` request) follows the deploy. The app
   imports `barcode-detector/ponyfill`, which is always zxing-wasm; desktop Chrome, which has a native
   detector, still fetched the 1 MB WASM. The docs claimed "native where available" (corrected in
   CLAUDE.md § QR and TESTPLAN). Decide: keep one decoder everywhere (simpler, current) or prefer the
