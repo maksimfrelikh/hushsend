@@ -1197,8 +1197,9 @@ X-Forwarded-For; binds to `127.0.0.1` (only the local nginx reaches it). Run wit
   separate limiter). Env: `TURN_SECRET` (server-only shared secret), `TURN_URLS` (comma-separated
   `turn:`/`turns:` URIs → array), `TURN_CRED_TTL_S` (default **3600**). **coturn is deployed
   SEPARATELY** — template + line-by-line hardening (open relay-port range + firewall, `user-quota` /
-  `total-quota` / `max-bps`, anti-SSRF `no-multicast-peers` / `no-loopback-peers` / `denied-peer-ip`
-  on RFC1918 + link-local, `fingerprint`, `no-cli`, logging off) in hush-signaling-server
+  `total-quota` / `max-bps`, anti-SSRF `no-multicast-peers` + `denied-peer-ip` on 0.0.0.0/8, loopback,
+  RFC1918, link-local and IPv6 ULA, UDP relays only (`no-tcp-relay`), `fingerprint`, `no-cli`, logging
+  off) in hush-signaling-server
   **`deploy/turn/turnserver.conf.template`**, rendered by its `deploy/turn/install.sh` with the secret
   taken FROM the signaling `.env` (so the two copies cannot drift). The client
   side (the functional toggle, `requestTurnCredentials`, feeding `iceServers`, Max-privacy never
