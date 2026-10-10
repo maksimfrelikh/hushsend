@@ -35,7 +35,8 @@
 #     a store, or an independent mirror — none of which can be verified without a reference hash.
 #
 # Exit status: 0 all files match, 1 a mismatch (LOUD — this is the interesting case), 2 usage/fetch
-# error. Needs only curl + sha256sum.
+# error — including, with --attest, a lookup GitHub did not answer (its anonymous API allows 60
+# requests an hour per public IP). Needs only curl + sha256sum.
 set -euo pipefail
 
 BASE="https://hushsend.frelikh.dev"
@@ -108,12 +109,8 @@ while IFS= read -r rel; do
   got="$(sha256sum "$TMP/dl/$rel" | cut -d' ' -f1)"
   printf '%s  %s\n' "$got" "$rel" >> "$TMP/actual.txt"
   if [ "$ATTEST" = "1" ] && [ -z "$MANIFEST" ]; then
-  # Discover from index.html. The lazily-fetched QR .wasm is NOT referenced there (its path lives
-  # inside the JS), so it is not covered by this list — the files that execute are.
-  fetch "$BASE/" "$TMP/index.html" || exit 2
-  PATHS="index.html
-$(grep -oE '(src|href)="/[^"]+"' "$TMP/index.html" | sed 's/.*="\///;s/"$//' | LC_ALL=C sort -u)"
-elif [ -n "$MANIFEST" ]; then
+    : # judged below, against the attestation API
+  elif [ -n "$MANIFEST" ]; then
     want="$(awk -v p="$rel" '$2 == p {print $1}' "$TMP/manifest.txt")"
     if [ -z "$want" ]; then
       printf '  ? %s  (not in manifest)\n' "$rel"
@@ -134,23 +131,41 @@ EOT
 if [ "$ATTEST" = "1" ]; then
   echo
   echo "checking signed provenance at github.com/$REPO"
-  echo "  (unauthenticated GitHub API: 60 requests/hour per IP — this uses one per file)"
+  echo "  (unauthenticated GitHub API: 60 requests/hour per public IP, shared by every machine behind"
+  echo "   it — this uses one per file)"
   echo
   bad=0
+  unchecked=0
   while IFS= read -r line; do
     got="${line%% *}"; rel="${line##*  }"
     [ -n "$got" ] || continue
-    # A signed DSSE payload naming this exact digest. Decoded and searched rather than trusting the
-    # endpoint's own say-so: the claim must be inside what was signed.
-    payload="$(curl -fsSL --max-time 60 "https://api.github.com/repos/$REPO/attestations/sha256:$got" 2>/dev/null \
-      | grep -o '"payload":"[A-Za-z0-9+/=]*"' | head -1 | sed 's/.*:"//;s/"$//' | base64 -d 2>/dev/null || true)"
-    if [ -n "$payload" ] && printf '%s' "$payload" | grep -q "$got"; then
-      commit="$(printf '%s' "$payload" | grep -o '"gitCommit":"[0-9a-f]*"' | head -1 | sed 's/.*:"//;s/"$//')"
-      printf '  ✓ %-40s signed, from commit %s\n' "$rel" "${commit:0:8}"
-    else
-      printf '  ✗ %-40s NO signed provenance for these bytes\n' "$rel"
-      bad=$((bad + 1))
-    fi
+    # What GitHub ANSWERED decides the verdict. 404 means no attestation names these bytes — a real ✗.
+    # 403/429 (the anonymous rate limit), a 5xx or no connection mean the question went unanswered,
+    # which must not read as a mismatch: until 2026-10-10 a spent limit printed ✗ for every file.
+    rm -f "$TMP/att.json" "$TMP/att.hdr"
+    code="$(curl -sS --max-time 60 -D "$TMP/att.hdr" -o "$TMP/att.json" -w '%{http_code}' \
+      "https://api.github.com/repos/$REPO/attestations/sha256:$got" 2>/dev/null || true)"
+    case "$code" in
+      200)
+        # A signed DSSE payload naming this exact digest. Decoded and searched rather than trusting
+        # the endpoint's own say-so: the claim must be inside what was signed.
+        payload="$(grep -o '"payload":"[A-Za-z0-9+/=]*"' "$TMP/att.json" | head -1 | sed 's/.*:"//;s/"$//' \
+          | base64 -d 2>/dev/null || true)"
+        if [ -n "$payload" ] && printf '%s' "$payload" | grep -q "$got"; then
+          commit="$(printf '%s' "$payload" | grep -o '"gitCommit":"[0-9a-f]*"' | head -1 | sed 's/.*:"//;s/"$//')"
+          printf '  ✓ %-40s signed, from commit %s\n' "$rel" "${commit:0:8}"
+        else
+          printf '  ✗ %-40s NO signed provenance for these bytes\n' "$rel"
+          bad=$((bad + 1))
+        fi ;;
+      404)
+        printf '  ✗ %-40s NO signed provenance for these bytes\n' "$rel"
+        bad=$((bad + 1)) ;;
+      *)
+        case "$code" in ''|000) why="no connection to api.github.com" ;; *) why="GitHub answered HTTP $code" ;; esac
+        printf '  ? %-40s not checked — %s\n' "$rel" "$why"
+        unchecked=$((unchecked + 1)) ;;
+    esac
   done < "$TMP/actual.txt"
   echo
   if [ "$bad" -gt 0 ]; then
@@ -158,6 +173,15 @@ if [ "$ATTEST" = "1" ]; then
     echo "  Either the deploy is older/newer than any attested build, or these bytes did not come"
     echo "  from a build of this repository. Establish which before concluding."
     exit 1
+  fi
+  if [ "$unchecked" -gt 0 ]; then
+    reset="$(tr -d '\r' < "$TMP/att.hdr" 2>/dev/null | awk 'tolower($1) == "x-ratelimit-reset:" {print $2}' || true)"
+    case "$reset" in ''|*[!0-9]*) reset="" ;; esac
+    echo "? $unchecked file(s) NOT checked: GitHub did not answer. 403/429 is its limit of 60 anonymous"
+    echo "  requests per hour for your public IP, shared by every machine behind it."
+    [ -n "$reset" ] && echo "  That limit resets in about $(( (reset - $(date +%s)) / 60 + 1 )) min."
+    echo "  Nothing was found wrong, and nothing was verified either: re-run later or from another network."
+    exit 2
   fi
   echo "✓ every file you were served carries a signed provenance statement from a build on GitHub."
   echo "  That covers these bytes, fetched from here, now — and says nothing about whether the COMMIT"

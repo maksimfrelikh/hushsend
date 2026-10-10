@@ -109,7 +109,9 @@ bash deploy/verify-bundle.sh --attest
 That takes the bytes you were actually served and asks GitHub's public attestation API whether each
 one is covered by a signed provenance statement. Verified against production on 2026-09-13: all eight
 files, signed, from a named commit. It also demonstrates the reproducibility — the operator built
-those bytes on their own machine and a GitHub runner independently produced the same ones.
+those bytes on their own machine and a GitHub runner independently produced the same ones. It spends
+one request of GitHub's anonymous API per file — 60 an hour per public IP; when they run out it says
+"not checked" and exits 2, never "mismatch".
 
 If you have a manifest from a specific CI run and want to pin to it:
 

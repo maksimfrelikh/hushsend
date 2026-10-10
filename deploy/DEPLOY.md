@@ -101,6 +101,11 @@ bash deploy/verify-bundle.sh
 `.wasm` (its path lives inside the JS). Combine the two flags to cover the whole tree:
 `--attest --manifest MANIFEST.sha256`.
 
+`--attest` spends one request of GitHub's anonymous API per file — 60 an hour per public IP, shared by
+every machine behind it (a home network, an office). When they run out, the files read `?` (not
+checked) and the exit status is 2, not the ✗ and 1 of a real mismatch. Until 2026-10-10 a spent limit
+printed ✗ for every file.
+
 `deploy-frontend.sh` writes the hashes it published to `MANIFEST.sha256` in the repo root — **outside
 `dist/`** on purpose: a file inside the published tree that CI does not build would make the deployed
 tree differ from the attested one, manufacturing the very mismatch this is meant to detect.
