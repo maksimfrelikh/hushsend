@@ -27,10 +27,10 @@ secrets, deploy history — is described in the owner's private `laptop-server/`
 | Frontend | dev clone `~/projects/hushsend`, built on the server by `deploy-frontend.sh` → `/var/www/hushsend/dist` |
 | nginx vhost | `/etc/nginx/sites-available/hushsend` from [`nginx.conf.example`](nginx.conf.example): static `dist/`, SPA fallback, `/ws` + `/health` → `127.0.0.1:8080` with `X-Real-IP`; security headers repeated in every location (verified 6/6 on HTML, JS and `.wasm`, 2026-09-17); `access_log off` everywhere; HTTP/2 on |
 | TLS | the box's wildcard `*.frelikh.dev` (certbot DNS-01, Cloudflare plugin) |
-| Build-time env | [`build-env.sh`](build-env.sh): `VITE_SIGNALING_URL=wss://hushsend.frelikh.dev/ws`, `VITE_STUN_URLS=stun:turn.hushsend.frelikh.dev:3478` |
+| Build-time env | [`build-env.sh`](build-env.sh): `VITE_SIGNALING_URL=wss://hushsend.frelikh.dev/ws`, `VITE_STUN_URLS=stun:stun.hushsend.frelikh.dev:3479` |
 | Signaling + TURN | `hushsend-signaling.service` + `coturn.service` — see hush-signaling-server `deploy/DEPLOY.md` § 0 |
-| STUN | today the TURN relay's coturn answers it (`turn.hushsend.frelikh.dev:3478`); the separate server (`stun.hushsend.frelikh.dev:3479`) is prepared — hushsend-stun-server `DEPLOY.md` § 6 |
-| Router + ufw | 80/443 tcp (nginx), 3478 tcp+udp and 49160–49200 udp (TURN) |
+| STUN | hushsend-stun-server since 2026-10-10: `stun.hushsend.frelikh.dev:3479` on this same box (`hushsend-stun.service`, STUN only, no relay, no logs) — its `DEPLOY.md` § 0. The TURN relay's coturn still answers STUN on 3478 (a TURN server cannot switch that off), but the client no longer asks it |
+| Router + ufw | 80/443 tcp (nginx), 3478 tcp+udp and 49160–49200 udp (TURN), 3479 udp (STUN) |
 
 **Repeat frontend redeploys** (signaling/nginx unchanged): `bash ~/projects/hushsend/deploy/deploy-frontend.sh`
 pulls, `npm ci`, builds with the live `VITE_*` baked in, and publishes `dist/` to
@@ -167,7 +167,7 @@ Use [`nginx.conf.example`](nginx.conf.example) → `/etc/nginx/sites-available/`
 
 - `hushsend.frelikh.dev` → the **web host** (nginx).
 - `turn.hushsend.frelikh.dev` → the **TURN relay** (the host in the signaling `TURN_URLS`).
-- `stun.hushsend.frelikh.dev` → the **STUN server** (the host in `VITE_STUN_URLS`), once it runs.
+- `stun.hushsend.frelikh.dev` → the **STUN server** (the host in `VITE_STUN_URLS`).
   DNS only, no Cloudflare proxy: the proxy carries HTTP, not UDP.
 
 ---

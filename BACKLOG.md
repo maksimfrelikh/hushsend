@@ -21,9 +21,9 @@ TESTPLAN C1 carries the caveat and the way to test it.
 config of the TURN relay and `verify-relay.sh` moved to `hush-signaling-server` (`tests/`,
 `deploy/turn/`); hushsend's `server/` copy and `tests/integration/` are gone, and the e2e suite runs
 the server from a devDependency pinned by commit. `hushsend-stun-server` got `stun-only`, an installer
-with its own unit and a CI check; its deployment on laptop-server (port 3479,
-`stun.hushsend.frelikh.dev`) waits for the router and ufw (the name already resolves through the
-`*.frelikh.dev` wildcard, checked 2026-10-10) — its DEPLOY.md § 6. Older entries in
+with its own unit and a CI check. It runs on laptop-server since 2026-10-10 (port 3479,
+`stun.hushsend.frelikh.dev`; `verify.sh` passed from a mobile network) and the client takes STUN
+from it — its DEPLOY.md § 0. Older entries in
 this file and in TESTPLAN still name the old paths; they describe what was true when written.
 
 **Agreed — to do:**

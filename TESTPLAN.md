@@ -452,8 +452,9 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       as a normal user):
 
       ```bash
-      # 1. two loopback STUN servers (NOT 3478 — the live coturn owns that here)
-      for P in 3479 3480; do
+      # 1. two loopback STUN servers (NOT 3478 or 3479 — the TURN relay and hushsend-stun own those
+      #    here; the recipe used 3479/3480 until hushsend-stun took 3479 on 2026-10-10)
+      for P in 3480 3481; do
         turnserver -n --listening-ip=127.0.0.1 --listening-port=$P \
           --no-auth --no-tls --no-dtls --no-cli --pidfile= --log-file=stdout &
       done
@@ -462,7 +463,7 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
         node node_modules/hush-signaling-server/signaling-server.js &
       # 3. the dev build, pointed at BOTH of the above
       VITE_SIGNALING_URL=ws://127.0.0.1:8191 \
-      VITE_STUN_URLS=stun:127.0.0.1:3479,stun:127.0.0.1:3480 \
+      VITE_STUN_URLS=stun:127.0.0.1:3480,stun:127.0.0.1:3481 \
         npx vite --port 5291 --strictPort
       ```
 

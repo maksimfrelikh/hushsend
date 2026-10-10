@@ -18,5 +18,5 @@
 # variant without editing a tracked file.
 
 VITE_SIGNALING_URL="${VITE_SIGNALING_URL:-wss://hushsend.frelikh.dev/ws}"
-VITE_STUN_URLS="${VITE_STUN_URLS:-stun:turn.hushsend.frelikh.dev:3478}"
+VITE_STUN_URLS="${VITE_STUN_URLS:-stun:stun.hushsend.frelikh.dev:3479}"
 export VITE_SIGNALING_URL VITE_STUN_URLS

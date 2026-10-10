@@ -1237,10 +1237,10 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   server's `TURN_SECRET` (the one shared secret; coturn recomputes the HMAC offline). Empty
   `TURN_SECRET` ⇒ relay disabled ⇒ clients stay direct-only (a valid config). Open the firewall for
   3478 udp/tcp (5349 tls only if you enable `turns:`) and the relay-port range.
-- **Cross-dependencies:** `TURN_SECRET` == coturn `static-auth-secret`; `VITE_STUN_URLS` + `TURN_URLS`
-  both name the **coturn host** today — until hushsend-stun-server goes live (its DEPLOY.md § 6:
-  `stun.hushsend.frelikh.dev:3479`), when `VITE_STUN_URLS` moves to it (DNS: `hushsend.frelikh.dev` → web host, `turn.hushsend.frelikh.dev`
-  → coturn). **CSP must be verified against the built app — especially the QR-scan path** (zxing WASM
+- **Cross-dependencies:** `TURN_SECRET` == coturn `static-auth-secret`; `VITE_STUN_URLS` names
+  hushsend-stun-server (`stun.hushsend.frelikh.dev:3479`, since 2026-10-10) and `TURN_URLS` the TURN
+  relay's coturn — two coturn instances, still on the same host (DNS: `hushsend.frelikh.dev` → web
+  host, `turn.hushsend.frelikh.dev` → the TURN coturn, `stun.hushsend.frelikh.dev` → the STUN coturn). **CSP must be verified against the built app — especially the QR-scan path** (zxing WASM
   needs `'wasm-unsafe-eval'` to COMPILE on iOS/Firefox; the WASM itself is **self-hosted** since step
   6e — vendored into `dist/assets`, served from `'self'` — so `connect-src` is `'self' wss://<host>`
   only, **no CDN**; camera needs `Permissions-Policy: camera=(self)`); see the CSP comment block in
