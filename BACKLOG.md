@@ -18,8 +18,23 @@ address: Chrome on the Mac at 192.168.1.38 gathered `srflx 192.168.1.1` from
 failures say nothing about users elsewhere — **direct connectivity across networks is untested.**
 TESTPLAN C1 carries the caveat and the way to test it.
 
+**Re-measured 2026-10-11 against the LIVE bundle's STUN** (`stun:stun.hushsend.frelikh.dev:3479`, in the
+bundle since `bf15fd6`, 2026-10-10). From 192.168.1.19 on the same Wi-Fi, ONE UDP socket, a STUN binding
+request to four destinations: `:3479`, `stun.cloudflare.com:3478` and `stun.l.google.com:19302` all
+mapped **94.46.199.61:55497** — the public IP, the local port preserved, the mapping endpoint-independent.
+Only the TURN listener `:3478` (what the 2026-10-03 measurement used) answers `192.168.1.1`; both coturn
+templates set `external-ip`, so why the two listeners differ is unexplained. So since 2026-10-10 the home
+LAN DOES advertise a usable public mapping and the caveat above no longer explains a failure. The owner's
+run that day — phone on cellular ↔ laptop on the home Wi-Fi, Max ↔ Max — still did not connect; no
+candidate pairs were captured ([the 2026-10-11 run log](docs/test-runs/2026-10-11.md)). What is left is
+the phone side: a symmetric carrier NAT is reachable through STUN alone only if the other side filters
+by address at most, and the probe measured the home router's MAPPING, not its filtering. No IPv6 at home
+(the STUN host has no AAAA either), so there is no NAT-free path to fall back on.
+
 **Agreed — to do:**
-- Test Max privacy across networks from a network OTHER than the server's LAN (above). Then decide on
+- Settle Max privacy across networks: the home side's srflx is public since 2026-10-10 (above), so
+  capture the candidate pairs of a phone-on-cellular ↔ home-Wi-Fi pair (chrome://webrtc-internals on
+  the laptop, the phone's STUN mapping) — the open question is the carrier NAT. Then decide on
   a one-tap "retry with relay" on the direct-fail screen and copy for the Reliable side of a mixed pair
   ("ask your peer to switch to Reliable too"); today it reads "channel closed during pairing".
 - Relay capacity: coturn's 49160–49200 range is ~41 allocations (a fully relayed pair takes two).

@@ -245,6 +245,11 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       construction, whatever the phone's NAT. **Direct connectivity across networks is untested for anyone
       not on the server's LAN.** To test it, put the desktop on any OTHER network (café, office, a friend's
       Wi-Fi) and pair it with the phone on LTE, both in Max privacy.
+      **Re-measured 2026-10-11 against the live bundle's `:3479`:** from the server's LAN the mapping IS
+      the public address, port preserved — only the TURN listener `:3478` answers `192.168.1.1`
+      (BACKLOG § Pre-launch review, the finding). The owner's cellular ↔ home-Wi-Fi Max↔Max pair failed the
+      same day with no candidate pairs captured, so the carrier NAT is the open question — [the
+      2026-10-11 run log](docs/test-runs/2026-10-11.md).
       Expected either (a) `connected` via a `srflx` candidate pair — confirm in webrtc-internals that
       the selected pair is **not `relay`** — or (b) if the NATs won't traverse, a **terminal `failed`
       screen with the "switch to Reliable" hint**. Both are correct; a **hang is not**. Record which.
