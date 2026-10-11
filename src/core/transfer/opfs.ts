@@ -5,7 +5,7 @@
  * no picker at all. A received file is streamed into it chunk by chunk and, once complete, handed to
  * the user as an ordinary download read from that file — so a multi-gigabyte transfer never sits in
  * RAM, and there is no system dialog in front of the page while the connection is live (on Android a
- * save dialog left open for ~20 s took the connection down with it — BACKLOG § UX bugs). The owner's
+ * save dialog left open for ~20 s took the connection down with it — docs/history/ux-fixes.md). The owner's
  * rule (2026-09-27): write to disk wherever it is possible, a dialog only if that is the only way to
  * disk, and a RAM-only path capped hard.
  *

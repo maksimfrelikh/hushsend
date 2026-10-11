@@ -29,7 +29,7 @@ The status snapshots TESTPLAN.md carried in its header while the pass ran, kept 
 true on its date; the current status is the one line at the top of TESTPLAN.md.
 
 This used to open "the last open item before the security audit" — the audit has since run twice
-internally (2026-09-12 and 2026-09-13, BACKLOG § Security audit), so that ordering is gone: the
+internally (2026-09-12 and 2026-09-13, [security-audits.md](../history/security-audits.md) § Security audit), so that ordering is gone: the
 device pass was the last open item before a public launch, not before the audit — and **it is DONE:
 47 of 47 cases ticked or closed with a reason on 2026-10-03** (§ Result log, the 2026-10-02 Pixel 5 and
 2026-10-03 iPhone 15 entries). The rest of this paragraph is the 2026-09-28 snapshot, kept for the
@@ -45,13 +45,13 @@ iPad-Simulator and Android-Emulator rehearsals (2026-09-27 evening entry) covere
 (F2, on the emulator with real airplane mode — its root cause is fixed and live since `153addd`, the
 re-run needs a phone) and is in BACKLOG — A4b and F3 failed too and pass on the live build; the rest
 need a handset, a radio or a camera.** (The total read "46" here until 2026-09-28: a stale count — the
-plan has 47 checkbox cases.) The ticks in § 0.1 are PRECONDITIONS, not cases; do not read them as
+plan has 47 checkbox cases.) The ticks in [test setup](../test-setup.md) § 0.1 are PRECONDITIONS, not cases; do not read them as
 progress.
 
 > **2026-09-28: the owner's seven decisions are LIVE** — deployed by the owner at 04:32 UTC (frontend
 > `90fdc15`, whose app code is `673509d`'s: the receiver's confirmation, the A4b stop, the forget
 > confirmation, no device label, the disk-first receive path, "Save file", the failure screens, the
-> relayed verdict; then signaling `3d96125`), verified the same hour — § 0.1 re-ticked. Cases whose
+> relayed verdict; then signaling `3d96125`), verified the same hour — [test setup](../test-setup.md) § 0.1 re-ticked. Cases whose
 > expectations changed (B1, B2, B10, F1, F4) are reworded below; B1 was unticked for the change and
 > closed again on the live build.
 >
@@ -62,7 +62,7 @@ progress.
 > the desktop halves of B2 and B10 were re-run there (§ Result log, the last 2026-09-28 entry).
 >
 > **2026-09-27, after the pass: the F2/F3 root cause is fixed and DEPLOYED** (the connection-lost
-> path — BACKLOG § UX bugs, first item; live since 19:58 UTC as `153addd`, § 0.1 re-ticked). **F3 passes
+> path — [ux-fixes.md](../history/ux-fixes.md) § UX bugs, first item; live since 19:58 UTC as `153addd`, [test setup](../test-setup.md) § 0.1 re-ticked). **F3 passes
 > on the live build** (fourth 2026-09-27 entry). F2 stays unticked until re-run on a real phone.
 > Expected: "Connection interrupted" within ~6 s of the cut, then the "Connection lost" screen when the
 > engine gives up (Chrome ~16 s). The same change closes the transport on `pagehide`: in **F1**, if the

@@ -32,9 +32,8 @@ export default tseslint.config(
     },
   },
   {
-    // The signaling server is standalone Node ESM (its own package, not bundled with the SPA),
-    // so it runs with Node globals (process, setInterval, URL, console, …), not browser ones.
-    files: ['server/**/*.js'],
+    // Repository scripts (scripts/*.mjs — the docs check) run under Node, not in the browser.
+    files: ['scripts/**/*.mjs'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',

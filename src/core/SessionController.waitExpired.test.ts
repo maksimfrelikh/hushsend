@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import type { AppDispatch } from '../store';
 
 /**
- * A room that expires while THIS side waits in it (BACKLOG § UX bugs, copy nits). The server's TTL
+ * A room that expires while THIS side waits in it (docs/history/ux-fixes.md, copy nits). The server's TTL
  * close — a `room-closed` frame, then the socket closing 4010 `expired` — reaches the creator of a
  * words / link / 4-digit room, and a lobby member, exactly as it reaches a joiner of a dead code, and
  * used to fail all of them with the joiner's "not found or expired — check the digits". The waiting

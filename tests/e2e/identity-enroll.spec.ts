@@ -10,7 +10,7 @@ import { BASE, createWords, pickWords } from './helpers';
 // ends, so they accumulate across the file and then across the whole run. Measured 2026-09-13: a full
 // chromium suite peaks at 31 browser processes, and on a 2-core CI runner that contention is what
 // turns a 2-second reconnect into a 60-second timeout — the failure mode reconnect.spec.ts documented
-// and fixed for itself. Same fix, applied here. (See BACKLOG § Third pass.)
+// and fixed for itself. Same fix, applied here. (See docs/history/security-audits.md, "Reconnect stalled at `pairing` for 120 s".)
 test.afterEach(async () => {
   await Promise.all(openContexts.splice(0).map((c) => c.close().catch(() => {})));
 });

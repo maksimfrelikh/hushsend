@@ -7,7 +7,7 @@ import { BASE, createWords, pickWords } from './helpers';
 // ends, so they accumulate across the file and then across the whole run. Measured 2026-09-13: a full
 // chromium suite peaks at 31 browser processes, and on a 2-core CI runner that contention is what
 // turns a 2-second reconnect into a 60-second timeout — the failure mode reconnect.spec.ts documented
-// and fixed for itself. Same fix, applied here. (See BACKLOG § Third pass.)
+// and fixed for itself. Same fix, applied here. (See docs/history/security-audits.md, "Reconnect stalled at `pairing` for 120 s".)
 test.afterEach(async () => {
   await Promise.all(openContexts.splice(0).map((c) => c.close().catch(() => {})));
 });
@@ -129,7 +129,7 @@ test('reliable · fetches coturn creds via turn-request and builds a TURN iceSer
  * It is deliberately same-engine. A firefox↔webkit pair resolves to `mismatch` with no attacker
  * present — WebKit cannot disable mDNS obfuscation, so it cannot attest to the address its peer
  * reached it on — which is exactly why the verdict is ADVISORY and gates nothing. See
- * SessionController.startPathAttestation and BACKLOG § Security audit.
+ * SessionController.startPathAttestation and BACKLOG.md § Security — open.
  */
 test('path attestation resolves to ok on a real connection (not silently unknown)', async ({
   browser,
@@ -174,7 +174,7 @@ test('path attestation resolves to ok on a real connection (not silently unknown
  * side only — the knob rides that tab's URL — which also proves the states are per-side.
  *
  * Note what is deliberately NOT asserted: a teardown. The check is still ADVISORY and gates no byte
- * (BACKLOG § Security audit); this test pins what the human is TOLD, not a control.
+ * (BACKLOG.md § Security — open); this test pins what the human is TOLD, not a control.
  */
 test('path MISMATCH is shown differently from "could not check", and does not blame the browser', async ({
   browser,
@@ -241,7 +241,7 @@ test('stun cross-check reaches a verdict when two servers are configured', async
   // the cross-check has nothing to compare and correctly returns `unknown`. On loopback that is even
   // defensible — the reflexive address equals the host address and is legitimately pruned — so this
   // is not yet evidence about Firefox on a REAL network, which is what the device pass has to settle
-  // (BACKLOG § Security audit). Skipped rather than weakened to "any verdict will do": that weaker
+  // (BACKLOG.md § Security — open). Skipped rather than weakened to "any verdict will do": that weaker
   // assertion would pass against a completely broken implementation, which is the whole thing this
   // test exists to prevent.
   test.skip(

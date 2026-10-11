@@ -112,7 +112,7 @@ allows — the receiver already writes to site storage), a persistent QR / link 
   NATs vary the port, so comparing ports would reject working connections), and it rests on the peer's
   own view of its addresses, which for srflx comes from STUN — the same operator. An operator that
   both lies over STUN *and* sits on the path can still make the two sides agree; removing that means
-  not being the STUN provider. Unit: `pathAttest.test.ts`. (See CLAUDE.md § Path attestation.)
+  not being the STUN provider. Unit: `pathAttest.test.ts`. (See [privacy-and-ice.md](docs/architecture/privacy-and-ice.md) § Path attestation.)
 
 - [ ] **STUN under a different operator** *(post-release — owner, 2026-09-18)*. The attestation above is
   defeated by one adversary holding signaling AND STUN, so this is the precondition for it ever becoming
@@ -171,3 +171,12 @@ allows — the receiver already writes to site storage), a persistent QR / link 
   PUBLIC (anonymous `git ls-remote` works, checked 2026-09-29), and GitHub's 60-day auto-disable is a
   public-repository rule: **the nightly stops 60 days after the last commit** (on 2026-10-11 that meant
   around 2026-12-10). Re-enable it (or run the matrix from the Actions tab) before any release.
+
+- **TESTPLAN.md's case entries still carry their results.** Most cases end in an annotation of what each
+  run found (dates, devices, numbers, rewordings) — the same facts as [docs/test-runs/](docs/test-runs/README.md).
+  The 2026-10-11 restructuring moved the run logs out but left these, so the two can drift. Reduce each
+  case to its procedure, its expectation and a one-line dated status that links the run file.
+- **Two documentation checks are not built yet** (part of the 2026-10-03 plan): status words only with a
+  date, and documented numbers against the code's constants (`docs/test-setup.md` § 0.3 lists dozens). The
+  design files in docs/architecture/ came over from CLAUDE.md with their "(this pass)" / "— done (step 6)"
+  markers; date or drop them first, then add both checks to `scripts/check-docs.mjs`.

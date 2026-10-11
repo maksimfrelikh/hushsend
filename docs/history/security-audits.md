@@ -42,7 +42,7 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   rendezvous from it. The key-changed-before-settle ordering was re-checked under the new roles:
   both branches still run the two-check verify BEFORE any settle, and the initiator now settles only
   on the responder's `reconnect-ok`, which is stronger than before (no half-connected pair).
-  (→ § Reconnect UX + CLAUDE.md § Per-pairing role + § Crypto / Reconnect.)
+  (→ [reconnect.md](reconnect.md) § Reconnect UX + CLAUDE.md [methods.md](../architecture/methods.md) § Per-pairing role + [crypto.md](../architecture/crypto.md) § Crypto / Reconnect.)
 - [x] **(b) Guess-narrowing of `peerLeftAbortsPairing` (WS-close) — REVIEWED 2026-09-12: CONFIRMED, the
   bound is intact.** The docs' argument (the authoritative counters are confirmation-mismatch and
   channel-close, both untouched) is correct but not the load-bearing one. The bound actually rests on
@@ -56,12 +56,12 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   → 4010 → `onSignalingClose` fails the client, so wall-clock bounds the attempt count too. Every
   *informative* guess needs the DataChannel (the confirmation tag rides it), and both of its outcomes —
   tag mismatch, or channel close before `established` — are counted regardless of signaling presence.
-  (→ § Signaling WS lifecycle.)
+  (→ [connection.md](../architecture/connection.md) § Signaling WS lifecycle.)
 - [x] **(c) Strict relay filter — REVIEWED 2026-09-12: did NOT hold as claimed → FIXED the same day.**
   The filter is correct for what it does — it drops every SIGNALLED `typ relay` candidate and never
   requests TURN — but that is not the same as "no relay path can complete on our side", because ICE
   also learns candidates it was never told about. Closed by verifying the path we actually got (see
-  the finding below, now DONE). (→ CLAUDE.md § Privacy mode + ICE / Max-privacy strict model.)
+  the finding below, now DONE). (→ [privacy-and-ice.md](../architecture/privacy-and-ice.md) § Privacy mode + ICE / Max-privacy strict model.)
 
 - [x] **SAS refusals carry the same weight as the confirms — decided 2026-09-12, RESTORED 2026-09-26.**
   The refusal used to be a faint text link, which made the safe action the quietest element on the
@@ -71,7 +71,7 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   both refusals ("Stop — they don't have this phrase", "None of these match — stop") are quiet pills
   with the confirm's geometry (the kit's `.pill`, 52px, full width) directly under it. Rationale: a
   small "stop" biases the human toward confirming, and the confirm is the only gate on the reader
-  side. This is the one place the boards are overruled (CLAUDE.md § UI / styling; TESTPLAN A4a).
+  side. This is the one place the boards are overruled ([ui.md](../architecture/ui.md) § UI / styling; TESTPLAN A4a).
 
 ### Findings from the 2026-09-12 pass (actionable)
 
@@ -208,7 +208,7 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
 - ✅ **(F4) Code comments asserting controls that do not exist — FIXED 2026-09-13.** Two call sites
   read `startPathAttestation(); // verify WHO is on the path — gates file bytes`, and `verifyPath`'s
   docstring opened with "`mismatch` is a HARD STOP on the same terminal path as a SAS mismatch". The
-  body has never done either. CLAUDE.md § Path attestation carried the same claim
+  body has never done either. [privacy-and-ice.md](../architecture/privacy-and-ice.md) § Path attestation carried the same claim
   ("`mismatch` → terminal, same teardown as an authenticity failure"). This is the repo's own
   documented failure mode — confident prose read as specification — having moved from the docs into
   the code, where two audits passed over it. All four corrected, and the advisory status is now stated
@@ -334,14 +334,14 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   `c5a51c4` and `273e9e7`. With the old rate (red 1 night in 5) twelve greens by chance is 0.8¹² ≈ 7 %,
   and the deterministic reproduction still carries the weight. The only red scheduled run between
   2026-09-13 and the closure is 17 Sep, the night that opened this item. (The red nights of 1–2 Oct
-  are the integration job's relay test, not the engine matrix — § Ops / housekeeping.)
+  are the integration job's relay test, not the engine matrix — [followups-and-ops.md](followups-and-ops.md) § Ops / housekeeping.)
 - ✅ **Reconnect spec's patience raised above the app's own deadline (2026-09-17).** The app fails a
   stalled re-auth at 120 s (`DEFAULT_RECONNECT_TIMEOUT_MS`) while the spec waited 60 s, so the test
   gave up first and "the app stalled" was indistinguishable from "the app failed correctly" — the
   ambiguity that cost three debugging sessions. Now 140 s, with the per-test budget at 300 s to fit.
   Deliberately not done while the stall was unexplained; safe once the cause was found.
 
-- **Path attestation, and separating STUN from signaling** — still open: their current state is in [BACKLOG.md § Security — open](../../BACKLOG.md#security--open).
+- **Path attestation, and separating STUN from signaling** — still open: their current state is in [[BACKLOG.md](../../BACKLOG.md) § Security — open](../../BACKLOG.md#security--open).
 
 - ✅ **Cross-check several independent STUN servers in the client — BUILT 2026-09-17.**
   `core/stunCheck.ts`: one throwaway `RTCPeerConnection` per configured STUN URL, each with only that
@@ -371,11 +371,11 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   are one IP (the repos are separate, the machines are not).
 - **`pairingId` disclosure to whoever wins the reconnect join race** — closed twice: blinded on
   2026-09-18 (the entry under the first pass above), then made moot on 2026-09-25 when the 4-digit
-  reconnect room was removed with the code — nothing is announced any more (§ Reconnect UX).
+  reconnect room was removed with the code — nothing is announced any more ([reconnect.md](reconnect.md) § Reconnect UX).
 
 ### Codeless reconnect (2026-09-25)
 
-- ✅ **The reconnect code is gone — see § Reconnect UX for the design and what it closed.** From the
+- ✅ **The reconnect code is gone — see [reconnect.md](reconnect.md) § Reconnect UX for the design and what it closed.** From the
   audit's point of view, what moved: (1) the reconnect rendezvous went from an enumerable 4-digit room
   to a 128-bit token derived from the pairing secret, taken join-or-create, indistinguishable on the
   wire from link/QR (link/QR creators draw their own token now, so `create=1` is no longer a signal of
@@ -426,7 +426,7 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
 
 ### Doc corrections made in the same pass
 
-- **CLAUDE.md § Known residuals overstated the `pairingId` leak.** It said reconnect "announces it over
+- **[claude-md-retired-sections.md](claude-md-retired-sections.md) § Known residuals overstated the `pairingId` leak.** It said reconnect "announces it over
   signaling-routed setup, so the untrusted relay can observe 'these two have paired before'". It does
   not: every reconnect frame rides the **DataChannel** (`sendReconnect` → `this.peer.send`), which is
   DTLS-protected, and `pairingId` appears in **no** signaling schema (`src/types/protocol.ts`). The
@@ -438,4 +438,4 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   one pair that *kept its socket open for the whole session*. That handed the untrusted server both
   "this pair is a reconnect (they have paired before)" AND the session duration the close was designed
   to hide. ✅ **FIXED the same day** — reconnect was folded into the per-pair close together with the
-  `peerLeftAbortsPairing` gate it required (see residual (a) under § Signaling WS lifecycle).
+  `peerLeftAbortsPairing` gate it required (see residual (a) under [connection.md](../architecture/connection.md) § Signaling WS lifecycle).

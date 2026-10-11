@@ -14,7 +14,7 @@ import { usePrefs, useT } from './prefs';
 
 /* ------------------------------------------------------------------------------------------------
  * Primitives shared by the screens. Composition, hierarchy and states come from the Claude Design
- * canvas (CLAUDE.md § UI / styling); every colour / font / radius / motion value comes from the kit
+ * canvas (docs/architecture/ui.md); every colour / font / radius / motion value comes from the kit
  * tokens through app.css. Behaviour (aria, keyboard, state) lives here, in the host, never in the kit.
  * ---------------------------------------------------------------------------------------------- */
 

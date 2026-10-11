@@ -210,7 +210,7 @@ export function selectedRemoteCandidate(entries: Iterable<StatsEntry>): RemoteCa
  * the peer's remote one is `relay`; null when nothing is selected (or the report lacks the types).
  * Only reachable in Reliable mode: Max privacy refuses a relayed path at channel-open. Path
  * attestation used to label such a session "direct path confirmed" — the relay's address is one the
- * relayed peer honestly names, so the address check passes (BACKLOG § UX bugs, confirmed 2026-09-27
+ * relayed peer honestly names, so the address check passes (docs/history/ux-fixes.md, confirmed 2026-09-27
  * on Chrome ↔ the Android emulator).
  */
 export function selectedPairRelayed(entries: Iterable<StatsEntry>): boolean | null {

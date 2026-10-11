@@ -10,8 +10,10 @@ journalists and activists in authoritarian states rely on this?"**, the answer i
 > are the ones that matter most. The single biggest gap is not in the protocol at all: **the server
 > that the threat model declares untrusted is the same server that delivers the JavaScript.**
 
-Read this file, then `BACKLOG.md` § Security audit for the live list. `CLAUDE.md` § Path attestation
-and § Crypto carry the mechanisms. Do not answer the readiness question from `README.md` alone — it
+Read this file, then [BACKLOG.md](BACKLOG.md) § Security — open for what is still open and
+[docs/history/security-audits.md](docs/history/security-audits.md) for what each audit pass found.
+[docs/architecture/privacy-and-ice.md](docs/architecture/privacy-and-ice.md) (path attestation) and
+[docs/architecture/crypto.md](docs/architecture/crypto.md) carry the mechanisms. Do not answer the readiness question from `README.md` alone — it
 is written for a general audience, not for someone whose safety depends on the details.
 
 **Do not trust this file over the code.** Claims below were verified on 2026-09-12, re-verified
@@ -20,7 +22,7 @@ volume padding, the STUN cross-check and the `pairingId` blinding landed) and on
 codeless reconnect, which replaced that blinding); the repo rule is that docs
 which drift are bugs. If you are about to rely on something here, re-check it — the audits that produced this document
 found three complete breaks in claims that had been written down confidently, and the 2026-09-13 pass
-found three more (F1/F2/F4, all fixed — `BACKLOG.md` § Third pass) plus one unlisted exposure (F3,
+found three more (F1/F2/F4, all fixed — [docs/history/security-audits.md](docs/history/security-audits.md), the F-items) plus one unlisted exposure (F3,
 below). The pattern is stable enough to plan around: **the breaks are where the prose is most
 confident**, and twice now the false sentence was inside the code's own comments.
 
@@ -66,7 +68,7 @@ is not something the architecture attempts to conceal.
   only when `mode === "reliable"`.
 - **Max privacy opens a channel only on a path it positively established is direct** (since
   2026-09-13). The channel-open gate used to treat "ICE has not published a selection yet" as "no
-  relay" and open anyway — finding F1, see `BACKLOG.md` § Third pass. It now polls for a judgement and
+  relay" and open anyway — finding F1, see [docs/history/security-audits.md](docs/history/security-audits.md). It now polls for a judgement and
   refuses anything still undetermined at the deadline, down the same terminal path as a relay.
 - **A detected interposer is now visible to the user** (since 2026-09-13). It was not: the three-way
   attestation verdict was projected two-way, so `mismatch` rendered exactly like the everyday "this
@@ -124,9 +126,10 @@ because WebKit cannot disable mDNS obfuscation and so cannot name the address it
 occasional false "someone is in between" destroys a transfer at random and teaches the user to
 dismiss the warning that matters.
 
-Two things must land before this can become a control: a **real-device pass** measuring the
-false-positive rate on real networks (`TESTPLAN.md` § Phase B collects exactly this), and **STUN run
-by a different party** — see below.
+Two things must land before this can become a control. The **false-positive rate on real networks**
+must allow it: the real-device pass (closed 2026-10-03) recorded the verdicts, and an honest Mac ↔
+iPhone pair on one Wi-Fi read "route did not match" — a candidate rule for private addresses is in
+[BACKLOG.md](BACKLOG.md) § Pre-launch review. And **STUN must be run by a different party** — see below.
 
 ### 3. STUN is the same operator
 
@@ -203,7 +206,8 @@ the caveat). So road item 4 still lacks its data.
 
 The identity key falls back to a raw seed in IndexedDB on engines without WebCrypto Ed25519 (older
 Safari/Firefox); the path check runs once at channel-open and is not re-run on mid-session
-re-nomination. All in `BACKLOG.md`.
+re-nomination. The mechanisms: [crypto.md](docs/architecture/crypto.md) and
+[privacy-and-ice.md](docs/architecture/privacy-and-ice.md).
 
 **New 2026-09-27: a received file is briefly on disk in the site's private storage.** Big files are
 now received into the browser's origin-private file system (OPFS) instead of RAM, and handed to the

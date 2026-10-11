@@ -136,7 +136,7 @@ test('link negative: a dead link (nobody in the token room) fails at once as "ro
  * A link opened into a tab that ALREADY shows hushsend (pasted into its address bar, or tapped while
  * the app is the current tab — iPadOS Safari, 2026-09-27): only the fragment differs, so the browser
  * does a same-document navigation — nothing reloads, only `hashchange` fires. It used to do nothing
- * (BACKLOG § UX bugs). A marker set before the navigation proves no reload happened.
+ * (docs/history/ux-fixes.md). A marker set before the navigation proves no reload happened.
  */
 test('link opened into an ALREADY-OPEN home tab (same document, only the fragment) joins', async ({ context }) => {
   const sender = await context.newPage();

@@ -25,8 +25,8 @@ What the server can still observe: that two IPs rendezvoused, and how long the *
 peer closes its own signaling socket the moment the authenticated connection is up, so the session
 duration is not the server's to know. **No method is exempt** — reconnect was the last one keeping its
 socket open (a fingerprint that told the server the pair had met before) and was folded into the same
-close on 2026-09-12. Known residuals are listed in [CLAUDE.md](CLAUDE.md) § Known residuals; nothing is
-swept under the rug.
+close on 2026-09-12. The residual risks are in [THREATMODEL.md](THREATMODEL.md) and the platform limits in
+[COMPATIBILITY.md](COMPATIBILITY.md); nothing is swept under the rug.
 
 ## Four ways to pair
 
@@ -45,13 +45,10 @@ indistinguishable from a first link meeting. A key that changed under a known pa
 hard stop, never a dismissable toast.
 
 Several files picked at once travel as **one uncompressed zip, `hushsend-files.zip`**, so the receiver
-accepts one offer and sees one progress bar. A received file goes to disk, not memory: desktop Chrome
-streams it straight into Downloads (so should Edge and Brave — the same Chromium detection, not yet
-measured on them); Firefox, Safari and phone browsers write it
-into the site's private storage (OPFS) and hand it over as a download at the end. Only where neither
-works — a private window without site storage — does it pass through RAM, capped at 200 MB; a file no
-path can take is refused before anything is sent. (Until 2026-09-28 a browser without the File System
-Access save dialog received into RAM, capped at 1 GB on desktop and 512 MB on phones.)
+accepts one offer and sees one progress bar. A received file goes to disk, not memory — straight into
+Downloads on desktop Chromium, through the site's private storage elsewhere; which browser takes which
+path is in [COMPATIBILITY.md](COMPATIBILITY.md). A file no path can take is refused before anything is
+sent.
 
 ## Privacy modes
 
@@ -63,28 +60,13 @@ Access save dialog received into RAM, capped at 1 GB on desktop and 512 MB on ph
 - **Reliable** — adds a TURN relay (short-lived HMAC credentials minted per session; the shared
   secret never leaves the server) so a pair behind hostile NATs still connects.
 
-> **On a Mac (macOS 15 and later), Max privacy on ONE network needs the browser's Local Network
-> permission** — System Settings → Privacy & Security → Local Network. Two devices on the same
-> Wi-Fi find each other through mDNS `.local` host candidates; a browser without the permission can
-> neither publish nor resolve them, so the direct connection fails and the switch-to-Reliable hint
-> points at the wrong fix (Reliable would relay what could have gone direct). The failure screen on a
-> Mac says so.
+On a Mac (macOS 15 and later), Max privacy between two devices on the SAME network needs the
+browser's Local Network permission — [COMPATIBILITY.md](COMPATIBILITY.md) § Platform limits.
 
-> **Honest caveat — what Max privacy does and does not promise.** Confidentiality is solid: DTLS is
-> end-to-end between the two real peers and the fingerprint binding defeats any MITM that terminates
-> it, so nothing on the path reads a byte. The *path* promise cannot rest on candidate filtering — an
-> untrusted server relays the SDP, which carries the ICE credentials, so it can answer connectivity
-> checks itself and a filter cannot tell its `typ host` from a real peer's. So the claim is
-> **verified instead of assumed**: once the pair is authenticated, each side attests over the
-> DataChannel to the addresses it can be reached at, and each checks that the address ICE actually
-> selected is one the peer named. **That check is ADVISORY today, not enforced** — and the reason is
-> worth stating rather than burying: enforcing it broke an honest Firefox↔Safari pair on one LAN,
-> because WebKit cannot disable mDNS obfuscation of its host candidates and so cannot attest to the
-> address its peer actually reached it on. Failing closed there would break real Safari users, which
-> is worse than the leak it closes. So the verdict is recorded while the real-device pass establishes
-> what each engine reports; the open item is in [BACKLOG.md](BACKLOG.md) § Security audit. Until then,
-> the honest statement is: **nothing on the path can read your files, and a relay is refused — but a
-> hostile server can be on the path and learn who is talking to whom.**
+> **Honest caveat — what Max privacy does and does not promise.** Nothing on the path can read your
+> files, and a relay is refused — but a hostile signaling server can put itself on the path and learn
+> who is talking to whom, and the check that would expose it is advisory, not enforced. Why, and what
+> would change that: [THREATMODEL.md](THREATMODEL.md) § 2.
 
 ## Verifying what you were served
 
@@ -152,30 +134,15 @@ and screenshot counts were re-run 2026-09-28 (vitest again 2026-10-03: 368 of 36
 integration tests moved to hush-signaling-server); the cross-engine
 count is from 2026-09-26. Refresh them here whenever the suite grows.
 
-A second internal audit on **2026-09-12** (modelling a fully malicious signaling server, not just a
-passive one) found and fixed three complete breaks — SAS certificate grinding, server-chosen pairing
-roles, and a re-entrant `welcome` that flipped the key-confirmation role mid-handshake — plus a
-pre-authentication enrollment hole. All are closed with regression tests; the findings and what
-remains are in [BACKLOG.md](BACKLOG.md) § Security audit.
+A second internal audit on **2026-09-12**, modelling a fully malicious signaling server rather than a
+passive one, found and fixed three complete MITM breaks plus a pre-authentication enrollment hole; every
+pass and what it found is in [docs/history/security-audits.md](docs/history/security-audits.md). The real-device pass closed on
+2026-10-03 ([COMPATIBILITY.md](COMPATIBILITY.md) has what was verified where).
 
-Before a public launch, and **especially before anyone whose safety depends on it relies on this**,
-several things remain — they are set out with their consequences in
-**[THREATMODEL.md](THREATMODEL.md)**, which is the file to read before making any promise to such a
-user. In short:
-
-1. **Verifiable delivery.** The server this model declares untrusted is the same server that ships
-   the JavaScript. That is the largest single gap and it is not a protocol change — it needs a
-   reproducible build with published hashes, an independent mirror, or a pre-delivered client.
-2. ✅ **A real-device pass — done 2026-10-03.** Transport, file-save paths, QR scanning and camera
-   permissions on desktop Chrome / Brave / Safari / Firefox, a Pixel 5 (Android 14, Chrome) and an
-   iPhone 15 (iOS 26.6, Safari), plus a cross-network TURN relay check over LTE:
-   [TESTPLAN.md](TESTPLAN.md) has all 47 cases ticked or closed with a reason (Android Firefox was
-   dropped) and the per-run numbers in [the run log](docs/test-runs/README.md). The one platform limit it found: iOS Safari
-   ends the connection when the screen locks ([CLAUDE.md](CLAUDE.md) § Known residuals).
-3. **STUN under a different operator**, which is the precondition for path attestation becoming an
-   enforced control rather than an advisory one.
-4. **An independent security audit.** Two internal passes are done; the second found three complete
-   MITM breaks in a system the first had already reviewed, which is the argument for an external one.
+**Before anyone whose safety depends on it relies on this**, read [THREATMODEL.md](THREATMODEL.md): what
+still has to happen, in order, is THREATMODEL.md § The road to "yes" — above all an independent audit, STUN under a
+different operator (the precondition for path attestation becoming a control), and verifiable delivery
+beyond the first step described above.
 
 ## Run it
 
@@ -205,54 +172,16 @@ The signaling server is a devDependency pinned by commit, so `npm ci` installs i
 runs exactly that version; for local work start it with `node node_modules/hush-signaling-server/signaling-server.js`
 (127.0.0.1:8080; `NODE_ENV≠production` allows `http://localhost:5173`).
 
-Build-time configuration (Vite bakes these in — there is no runtime client config):
+The two build-time values (`VITE_SIGNALING_URL`, `VITE_STUN_URLS` — Vite bakes them in, there is no runtime
+client config) and what each must be for a real deploy: [deploy/DEPLOY.md](deploy/DEPLOY.md) § 1.
 
-| Variable | Meaning |
-|---|---|
-| `VITE_SIGNALING_URL` | the `wss://` the client opens |
-| `VITE_STUN_URLS` | comma-separated STUN endpoints. **Not optional for a real deploy** — Max-privacy is STUN-only, so with none set two peers on different networks never connect |
+## Architecture and documents
 
-## Architecture — the one rule
-
-Every non-serializable, live object — `RTCPeerConnection`, `RTCDataChannel`, `WebSocket`,
-`CryptoKey` — lives **only** in `src/core/`. They never enter the Redux store and React never holds
-them. Data flows one way:
-
-```
-UI  --(method call)-->  SessionController  --(work + dispatch)-->  store  --(useSelector)-->  UI
-```
-
-The store holds serializable projections only (status, peer label, words to display, progress,
-error), so RTK's serializability check stays on. `store/connectionSlice.ts` is a **finite state
-machine**: one `status` field plus a guarded transition map, which reduces the central invariant to a
-status check — **no file bytes flow unless the connection is authenticated.**
-
-```
-src/
-├── core/                      # imperative, framework-agnostic; owns ALL live objects
-│   ├── SessionController.ts   # the boundary: UI → methods; core → dispatch
-│   ├── signaling/             # WebSocket client (signaling only; every frame zod-validated)
-│   ├── webrtc/                # RTCPeerConnection + DataChannel, DTLS fingerprints, backpressure
-│   ├── crypto/                # cpace · sas · keyConfirmation · identity · enrollment · reconnect
-│   ├── keystore/              # IndexedDB: own identity key + pinned peer keys (TOFU)
-│   ├── words/ link/           # EFF wordlist credential · link token + secret
-│   ├── iceServers.ts relax.ts # privacy mode → ICE config · Max-privacy relay filter
-│   ├── pairingRole.ts sasRole.ts livenessGate.ts   # pure per-pairing decisions
-│   └── transfer/              # chunking + backpressure; stream-to-disk or Blob fallback
-├── store/                     # serializable projections only — the FSM lives here
-├── types/protocol.ts          # zod schemas for UNTRUSTED inbound signaling frames
-└── ui/                        # React; reads the store, calls the core; stark-ui-kit tokens
-```
-
-## Documentation map
-
-| File | What it is |
-|---|---|
-| [THREATMODEL.md](THREATMODEL.md) | **what is and is not protected, from whom** — read this before promising anything to anyone whose safety depends on it |
-| [CLAUDE.md](CLAUDE.md) | the working guide — architecture, every protocol, invariants, current state |
-| [BACKLOG.md](BACKLOG.md) | remaining and deferred work, the done-log, the security-audit surface |
-| [TESTPLAN.md](TESTPLAN.md) | the real-device test pass |
-| [deploy/DEPLOY.md](deploy/DEPLOY.md) | the deployment runbook, and § 0 the live instance as realized |
+How it is built — the one rule every line of `src/` follows, the code map, and one file per topic — is
+[docs/architecture/](docs/architecture/README.md). [CLAUDE.md](CLAUDE.md) § Documents lists every document
+and what goes where. For a visitor the three that matter most: [THREATMODEL.md](THREATMODEL.md) (read it
+before promising anything to anyone whose safety depends on it), [COMPATIBILITY.md](COMPATIBILITY.md), and
+[deploy/DEPLOY.md](deploy/DEPLOY.md).
 
 ## License
 

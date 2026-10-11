@@ -59,7 +59,7 @@ export interface PeerConnectionHandlers {
   /**
    * ICE could NOT establish connectivity in the Max-privacy STRICT model (we drop the peer's SIGNALLED
    * relay candidates and never request local TURN, so no relay path was offered — a peer-reflexive one
-   * can still be LEARNED; known gap, see core/relax.ts + BACKLOG § Security audit). The owner treats
+   * can still be LEARNED; known gap, see core/relax.ts + BACKLOG.md § Security — open). The owner treats
    * this as a terminal failure with a hint to switch to Reliable. Only fired while `filterRelay` is on
    * (Max-privacy); in Reliable an ICE failure goes through `onClose` (a genuine close — relay was
    * available and still couldn't save it).

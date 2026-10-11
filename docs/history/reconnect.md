@@ -26,7 +26,7 @@ schemas — unit-tested), `SessionController` (`reconnectTo`, the wait/refresh/r
 `SessionController.reconnectRendezvous.test.ts`), `ReconnectWaitScreen`, `room-server.test.ts`
 (join-or-create + TTL on a joined token), `tests/e2e/reconnect.spec.ts` (happy, stall, key-changed,
 held hello, wire hygiene incl. the socket URL, order independence, no-show), `link.spec.ts` (dead
-link still fails at once). See CLAUDE.md § Crypto / Reconnect and § Known residuals.
+link still fails at once). See [crypto.md](../architecture/crypto.md) § Crypto / Reconnect and [claude-md-retired-sections.md](claude-md-retired-sections.md) § Known residuals.
 
 **What this closed:** both failure modes below; the "reconnect + plain room join" mismatch (a plain
 join lands in a lobby, a reconnect never enters one — nothing to mix); the `pairingId` disclosure to
@@ -37,7 +37,7 @@ copy, `blindPairingId`, `reconnect-init`/`reconnect-fallback`, the SAS-fallback 
 **What it did NOT do:** return-to-lobby (unrelated, still deferred below); keystore GC / pin-merge
 (the dual-pin caveat stands — a wiped side pairs afresh and the other side gains a second pin).
 
-**New residuals, small, recorded in CLAUDE.md § Known residuals:** the token repeats within one
+**New residuals, small, recorded in [claude-md-retired-sections.md](claude-md-retired-sections.md) § Known residuals:** the token repeats within one
 10-minute bucket; clock skew delays the meeting by up to the skew.
 
 ### History (the by-code design, kept for the record)
@@ -96,7 +96,7 @@ The two failure modes (both now gone with the code):
   firing e2e (`tests/e2e/reconnect.spec.ts` — "reconnect liveness deadline FIRES"). The optional
   fail-fast/hint on the OTHER side (an already-pinned peer joining via the fresh-SAS lobby path) was
   NOT done — it is nontrivial (the plain-SAS side has no reconnect state to key off) and the deadline
-  already removes the hang. (See CLAUDE.md § Crypto / Reconnect.)
+  already removes the hang. (See [crypto.md](../architecture/crypto.md) § Crypto / Reconnect.)
 - ✅ **Entry-point ergonomics — DONE (this pass).** The reconnect create-vs-join split is now explicit
   on the home screen: a **"Reconnect a device"** section with a one-line split hint ("one side starts +
   shares the code, the other joins with it; both starting opens two rooms"), then two clearly-labelled
@@ -108,7 +108,7 @@ The two failure modes (both now gone with the code):
 
 **Deferred (post-audit) — security-sensitive, NOT in this pass** *(resolved 2026-09-25: the code was
 removed instead; the role moved to fingerprint order behind the hello gate — see the top of this
-section and § Security audit (a))*: lobby-pick reconnect AND moving the
+section and [security-audits.md](security-audits.md) § Security audit (a))*: lobby-pick reconnect AND moving the
 reconnect PROTOCOL role from create/join to id-order. The role move changes the **verifier-first
 ordering** the two-check **key-changed-vs-MITM** verify depends on (today create/join fixes the
 verifier-first side so a key change is caught before a forger can settle); re-deriving it from the

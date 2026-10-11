@@ -32,6 +32,8 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
+      - name: Documentation — sizes, links, section references, code paths
+        run: npm run docs:check
       # The signaling server's own tests — rooms, words, tokens, TURN credentials and a real coturn
       # relay — run in ITS repository (hush-signaling-server) since 2026-10-03; the e2e jobs below run
       # the server itself, from the commit pinned in package.json.

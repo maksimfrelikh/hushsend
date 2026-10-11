@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { BASE, createLink, forwardConsole, fragmentOf } from './helpers';
 
 /**
- * An AUTHENTICATED channel dying mid-transfer (TESTPLAN F2 / F3; BACKLOG § UX bugs "Peer gone after
+ * An AUTHENTICATED channel dying mid-transfer (TESTPLAN F2 / F3; docs/history/ux-fixes.md "Peer gone after
  * `connected`"). Before 2026-09-27 nothing after `connected` reacted to it: with the receiver's tab
  * closed at 8 % of a 900 MB send the SENDER sat on "Sending 46 %" for over a minute, and after a real
  * airplane-mode cut both sides stayed "transferring" for good. Expected now: the surviving side ends

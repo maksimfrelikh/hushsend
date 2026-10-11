@@ -43,7 +43,7 @@ was true on its date; the current state is in the living documents (see [README.
   + room per-pair close + reconnect, included since 2026-09-12). e2e: `tests/e2e/ws-close.spec.ts`
   (link + words + reconnect —
   supersedes the old `words-ttl.spec.ts`), with `room-sas.spec.ts` / `lobby.spec.ts` confirming room/SAS
-  + lobby behaviour under the per-pair close. See CLAUDE.md § Signaling WS lifecycle.
+  + lobby behaviour under the per-pair close. See [connection.md](../architecture/connection.md) § Signaling WS lifecycle.
 - ✅ **SAS fail-closed on unset role — DONE** (folded into the mesh-lobby fix). The SAS role is no
   longer a UI default — it is computed PER PAIRING from the two readable ids (`src/core/sasRole.ts`
   `sasRoleFor`: lexicographically smaller id reads), projected as `connection.sasRole`. When the role
@@ -60,12 +60,12 @@ was true on its date; the current state is in the living documents (see [README.
   4-digit squatting/enumeration for link/QR — resistance is now structural. room stays 4-digit, words
   stays `word`. Tests: `room-server.test.ts` (token alloc / validator / 1:1 cap), `link.test.ts` +
   `qr.test.ts` (token round-trip), `link.spec.ts` (link/qr e2e over token rendezvous). This is the
-  SAME fix as "link/qr lobby-race resistance" above. (See CLAUDE.md § link/qr method + § Signaling server.)
+  SAME fix as "link/qr lobby-race resistance" above. (See [methods.md](../architecture/methods.md) § link/qr method + [claude-md-retired-sections.md](claude-md-retired-sections.md) § Signaling server.)
 
 (✅ **Pre-SAS pairing deadline firing-direction — now tested** (pre-deploy cleanup): `?stallSasNonce=1`
 makes a peer reach the SAS but withhold its nonce reveal, `?preSasTimeoutMs=N` shrinks the pre-SAS
 deadline (both DEV-only / tree-shaken), and `tests/e2e/room-sas.spec.ts` asserts the other side fails
-at the deadline rather than hanging. See CLAUDE.md § room/SAS Timeouts.)
+at the deadline rather than hanging. See [methods.md](../architecture/methods.md) § room/SAS Timeouts.)
 
 ## Ops / housekeeping
 
@@ -157,7 +157,7 @@ at the deadline rather than hanging. See CLAUDE.md § room/SAS Timeouts.)
 ## Nice-to-have / future — the ones that landed
 
 - ✅ **Claude Design redesign of the screen set — DONE (2026-09-26).** Every screen rebuilt from the canvas
-  https://claude.ai/artifact/XRjdVX5U8SC8m2cDSgzDSP on kit 0.3.0 (CLAUDE.md § UI / styling has the
+  https://claude.ai/artifact/XRjdVX5U8SC8m2cDSgzDSP on kit 0.3.0 ([ui.md](../architecture/ui.md) § UI / styling has the
   reference, the decisions and the rules). Adopted from the kit: `controls.css` (`.pill`),
   `theme-toggle.css`, `layout.css` (`.wrap` — its `--gut` IS the design's 20 / 34 / 72 gutter); the two
   webfonts the palette names are bundled through fontsource. Link and QR became ONE screen; the lobby
@@ -172,7 +172,7 @@ at the deadline rather than hanging. See CLAUDE.md § room/SAS Timeouts.)
   radios (`privacy-toggle` = Max, `privacy-reliable`), `path-state` is a disclosure row carrying
   `data-path-verdict` (the `ok` verdict is an sr-only span, no visible row), the network-exposure
   summary is inside "About privacy and security". Conscious deviations from the boards, all documented
-  in CLAUDE.md § UI / styling: the type sizes are the kit's fluid roles with the h1 / h2 capped at 48 /
+  in [ui.md](../architecture/ui.md) § UI / styling: the type sizes are the kit's fluid roles with the h1 / h2 capped at 48 /
   32px from 1200px up (follow-up, same day — the uncapped `--t-h1` reached 73.6px at 1440); the
   attempts line reads "N / MAX failed attempts" (the counter the e2e asserts); and the SAS refusals are
   quiet pills of the confirm's geometry, NOT the boards' tertiary label — the 2026-09-12 audit decision
@@ -192,13 +192,13 @@ at the deadline rather than hanging. See CLAUDE.md § room/SAS Timeouts.)
   `copyToClipboard` stays on the root entry. Unit 290/290, e2e 129 passed / 6 skipped (the opt-in size
   ladder + engine-gated cases) on ports 8191/5291. The 0.3.0 component stylesheets (`controls.css`,
   `links.css`, `layout.css`, …) are NOT adopted — that is the componentization item above, after the
-  Claude Design redesign of the screen set. CLAUDE.md § UI / styling rewritten for the new pin.
+  Claude Design redesign of the screen set. [ui.md](../architecture/ui.md) § UI / styling rewritten for the new pin.
 - ✅ **Transfer-history privacy — DONE** (pre-deploy). Transfer history is no longer persisted: it
   moved from a localStorage record (`persistence.ts`, now deleted) to a SESSION-ONLY in-memory Redux
   slice (`src/store/historySlice.ts`), so file names leave no local trail — the history is gone on
   reload / tab close. localStorage now holds ONLY prefs (lang/theme/privacy mode, `prefs.tsx`);
   keystore pins (IndexedDB) are untouched. "Forget" clears the pins + the in-memory history. (See
-  CLAUDE.md § Current state.)
+  [build-order.md](build-order.md) § Current state.)
 
 ## The repository split (2026-10-03)
 
@@ -210,3 +210,17 @@ with its own unit and a CI check. It runs on laptop-server since 2026-10-10 (por
 `stun.hushsend.frelikh.dev`; `verify.sh` passed from a mobile network) and the client takes STUN
 from it — its DEPLOY.md § 0. Older entries in
 this file and in TESTPLAN still name the old paths; they describe what was true when written.
+
+## The documentation restructuring (2026-10-11)
+
+Approved by the owner on 2026-10-03, done on 2026-10-11: one topic per file, one fact in one place.
+CLAUDE.md (1 757 lines), TESTPLAN.md (1 674) and BACKLOG.md (1 656) were split — the design reference
+into docs/architecture/ (one file per topic), the run logs into docs/test-runs/, the done log into
+docs/history/, the owner's decisions into docs/decisions.md, the platform matrix into COMPATIBILITY.md,
+the test pass's section 0 into docs/test-setup.md; CLAUDE.md became a short guide with the table of
+what goes where. Sections that only repeated another document's subject were retired to
+[claude-md-retired-sections.md](claude-md-retired-sections.md). `scripts/check-docs.mjs` (`npm run
+docs:check`, in CI) now fails on a file over 500 lines, a dead link, a `§` pointer to a missing heading
+and a missing code path; its first run found pointers that had been dangling before the restructuring
+too (`BACKLOG.md § Third pass` in THREATMODEL.md and five e2e specs — no such section ever existed).
+

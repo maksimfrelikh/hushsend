@@ -3,7 +3,7 @@
  * the translator falls back to `en` when it is missing, so the EN|RU switch stays hidden until the
  * Russian half is complete (prefs.tsx keeps the language state, the header shows no switch). New
  * strings get `en` only. Copy is the owner's placeholder, taken from the Claude Design canvas
- * boards (see CLAUDE.md § UI / styling) except the security sentences, which are the ones the
+ * boards (see docs/architecture/ui.md) except the security sentences, which are the ones the
  * threat model needs said in exactly these words.
  *
  * Pure UI copy — no security-relevant text routes through here in a way tests depend on: the
@@ -259,7 +259,7 @@ export const STR = {
     en: 'This channel may be compromised',
     ru: 'Канал может быть скомпрометирован',
   },
-  // The description names the cause each side actually saw (BACKLOG § UX bugs, copy nits): a picker
+  // The description names the cause each side actually saw (docs/history/ux-fixes.md, copy nits): a picker
   // whose reader stopped first never confirmed any phrase, and words / link have no phrase at all.
   erMismatchDesc: {
     en: 'The check that proves you reached your peer failed. Someone may be intercepting — don’t send files.',

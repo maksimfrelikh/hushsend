@@ -229,7 +229,7 @@ Use [`nginx.conf.example`](nginx.conf.example) → `/etc/nginx/sites-available/`
 
 - **Shared-NAT / office / mobile networks:** clients behind one public IP divide `IP_RL_MAX` per
   window and can hit a spurious `4011 too many attempts`. The knob is in the signaling `.env`
-  (hush-signaling-server); BACKLOG § Pre-launch review has the open question.
+  (hush-signaling-server); [BACKLOG.md](../BACKLOG.md) § Pre-launch review has the open question.
 - **Second app (hushclip):** the same signaling server serves it (distinguished by `?app=`); add an
   analogous nginx site (own cert + `dist/`, same `/ws` proxy) when its frontend exists — see the
   footer of `nginx.conf.example`.

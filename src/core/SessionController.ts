@@ -620,7 +620,7 @@ const DIRECT_FAIL_REASON = "couldn't connect directly (Max privacy)";
  * words, our own link, or a room lobby (creator or joiner). The server's TTL close (4010 `expired`)
  * reaches the waiting side exactly as it reaches a joiner of a dead code, and used to show the
  * joiner's "Room not found or code expired — check the digits" to someone who typed no digits
- * (BACKLOG § UX bugs, copy nits). A STABLE marker for FailedScreen, which checks `nobody joined`
+ * (docs/history/ux-fixes.md, copy nits). A STABLE marker for FailedScreen, which checks `nobody joined`
  * BEFORE its generic not-found/expired match.
  */
 const WAIT_EXPIRED_REASON = 'nobody joined before the code expired';
@@ -2058,7 +2058,7 @@ export class SessionController {
     try {
       recv = await openReceive(this.wire(), offer, offer.plan, (e) => this.onReceiveEvent(e));
       // The save picker stays up as long as the human keeps it up, and the session can end under it
-      // — on Android a picker left open ~20 s took ICE down with it (BACKLOG § UX bugs). The offer is
+      // — on Android a picker left open ~20 s took ICE down with it (docs/history/ux-fixes.md). The offer is
       // gone then (onConnectionLost / dispose took it): drop what the picker opened, silently, so
       // nothing lands on the row that already says why — or on the next session's.
       if (this.pendingOffer !== offer) {
@@ -3312,7 +3312,7 @@ export class SessionController {
       // `unknown`, NOT `mismatch`: silence is not evidence of an interposer. It is what an engine
       // that cannot enumerate its candidates produces, and the user-facing copy for `unknown` says
       // exactly that. (If this ever becomes a control, silence is the case that must be argued
-      // about separately — see BACKLOG § Security audit.)
+      // about separately — see BACKLOG.md § Security — open.)
       this.dispatch(connectionActions.pathSettled({ verdict: 'unknown' }));
       this.dispatch(devActions.appendLog('path: peer never attested — UNVERIFIED (advisory)'));
     }, PATH_ATTEST_TIMEOUT_MS);
@@ -3354,8 +3354,8 @@ export class SessionController {
    * STOP on the same terminal path as a SAS mismatch"; the body below has never done that, and the
    * gap survived two audits because the sentence read as a specification. It is not one. All three
    * verdicts are RECORDED and shown to the user, and the transfer proceeds either way — see
-   * `startPathAttestation` for the measured reason enforcement is deferred, and BACKLOG § Security
-   * audit for what has to land before it can become a control.
+   * `startPathAttestation` for the measured reason enforcement is deferred, and BACKLOG.md § Security —
+   * open for what has to land before it can become a control.
    *
    * `unknown` (no selected address yet, or an engine that reports no usable candidates) is benign by
    * design: absence of evidence is not evidence. The downgrade that would otherwise open — drop the
@@ -3381,7 +3381,7 @@ export class SessionController {
     if (!this.pathAttest || this.pathAttest.settled) return; // torn down while awaiting stats
     // A RELAYED pair (Reliable mode) is its own verdict: the relayed peer honestly names its relay
     // address, so the address check below would pass and the screen would say "direct path
-    // confirmed" about a session that runs through the server (BACKLOG § UX bugs, confirmed on Chrome
+    // confirmed" about a session that runs through the server (docs/history/ux-fixes.md, confirmed on Chrome
     // ↔ the Android emulator).
     const relayed = (await this.peer?.selectedPathRelayed()) === true;
     if (!this.pathAttest || this.pathAttest.settled) return;
@@ -3431,7 +3431,7 @@ export class SessionController {
    * AND tell the peer to attest that same address — and the attestation passes with an attacker in
    * the middle. Two independent STUN servers make that lie visible. Today the deployment has ONE, so
    * this reports `unknown` and buys nothing yet; it is the client half of a property that starts to
-   * exist when the servers are run by different people (BACKLOG § Security audit).
+   * exist when the servers are run by different people (BACKLOG.md § Security — open).
    *
    * Fire-and-forget, never gating: a disagreement can also be an honest multi-WAN or CGNAT client,
    * so it is surfaced and not acted on — the same rule as `mismatch` in path attestation, for the

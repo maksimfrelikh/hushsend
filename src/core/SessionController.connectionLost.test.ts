@@ -4,7 +4,7 @@ import { connectionActions } from '../store/connectionSlice';
 import { transferActions } from '../store/transferSlice';
 
 /**
- * An AUTHENTICATED channel dying (TESTPLAN F2 / F3, BACKLOG § UX bugs "Peer gone after `connected`").
+ * An AUTHENTICATED channel dying (TESTPLAN F2 / F3, docs/history/ux-fixes.md "Peer gone after `connected`").
  *
  * Until 2026-09-27 nothing after `established` reacted to a DataChannel close, an ICE failure or a
  * `disconnected` connection: both screens went on saying "Secure channel open" / "Sending 46 %" to a

@@ -25,7 +25,7 @@ was true on its date; the current state is in the living documents (see [README.
   offer + SAS commit-reveal stall): the WebRTC offer direction, CPace init, SAS nonce/commit order,
   and key-confirmation/enrollment `lv(role)` all follow it. Reconnect's protocol role stays
   create/join (the verifier-first side must be fixed). 1:1 outcome unchanged. (See CLAUDE.md
-  § Per-pairing role.)
+  [methods.md](../architecture/methods.md) § Per-pairing role.)
 - ✅ **Room lobby UI (core) — DONE (6c)**. The room method no longer auto-pairs: creator + joiners
   land in `awaitingPeer` (`joining → awaitingPeer`, no new state) and see a `LobbyScreen` — the 4-digit
   code + a roster (`connection.roster` = `{id, device, joinedAt}` maintained from welcome/peer-joined/
@@ -33,10 +33,10 @@ was true on its date; the current state is in the living documents (see [README.
   role 6b); glare/dedup handled; **busy-reject** returns the picker to the lobby with a clear notice (no
   hang). Works for ANY pair incl. joiner↔joiner. Signaling protocol grew: `welcome.peers` + `peer-joined`
   now carry `{id, device, joinedAt}` (coarse client device label, server-capped ≤32 + server-stamped
-  joinedAt; the `device` label was removed again 2026-09-27 — see § UX bugs). words/link/qr stay 1:1 auto-pair; reconnect is its own codeless method (since 2026-09-25).
+  joinedAt; the `device` label was removed again 2026-09-27 — see [ux-fixes.md](ux-fixes.md) § UX bugs). words/link/qr stay 1:1 auto-pair; reconnect is its own codeless method (since 2026-09-25).
   `tests/e2e/lobby.spec.ts` (joiner↔joiner + busy) + `connectionSlice.test.ts` + `room-server.test.ts`.
-  (See CLAUDE.md § Room lobby.) **Deferred follow-ups below.**
-  - ✅ **reconnect-in-lobby — SUPERSEDED 2026-09-25 by the codeless reconnect** (§ Reconnect UX below).
+  (See [methods.md](../architecture/methods.md) § Room lobby.) **Deferred follow-ups below.**
+  - ✅ **reconnect-in-lobby — SUPERSEDED 2026-09-25 by the codeless reconnect** ([reconnect.md](reconnect.md) § Reconnect UX below).
     The goal was to reach a pinned peer without the separate by-code path; the by-code path no longer
     exists — a tap on the recent-devices row meets the other device at a rendezvous derived from the
     pairing secret, and the lobby is not involved. The role question it carried (create/join is
@@ -61,7 +61,7 @@ was true on its date; the current state is in the living documents (see [README.
     cross-channel race — a peer's post-connect `peer-left` racing its DataChannel `sas-confirm` — can no
     longer tear down a pair where both humans already confirmed. Unit:
     `SessionController.sasPeerLeft.test.ts`; e2e green (`room-sas.spec.ts` / `lobby.spec.ts` /
-    `ws-close.spec.ts`). See CLAUDE.md § Signaling WS lifecycle.
+    `ws-close.spec.ts`). See [connection.md](../architecture/connection.md) § Signaling WS lifecycle.
     - **Residuals (do NOT block per-pair close):**
       - ✅ **(a) reconnect now closes its socket too — DONE 2026-09-12.** This was deferred until
         reconnect-in-lobby landed, but the audit showed waiting had a cost: reconnect was the ONE
@@ -83,7 +83,7 @@ was true on its date; the current state is in the living documents (see [README.
     via their own high-entropy **token** (`codeType=token`, 128-bit, strictly 1:1 `ONE_TO_ONE_MAX_PEERS
     = 2`). A stray peer can't reach the room (token is unguessable) and a forwarded link still reaches a
     SINGLE receiver (a 2nd joiner is bounced 4002) — interloper-resistance is now STRUCTURAL, not a
-    `peers[0]` heuristic. See CLAUDE.md § link/qr method + § Signaling server.
+    `peers[0]` heuristic. See [methods.md](../architecture/methods.md) § link/qr method + [claude-md-retired-sections.md](claude-md-retired-sections.md) § Signaling server.
 - ✅ **TURN relay + Reliable / Max-privacy (STRICT) mode (6d)** — *DONE*.
   - ✅ **Server side — DONE (this pass).** The signaling server answers a **`turn-request`** frame with
     short-lived HMAC coturn credentials (`use-auth-secret` / REST scheme): `username` = a future
@@ -96,7 +96,7 @@ was true on its date; the current state is in the living documents (see [README.
     (default 3600). coturn deployed SEPARATELY — `deploy/coturn.conf.example` (relay-port range +
     firewall, `user-quota` / `total-quota` / `max-bps`, anti-SSRF `no-multicast-peers` /
     `no-loopback-peers` / `denied-peer-ip` on RFC1918 + link-local, `fingerprint`, `no-cli`).
-    `tests/integration/turn-credentials.test.ts`. (See CLAUDE.md § Signaling server / TURN credentials.)
+    `tests/integration/turn-credentials.test.ts`. (See [claude-md-retired-sections.md](claude-md-retired-sections.md) § Signaling server / TURN credentials.)
   - ✅ **Client side — DONE (this pass).** The home **PrivacyToggle is now functional** (persisted pref
     `hushsend.privacy`, default **Max-privacy**, pushed into the core via `<PrivacyModeSync>` →
     `SessionController.setPrivacyMode`). It drives `iceServers` (`src/core/iceServers.ts`
@@ -107,7 +107,7 @@ was true on its date; the current state is in the living documents (see [README.
     urls (relay undeployed) ⇒ stay direct-only** (username/credential ignored — keyed off `urls.length`).
     Unit: `iceServers.test.ts`; e2e: `tests/e2e/privacy.spec.ts` (toggle renders/flips/default-max,
     Max-privacy connects directly with no TURN, Reliable assembles the TURN iceServer from fetched
-    creds — relay itself not run). See CLAUDE.md § Privacy mode + ICE.
+    creds — relay itself not run). See [privacy-and-ice.md](../architecture/privacy-and-ice.md) § Privacy mode + ICE.
   - ✅ **Max-privacy STRICT model — DONE (this pass; supersedes the earlier relax-retry).** Max-privacy
     NEVER relays — there is NO consent escalation. The PeerConnection ALWAYS drops the peer's `typ relay`
     ICE candidates in Max-privacy (`src/core/relax.ts` `isRelayCandidate`/`shouldDropCandidate`, filtered
@@ -122,10 +122,10 @@ was true on its date; the current state is in the living documents (see [README.
     that can't go direct now fails fast. `relax.ts` is reduced to the relay-candidate filter. Reliable is
     unchanged (STUN + TURN, auto-relay on a direct failure). `?forceIceFail=1` DEV knob drives the e2e.
     `relax.test.ts` (filter only) + `tests/e2e/relax.spec.ts` (Max-privacy ICE failure → `failed` + hint,
-    no offer, no hang). See CLAUDE.md § Privacy mode + ICE / Max-privacy strict model.
+    no offer, no hang). See [privacy-and-ice.md](../architecture/privacy-and-ice.md) § Privacy mode + ICE / Max-privacy strict model.
 - ✅ **Cross-browser pass (6e) — DONE.** The no-device parts landed first (below); the real-device pass ran
   2026-10-02 (Pixel 5, Android 14 Chrome) and 2026-10-03 (iPhone 15, iOS 26.6 Safari over WebDriver) — TESTPLAN
-  47/47 ticked or closed with a reason ([the run log](docs/test-runs/README.md)). Android Firefox was dropped by the owner.
+  47/47 ticked or closed with a reason ([the run log](../test-runs/README.md)). Android Firefox was dropped by the owner.
   - ✅ **Self-hosted QR-scan WASM — DONE.** `barcode-detector@3.2.0`'s default `locateFile` fetched
     `zxing_reader.wasm` from `fastly.jsdelivr.net` at scan time (iOS/Firefox fallback) — a privacy
     (client-IP leak) + supply-chain (executable WASM from an uncontrolled host) risk. Now vendored:
@@ -205,10 +205,10 @@ was true on its date; the current state is in the living documents (see [README.
     receive paths on real hardware ✅ (site storage to 2 GiB on the iPhone, 5 GiB on the Pixel), everything
     cross-network (TESTPLAN § C: Max fails closed with the hint, Reliable relays through coturn — 1.7 MB/s
     on LTE) ✅, and iOS mid-transfer suspension (§ F1) MEASURED: iOS Safari ends the connection on screen
-    lock (§ UX bugs, first item). Engine-level transport interop is pre-covered headlessly (above). The pass
-    is tracked case by case in TESTPLAN.md — **47 of 47 closed as of 2026-10-03** ([the 2026-10-03 run log](docs/test-runs/2026-10-03.md); B3's
+    lock ([ux-fixes.md](ux-fixes.md) § UX bugs, first item). Engine-level transport interop is pre-covered headlessly (above). The pass
+    is tracked case by case in TESTPLAN.md — **47 of 47 closed as of 2026-10-03** ([the 2026-10-03 run log](../test-runs/2026-10-03.md); B3's
     Android-Firefox half, C5 and F4 were dropped by the owner, F1-iOS and F8-iPhone closed as platform /
-    tooling limits — the ticks say so). The findings are in § UX bugs below. **6e is DONE.**
+    tooling limits — the ticks say so). The findings are in [ux-fixes.md](ux-fixes.md) § UX bugs below. **6e is DONE.**
 - ✅ **Deployment behind nginx (6f) — LIVE at hushsend.frelikh.dev (see DEPLOY.md § 0 — the
   as-realized source of truth).** First bring-up 2026-06-20 on a VPS (`frelikhmax.fvds.ru`); **the live
   instance MOVED to the owner's home server 2026-08-16** and that is what runs today (re-verified on the
@@ -221,7 +221,7 @@ was true on its date; the current state is in the living documents (see [README.
   coturn sets `external-ip=<public>/<lan>`. External smoke green (headers/CSP, /health, `.wasm`→
   `application/wasm`, /ws→426, SPA fallback); the in-browser P2P/SAS/transfer and cross-network relay
   checks are DONE (6e real-device, 2026-10-02/03). The `http2 on;` → `listen … ssl http2;` template fix was for the VPS's nginx 1.24 and no
-  longer applies (1.28 takes both; HTTP/2 is ON on the live vhost — § Ops, corrected 2026-09-12; this
+  longer applies (1.28 takes both; HTTP/2 is ON on the live vhost — [followups-and-ops.md](followups-and-ops.md) § Ops, corrected 2026-09-12; this
   line kept saying "off" until 2026-10-03). Original deploy-prep artifacts built + committed:
   `deploy/nginx.conf.example` (TLS, 80→443, SPA `try_files $uri /index.html`, the `/ws`
   proxy with `X-Real-IP` + WS-upgrade + raised `proxy_read_timeout`, HSTS / build-tuned **CSP**
@@ -229,7 +229,7 @@ was true on its date; the current state is in the living documents (see [README.
   CDN] / `Permissions-Policy camera=(self)`), `server/.env.example` (all server env + criticality notes),
   `deploy/coturn.conf.example` (from 6d), `deploy/DEPLOY.md` (step-by-step + inline gotchas). Only code
   change: an additive startup `[config]` summary log (no secrets) in `signaling-server.js`. Consolidated
-  env reference in CLAUDE.md § Deployment / configuration. The ops half is done too: nginx/coturn/DNS/TLS
+  env reference in [claude-md-retired-sections.md](claude-md-retired-sections.md) § Deployment / configuration. The ops half is done too: nginx/coturn/DNS/TLS
   run on the real host, and the CSP held for a real QR scan on a non-Chromium engine (iOS Safari, the
   self-hosted zxing WASM, 2026-10-03 — TESTPLAN A2/B3). The X-Real-IP/TRUST_PROXY pairing is documented in all three
   artifacts; the footgun it guards against:

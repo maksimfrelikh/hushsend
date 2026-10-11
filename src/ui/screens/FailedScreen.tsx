@@ -66,7 +66,7 @@ export function FailedScreen(): ReactElement {
   const isExpired = /(not found|expired|4009|4010|4002|room full)/.test(lower);
   // Any OTHER signaling close — 1006 above all: the network or the server went away while pairing.
   // It used to fall into `expired` ("Room not found or code expired — Check the digits") and told a
-  // person who typed no digits to check them (BACKLOG § UX bugs, the Android emulator).
+  // person who typed no digits to check them (docs/history/ux-fixes.md, the Android emulator).
   const isServerLost = /signaling closed/.test(lower);
   // Max-privacy STRICT model: a direct ICE failure is terminal (Max-privacy never relays). Surface a
   // hint to switch to Reliable. Keyed off the stable reason DIRECT_FAIL_REASON sets in the core.

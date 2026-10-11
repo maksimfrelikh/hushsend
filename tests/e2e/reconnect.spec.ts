@@ -36,7 +36,7 @@ const TMP = join(process.cwd(), 'e2e-tmp-reconnect');
  * "the app failed correctly at its deadline" produced the IDENTICAL failure — `Received: "pairing"` —
  * and nothing distinguished them. Raising it was deliberately NOT done while the stall was
  * unexplained, because raising a timeout mid-hunt is how a real hang gets hidden. With the cause
- * found and fixed (an early `reconnect-init` dropped for good — BACKLOG § Third pass), it now makes
+ * found and fixed (an early `reconnect-init` dropped for good — docs/history/security-audits.md, "Reconnect stalled at `pairing` for 120 s"), it now makes
  * the next failure informative rather than ambiguous: a stall that survives the app's own deadline is
  * a different bug from one the deadline catches, and this is what tells them apart.
  */
