@@ -76,9 +76,11 @@ export const STR = {
     en: 'In Max privacy the transfer goes straight between the two of you, so each side’s provider sees a direct connection to the other side’s address. Establishing that two people were in contact needs data from ONE of the two networks only. The contents cannot be read; the fact of contact cannot be denied.',
     ru: 'В режиме макс. приватности передача идёт напрямую между вами двоими, поэтому провайдер каждой стороны видит прямое соединение с адресом другой. Чтобы установить, что два человека были на связи, достаточно данных ОДНОЙ из двух сетей. Содержимое прочитать нельзя; сам факт связи — отрицать нельзя.',
   },
+  // VPN only, not Tor (owner, 2026-10-11): Tor users are not the audience (docs/decisions.md), and a
+  // WebRTC app is not what Tor Browser is built for.
   netAdvice: {
-    en: 'If either of those matters to you, use Tor or a VPN — on BOTH sides. One side alone does not help with the second point.',
-    ru: 'Если для вас важно любое из этого — используйте Tor или VPN, причём с ОБЕИХ сторон. Одна сторона от второго пункта не спасает.',
+    en: 'If either of those matters to you, use a VPN — on BOTH sides. One side alone does not help with the second point.',
+    ru: 'Если для вас важно любое из этого — используйте VPN, причём с ОБЕИХ сторон. Одна сторона от второго пункта не спасает.',
   },
   aboutReconnectTitle: { en: 'How reconnect works' },
   aboutReconnectBody: {
@@ -252,6 +254,12 @@ export const STR = {
    *  started from a hidden page). */
   saveFile: { en: 'Save file' },
   saveFileHint: { en: 'It arrived while this page was in the background. Tap to save it.' },
+  /** Safari's own question after a receive (platform.ts `downloadPromptFor`): until it is answered the
+   *  file is not saved, while this screen already says "Received". */
+  dlAskIos: { en: 'Safari asks whether to download it — tap Download, or the file is not saved.' },
+  dlAskMac: {
+    en: 'If Safari asks whether to allow downloads from this site, choose Allow — or the file is not saved.',
+  },
   closeChannel: { en: 'Close channel', ru: 'Закрыть канал' },
 
   // --- failed (ONE screen, variants; titles and descriptions only — nothing said twice) ---
@@ -278,6 +286,20 @@ export const STR = {
   exDesc: {
     en: 'No active room has this code, or it has already expired. Check the digits or start your own room.',
     ru: 'Нет активной комнаты с таким кодом, либо он уже истёк. Проверьте цифры или создайте свою комнату.',
+  },
+  // The same room answers (gone / expired / full) on a link or words pairing, where there are no digits
+  // to check: it read "Check the digits" there until 2026-10-11 (docs/test-runs/2026-10-11.md).
+  exLinkTitle: { en: 'This link expired or was already used' },
+  exLinkDesc: { en: 'A link connects one device, once, within a few minutes. Start again with a new link.' },
+  exWordsTitle: { en: 'These words don’t work any more' },
+  exWordsDesc: {
+    en: 'Code words connect one device, once, within a few minutes. Check the first word, or start again with new words.',
+  },
+  // WebRTC is switched off in this browser (core/webrtc/available.ts): shown up front instead of the app,
+  // and as the failure if a pairing ever gets that far.
+  noWebrtcTitle: { en: 'This browser can’t send files' },
+  noWebrtcDesc: {
+    en: 'hushsend sends files over WebRTC, and it is switched off in this browser — some privacy browsers and settings do that. Open hushsend in a browser with WebRTC on; if someone sent you a link, open that link there.',
   },
   // Our OWN code ran out while we waited in its room with nobody engaged (WAIT_EXPIRED_REASON) — not
   // the joiner's "not found or expired", which asked someone who typed nothing to check the digits.

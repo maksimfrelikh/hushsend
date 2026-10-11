@@ -172,7 +172,9 @@ test('smoke · landing states what the network can still see, collapsed by defau
   // § 4 — one side's network is enough to establish contact.
   await expect(box).toContainText('needs data from ONE of the two networks only');
   await expect(box).toContainText('cannot be denied');
-  // ...and something to do about it, on BOTH sides (one is not enough for § 4).
-  await expect(box).toContainText('Tor or a VPN');
+  // ...and something to do about it, on BOTH sides (one is not enough for § 4). A VPN, not Tor: Tor
+  // users are not the audience (owner, 2026-10-11 — docs/decisions.md).
+  await expect(box).toContainText('use a VPN');
+  await expect(box).not.toContainText('Tor');
   await expect(box).toContainText('BOTH sides');
 });

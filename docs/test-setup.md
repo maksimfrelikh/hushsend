@@ -143,8 +143,10 @@ Last run 2026-09-27 against the bundle fetched over HTTPS from the live host (`i
   B2 below is what tells us whether the MOBILE cap is equally well placed; nothing else can.
 - Chunk size: the SCTP-negotiated max clamped to **[16 KiB, 256 KiB]**; backpressure via `bufferedAmount`.
 - Deadlines (all **120 s**): pre-SAS pairing, SAS confirmation, reconnect re-auth, **and the 1:1
-  key-confirmation wait** (words / link / QR — added 2026-09-12; before it, that path had no client
-  deadline at all and depended on the untrusted server's room TTL to rescue it).
+  handshake** (words / link / QR — added 2026-09-12 for the key-confirmation wait; armed from pairing
+  start since 2026-10-11, so it bounds the WebRTC bring-up too —
+  [methods.md](architecture/methods.md) § link / qr method). Before 2026-09-12 that path had no client
+  deadline at all and depended on the untrusted server's room TTL to rescue it.
 - Path attestation: advisory, **15 s** to hear the peer's attestation. Never tears anything down.
 - **Relay throughput (Reliable mode), measured 2026-09-19** against the live coturn with a real
   relay-only `RTCPeerConnection` pair (`iceTransportPolicy: 'relay'`, selected pair confirmed

@@ -399,6 +399,28 @@ export const SCENES: Scene[] = [
     setup: (page) => dispatch(page, ...sending, tr('completed')),
   },
   {
+    // A receive finished on an iPhone: Safari asks before it saves, so the row says to answer it
+    // (ui/platform.ts downloadPromptFor). The UA is the only thing that makes this an iPhone here.
+    name: 'transfer-received-ios',
+    matrix: 'phone',
+    init: (page) =>
+      page.addInitScript(() => {
+        Object.defineProperty(navigator, 'userAgent', {
+          get: () =>
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 26_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6 Mobile/15E148 Safari/604.1',
+        });
+      }),
+    setup: (page) =>
+      dispatch(
+        page,
+        ...connected,
+        tr('offered', { direction: 'receive', fileName: FILE, totalBytes: SIZE }),
+        tr('accepted'),
+        tr('progress', { transferredBytes: SIZE }),
+        tr('completed'),
+      ),
+  },
+  {
     name: 'transfer-declined',
     matrix: 'phone',
     setup: (page) =>
@@ -499,6 +521,22 @@ export const SCENES: Scene[] = [
     name: 'failed-link-expired',
     matrix: 'phone',
     setup: (page) => dispatch(page, ...failed('link', 'nobody joined before the code expired')),
+  },
+  {
+    // The token room expired DURING a link pairing: no digits to check (until 2026-10-11 it said so).
+    name: 'failed-link-gone',
+    matrix: 'phone',
+    setup: (page) => dispatch(page, ...failed('link', 'signaling closed (code 4010: expired)')),
+  },
+  {
+    // A browser with WebRTC switched off gets this page instead of the app (core/webrtc/available.ts).
+    name: 'no-webrtc',
+    matrix: 'phone',
+    init: (page) =>
+      page.addInitScript(() => {
+        delete (window as { RTCPeerConnection?: unknown }).RTCPeerConnection;
+      }),
+    setup: async () => {},
   },
   {
     name: 'failed-noshow',

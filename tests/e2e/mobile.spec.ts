@@ -91,6 +91,11 @@ test('phone · a normal transfer completes over the phone\'s real receive path',
 
   await expect(sender.getByTestId('transfer-phase')).toContainText('done', { timeout: 30_000 });
   expect(sha256(readFileSync(out)), 'received bytes match what was sent').toBe(sha256(payload));
+
+  // iOS Safari asks before it saves a download, while the screen already says "Received" — the
+  // finished row says so (ui/platform.ts downloadPromptFor; this project carries an iPhone Safari UA).
+  await expect(receiver.getByTestId('transfer-phase')).toContainText('done', { timeout: 30_000 });
+  await expect(receiver.getByTestId('download-prompt-hint')).toContainText('tap Download');
 });
 
 test('phone · nothing overflows a 390 px screen', async ({ page }) => {

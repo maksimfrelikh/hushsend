@@ -160,8 +160,10 @@ the **same address** (verified 2026-09-13: `hushsend.frelikh.dev` and `turn.hush
 
 **Status: SAID OUT LOUD 2026-09-13; the exposure itself is open.** The landing screen carries a
 collapsed "What your network can still see" item (under "About privacy and security", testid
-`network-exposure`) stating this and § 4, with the one action that helps — Tor or a VPN, on **both**
-sides (English; the Russian copy is kept in the table for later). Collapsed on purpose: these are
+`network-exposure`) stating this and § 4, with the one action that helps — a VPN, on **both** sides
+(English; the Russian copy is kept in the table for later). It said "Tor or a VPN" until 2026-10-11: Tor
+users are not the audience (docs/decisions.md), and whether hushsend runs in Tor Browser at all was
+never checked. Collapsed on purpose: these are
 permanent properties of a direct transfer, not events, and a standing banner would be dismissed within
 a day and would train people to ignore the transfer path rows that DO report events.
 
@@ -180,8 +182,8 @@ between the two people visible to the network. **Volume is padded since 2026-09-
 lands on a bucket edge rather than naming the file (`core/transfer/padding.ts`) — but duration, the
 fact of a transfer, and how many there were are all still visible.
 
-**Status: not addressable inside the app.** The honest mitigation is Tor or a VPN on both sides, and
-users for whom this matters should be told so plainly rather than reassured.
+**Status: not addressable inside the app.** The honest mitigation is a VPN on both sides, and users for
+whom this matters should be told so plainly rather than reassured.
 
 ### 5. No independent audit (the device pass is done)
 
@@ -259,7 +261,7 @@ clean meeting. Same exposure class as the pins themselves; tracked with them.
 > detect that. It also delivers the app itself, so a compelled operator could serve you a modified
 > version. And your internet provider can see that you connected directly to your correspondent.
 >
-> If those matter to you, use Tor or a VPN on both sides.
+> If those matter to you, use a VPN on both sides.
 
 Do not promise "nothing can be tracked". It is not true today, and for this audience an overstated
 guarantee is worse than an honest limitation: people calibrate their behaviour to what they are told.
@@ -292,7 +294,7 @@ guarantee is worse than an honest limitation: people calibrate their behaviour t
    path attestation ever becoming a control. Nothing exists until the services actually run on
    separate machines under separate operators: today all three resolve to one IP.
 2b. ✅ **Done 2026-09-13 — the SNI exposure (§3b) and the direct-connection exposure (§4) are now
-   stated in the interface**, not only in this file, with the Tor/VPN-on-both-sides advice. Cheapest
+   stated in the interface**, not only in this file, with the advice to use a VPN on both sides. Cheapest
    honesty available, and it was missing: the privacy toggle only ever said the PEER sees your IP,
    which is a far smaller claim than either of these.
 3. ✅ **Done 2026-10-03 — the real-device pass** — `TESTPLAN.md`, 47 of 47 cases ticked or closed

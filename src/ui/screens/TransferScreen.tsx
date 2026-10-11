@@ -1,5 +1,5 @@
 import { useRef, useState, type DragEvent, type ReactElement } from 'react';
-import { onCoarsePointer } from '../platform';
+import { downloadPromptHere, onCoarsePointer } from '../platform';
 import { transferWakeLock } from '../wakeLock';
 import { useSession } from '../SessionProvider';
 import { useAppSelector } from '../../store/hooks';
@@ -240,6 +240,9 @@ function TransferPanel({
   // its WebRTC connection the way iOS Safari does on lock (TESTPLAN F1), and the wake lock in App.tsx
   // covers the idle timer; this line covers what it cannot — a deliberate lock or an app switch.
   const [coarsePointer] = useState(onCoarsePointer);
+  // Safari asks its own question before a received file is saved (every time on iOS, once per site on
+  // macOS) while this screen already says "Received" — a file nobody answers for is never saved.
+  const [downloadPrompt] = useState(downloadPromptHere);
   const pct = totalBytes > 0 ? Math.min(100, Math.round((transferredBytes / totalBytes) * 100)) : 0;
   const incoming = phase === 'offered' && direction === 'receive';
   const inFlight = phase === 'offered' || phase === 'transferring';
@@ -352,6 +355,15 @@ function TransferPanel({
           </>
         )}
       </div>
+      {done && direction === 'receive' && downloadPrompt && !transfer.saveNeeded && (
+        // Once the download has been handed to the browser (at once, or by the Save file tap).
+        <>
+          <Space h={12} />
+          <p className="hs-p hs-p--muted" data-testid="download-prompt-hint">
+            {t(downloadPrompt === 'ios' ? 'dlAskIos' : 'dlAskMac')}
+          </p>
+        </>
+      )}
 
       <Grow />
       <Space h={20} />

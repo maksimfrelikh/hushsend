@@ -7,6 +7,7 @@ import { devActions } from '../store/devSlice';
 import { transferActions } from '../store/transferSlice';
 import { SignalingClient } from './signaling/SignalingClient';
 import { PeerConnection } from './webrtc/PeerConnection';
+import { webrtcAvailable, WEBRTC_UNAVAILABLE_REASON } from './webrtc/available';
 import { generateWords, splitWords } from './words/words';
 import { init as cpaceInit, finish as cpaceFinish, type CPaceState } from './crypto/cpace';
 import {
@@ -809,7 +810,8 @@ export class SessionController {
    *  opened the DataChannel and then simply went silent left us in `confirming` until the SERVER's
    *  room TTL closed the socket. That delegated our liveness to the untrusted server — a server that
    *  declines to expire the room hangs the client indefinitely. Fail-closed, liveness only: no
-   *  crypto, no transcript, no guessing budget is touched. (2026-09-12 audit.) */
+   *  crypto, no transcript, no guessing budget is touched. (2026-09-12 audit; armed from pairing start
+   *  since 2026-10-11, so a stall BEFORE the channel opens is covered too.) */
   private confirmTimer: ReturnType<typeof setTimeout> | null = null;
   /** Path-attestation state for this pairing: does the path carry the bytes to each other and not
    *  through an interposer. ADVISORY — `verified` is recorded but gates nothing; the byte gate was
@@ -1133,6 +1135,10 @@ export class SessionController {
 
     if (this.method === 'words') {
       this.attemptResolved = false; // a fresh guess attempt begins (either role)
+      // The whole automatic handshake — CPace, the WebRTC bring-up, key-confirmation — runs under ONE
+      // client deadline from here, so a peer that stalls before the DataChannel opens cannot leave us
+      // waiting for the untrusted server's room TTL (armConfirmTimeout).
+      this.armConfirmTimeout();
       if (initiator) {
         // Run CPace FIRST; bring up WebRTC only once we hold the ISK (onCpaceMessage), so the
         // DataChannel can't open before key-confirmation has a key to MAC the DTLS fingerprints under.
@@ -1140,7 +1146,7 @@ export class SessionController {
       } else {
         // Responder: reply to CPace over signaling and stand ready as the WebRTC answerer. The
         // initiator's offer arrives only AFTER it finishes CPace, so the PeerConnection is up in time.
-        void this.startPeer(peerId, /* initiator */ false);
+        this.launchPeer(peerId, /* initiator */ false);
       }
       return;
     }
@@ -1148,7 +1154,9 @@ export class SessionController {
     if (this.method === 'link' || this.method === 'qr') {
       // link/qr: no PAKE — bring up WebRTC straight away (the secret S is already in hand); the
       // key-confirmation over S runs once the DataChannel opens. Initiator offers, responder answers.
-      void this.startPeer(peerId, initiator);
+      // One client deadline from pairing start covers the bring-up AND the confirmation, as for words.
+      this.armConfirmTimeout();
+      this.launchPeer(peerId, initiator);
       return;
     }
 
@@ -1179,7 +1187,29 @@ export class SessionController {
       this.armReconnectTimeout('reconnect timed out — peer did not complete re-authentication', reconnectTimeoutMs());
     }
     // Initiator offers, responder answers (for words the responder's PeerConnection was started above).
-    void this.startPeer(peerId, initiator);
+    this.launchPeer(peerId, initiator);
+  }
+
+  /**
+   * Every PeerConnection bring-up goes through here. startPeer is async, and the call sites used to
+   * `void` it, so a throw inside it became an unhandled rejection with nothing on screen — measured
+   * 2026-10-11 with a joiner whose browser has WebRTC switched off: `new RTCPeerConnection` threw a
+   * ReferenceError and BOTH sides sat on "Agreeing on keys…" until the server expired the room
+   * (docs/test-runs/2026-10-11.md). A failed bring-up now fails the pairing, visibly, through the
+   * method's own teardown.
+   */
+  private launchPeer(peerId: string, initiator: boolean): void {
+    this.startPeer(peerId, initiator).catch((err: unknown) => this.onPeerStartFailure(err));
+  }
+
+  private onPeerStartFailure(err: unknown): void {
+    const reason = webrtcAvailable() ? `could not start the connection (${errText(err)})` : WEBRTC_UNAVAILABLE_REASON;
+    this.dispatch(devActions.appendLog(`startPeer failed: ${errText(err)}`));
+    if (this.method === 'words') this.onWordsPairingFailure(reason);
+    else if (this.method === 'link' || this.method === 'qr') this.failLink(reason);
+    else if (this.reconnect) this.failReconnect(reason);
+    else if (this.sas) this.failSas(reason);
+    else this.fail(new Error(reason));
   }
 
   private onPeerLeft(peerId: string): void {
@@ -1580,7 +1610,7 @@ export class SessionController {
         if (!this.cpaceState) return; // not initialised yet
         this.sessionKey = cpaceFinish(this.cpaceState, peerMsg);
         // ISK in hand → now bring up WebRTC as the initiator (offer/answer/ICE → DTLS).
-        void this.startPeer(this.peerId!, /* initiator */ true);
+        this.launchPeer(this.peerId!, /* initiator */ true);
       }
     } catch (err) {
       // A malformed / low-order peer point (active tampering) or a broken cpace frame aborts the
@@ -1679,8 +1709,9 @@ export class SessionController {
       return;
     }
     this.confirmFps = { local, remote };
-    // Bound the wait for the peer's tag from HERE. A peer that opens the channel and then goes
-    // silent must not leave us in `confirming` until the untrusted server's room TTL rescues us.
+    // The wait for the peer's tag is bounded: the deadline beginPairing armed for this attempt is still
+    // running (this call is then a no-op), so a peer that opens the channel and goes silent cannot
+    // leave us in `confirming` until the untrusted server's room TTL rescues us.
     this.armConfirmTimeout();
     const tag = makeConfirmation(secret, local, remote, this.role, this.confirmDomain());
     void this.peer
@@ -2762,13 +2793,20 @@ export class SessionController {
    * deadline off to the (shorter, DEV-overridable) comparison deadline without leaking a timer.
    * No-op once the SAS has settled. The live handle lives on `sas` (core-only, never in the store).
    */
-  /** Arm the 1:1 key-confirmation liveness deadline (see `confirmTimer`). Same 120 s default as the
-   *  SAS and reconnect deadlines, read through the same DEV-only override so e2e can drive it. */
+  /** Arm the 1:1 liveness deadline (see `confirmTimer`) — at pairing start for words / link / qr, so it
+   *  bounds the WebRTC bring-up as well as the key-confirmation (before 2026-10-11 it armed only once
+   *  the DataChannel was open, and a peer that never answered the offer left us on the server's room
+   *  TTL). Same 120 s default as the SAS and reconnect deadlines, read through the same DEV-only
+   *  override so e2e can drive it. */
   private armConfirmTimeout(): void {
     if (this.confirmSettled || this.confirmTimer != null) return;
     this.confirmTimer = setTimeout(() => {
       if (this.confirmSettled) return;
-      this.onConfirmFailure('peer did not complete key confirmation in time');
+      this.onConfirmFailure(
+        this.channelOpen
+          ? 'peer did not complete key confirmation in time'
+          : 'the connection did not come up in time',
+      );
     }, preSasTimeoutMs());
   }
 

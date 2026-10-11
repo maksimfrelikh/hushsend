@@ -130,6 +130,32 @@ test('link negative: a dead link (nobody in the token room) fails at once as "ro
   const receiver = await openJoiner(context, `#${token}.${secret}`);
   await expect(receiver.getByTestId('status')).toHaveText('failed', { timeout: 30_000 });
   await expect(receiver.getByTestId('failure')).toHaveAttribute('data-reason', /not found/); // the copy says it; the raw reason is kept on the node
+  // A link has no digits: until 2026-10-11 this read the 4-digit room's "Check the digits".
+  await expect(receiver.getByTestId('failure')).toContainText('This link expired or was already used');
+  await expect(receiver.getByTestId('failure')).not.toContainText('digits');
+});
+
+/**
+ * A browser with WebRTC switched off (some privacy browsers and settings do that) is told so up front
+ * and does not join. Before 2026-10-11 it joined, threw inside startPeer — an unhandled rejection — and
+ * both sides sat on "Agreeing on keys…" until the server expired the room (docs/test-runs/2026-10-11.md).
+ */
+test('a joiner whose browser has no WebRTC is told so, and does not join', async ({ context }) => {
+  const sender = await context.newPage();
+  await sender.goto('/?forceBlob=1');
+  const link = await createLink(sender, 'link');
+
+  const receiver = await context.newPage();
+  await receiver.addInitScript(() => {
+    delete (window as { RTCPeerConnection?: unknown }).RTCPeerConnection;
+  });
+  await receiver.goto(`/?forceBlob=1${fragmentOf(link)}`);
+  await expect(receiver.getByTestId('failure')).toHaveAttribute('data-variant', 'noWebrtc');
+  await expect(receiver.getByTestId('failure')).toContainText('This browser can’t send files');
+  // The secret is scrubbed all the same, and nothing joined: the sender still waits alone.
+  expect(await receiver.evaluate(() => window.location.hash)).toBe('');
+  await receiver.waitForTimeout(1500);
+  await expect(sender.getByTestId('status')).toHaveText('awaitingPeer');
 });
 
 /**

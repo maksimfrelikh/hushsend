@@ -77,22 +77,27 @@ export function FailedScreen(): ReactElement {
   // An AUTHENTICATED channel died after `connected`. Keyed off CONNECTION_LOST_PREFIX
   // (`connection lost: <which signal>`).
   const isLost = lower.startsWith('connection lost');
+  // A pairing could not start for lack of WebRTC (WEBRTC_UNAVAILABLE_REASON). The App shows the same copy
+  // up front, before any session; this catches a browser that loses it later.
+  const isNoWebrtc = /webrtc is not available/.test(lower);
 
   const variant = isMismatch
     ? 'mismatch'
     : isLost
       ? 'lost'
-      : isNoShow
-        ? 'noShow'
-        : isWaitExpired
-          ? 'waitExpired'
-          : isExpired
-            ? 'expired'
-            : isServerLost
-              ? 'server'
-              : isDirectFail
-                ? 'direct'
-                : 'generic';
+      : isNoWebrtc
+        ? 'noWebrtc'
+        : isNoShow
+          ? 'noShow'
+          : isWaitExpired
+            ? 'waitExpired'
+            : isExpired
+              ? 'expired'
+              : isServerLost
+                ? 'server'
+                : isDirectFail
+                  ? 'direct'
+                  : 'generic';
   // The same hard-stop title for every mismatch; the description says what THIS side actually saw.
   const mismatchDesc = /peer reported a sas mismatch/.test(lower)
     ? t('erSasPeerDesc')
@@ -107,11 +112,19 @@ export function FailedScreen(): ReactElement {
       : method === 'link' || method === 'qr'
         ? { title: t('waitLinkTitle'), desc: t('waitLinkDesc') }
         : { title: t('waitRoomTitle'), desc: t('waitRoomDesc') };
+  // A room answer (gone / expired / full) names what was used to find the room: digits only for a room.
+  const expiredCopy =
+    method === 'link' || method === 'qr'
+      ? { title: t('exLinkTitle'), desc: t('exLinkDesc') }
+      : method === 'words'
+        ? { title: t('exWordsTitle'), desc: t('exWordsDesc') }
+        : { title: t('exTitle'), desc: t('exDesc') };
   const copy = {
     mismatch: { title: t('erMismatchTitle'), desc: mismatchDesc },
     waitExpired: waitCopy,
     noShow: { title: t('noShowTitle'), desc: t('noShowDesc') },
-    expired: { title: t('exTitle'), desc: t('exDesc') },
+    noWebrtc: { title: t('noWebrtcTitle'), desc: t('noWebrtcDesc') },
+    expired: expiredCopy,
     server: { title: t('serverLostTitle'), desc: t('serverLostDesc') },
     direct: { title: t('directFailTitle'), desc: t('directFailHint') },
     // Title, the file, the signal. A description could not honestly say WHOSE side dropped.
@@ -153,8 +166,8 @@ export function FailedScreen(): ReactElement {
       reason={reason}
       actions={
         // Fresh words fix a CODE problem (wrong, spent, expired). A lost connection is not one — the
-        // words did their job — so it gets the plain exit.
-        method === 'words' && variant !== 'lost' ? (
+        // words did their job — and neither is a browser without WebRTC, so both get the plain exit.
+        method === 'words' && variant !== 'lost' && variant !== 'noWebrtc' ? (
           <>
             <Pill
               variant="primary"
@@ -240,6 +253,17 @@ function LastTransfer(): ReactElement | null {
       )}
     </>
   );
+}
+
+/**
+ * Shown INSTEAD of the app when this browser has no WebRTC (App.tsx asks core/webrtc/available.ts once,
+ * at start). No method can work without it, and the person used to find out only after a link had been
+ * made and sent — measured 2026-10-11: both sides then sat on "Agreeing on keys…" until the server
+ * expired the room. No action: nothing on this page can fix it; the description says where to go.
+ */
+export function NoWebRtcScreen(): ReactElement {
+  const t = useT();
+  return <FailureLayout variant="noWebrtc" title={t('noWebrtcTitle')} desc={t('noWebrtcDesc')} actions={null} />;
 }
 
 /** The failure composition shared by every variant (and by the SAS fail-closed restart): glyph,

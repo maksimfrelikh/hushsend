@@ -121,16 +121,17 @@ be verified without a reference hash.
 
 **Feature-complete and deployed.** All four methods, the codeless reconnect, the mesh lobby, TURN,
 light/dark, the Claude Design screen set (English only for now; the RU table is kept, the switch
-hidden), and the deployment are built and live. **368 vitest tests** (the client; the signaling
+hidden), and the deployment are built and live. **378 vitest tests** (the client; the signaling
 server's 28 run in its own repository) and a
-Playwright e2e suite — **53 cases per engine: 52 run on chromium, 48 on firefox, 47 on webkit** (2026-10-11) (the
+Playwright e2e suite — **54 cases per engine: 53 run on chromium, 49 on firefox, 48 on webkit** (2026-10-11) (the
 silent-peer case needs CDP, and the two straight-into-Downloads cases apply only where the stream path
 does — desktop Chromium; the two site-storage cases skip on Playwright's WebKit, whose storage cannot
 write; plus 2 opt-in cases everywhere, the size ladder and the two-STUN cross-check), plus a 4-case
 phone profile and 5 cross-engine pairs — cover the protocol paths; the axe
-gate (`npm run test:a11y`, 126 checks) and the screenshot gate (`npm run visual`, 181 checks — on the
+gate (`npm run test:a11y`, 132 checks) and the screenshot gate (`npm run visual`, 187 checks — on the
 deploy host, whose renders the baselines are) cover the screens. Every count here was re-run
-2026-10-11 on the deploy host, on the Vite 8 / Vitest 5 / Playwright 1.64 toolchain (vitest 368 of 368).
+2026-10-11 on the deploy host, on the Vite 8 / Vitest 5 / Playwright 1.64 toolchain, with the
+pre-launch fixes of that day in (vitest 378 of 378; e2e 159 passed, 12 skipped, none failed).
 Refresh them here whenever the suite grows.
 
 A second internal audit on **2026-09-12**, modelling a fully malicious signaling server rather than a

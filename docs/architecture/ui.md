@@ -115,9 +115,14 @@ travels live in the kit's own `CLAUDE.md`; its `README.md` is the consumer contr
   the path check renders as disclosure rows ONLY in the non-ok states ("direct path not confirmed"
   muted, "route did not match" and "address servers disagree" fg + glyph, each opening its hint); one
   transfer = one row, one progress bar, one Cancel; delivered / declined / cancelled / error in the same
-  container, then "New transfer". Failed is ONE screen with variants (compromised, room not found,
-  nobody came, verification interrupted with "Restart verification", direct failed ± relay hint,
-  generic, words with "New words"); no "Try again". Header: the existing Wordmark + the kit toggle.
+  container, then "New transfer" — on Safari a received file's row also says to answer Safari's own
+  download question (`download-prompt-hint`, since 2026-10-11 — transfer.md). Failed is ONE screen with
+  variants (compromised, room not found — or, since 2026-10-11, "this link expired or was already used" /
+  "these words don't work any more" for those methods, which have no digits to check — nobody came,
+  verification interrupted with "Restart verification", direct failed ± relay hint, this browser can't
+  send files (no WebRTC), generic, words with "New words"); no "Try again". A browser without WebRTC
+  never reaches the app: App.tsx shows the same "This browser can't send files" page instead
+  (`NoWebRtcScreen`) and a link opened there is scrubbed but not followed. Header: the existing Wordmark + the kit toggle.
   **SAS refusals — EQUAL WEIGHT (the 2026-09-12 audit decision, restored the same day the redesign
   briefly composed them as a tertiary label):** "Stop — they don't have this phrase" and "None of these
   match — stop" are quiet pills with the SAME geometry as the confirm (the kit's `.pill`, 52px, full

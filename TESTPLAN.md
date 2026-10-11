@@ -185,7 +185,7 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       "What your network can still see" block (testid `network-exposure`) must be present, **closed by
       default**, readable in EN and RU, and open on tap on a phone. It states the two things
       cryptography does not hide (cleartext SNI; the direct connection to your correspondent) and the
-      Tor/VPN-on-both-sides advice. Check the text is not clipped at 390 px — it is the longest prose
+      VPN-on-both-sides advice (it said "Tor or a VPN" until 2026-10-11). Check the text is not clipped at 390 px — it is the longest prose
       in the app.
 - [x] **B6 · theme / language / layout** *(Android half ✅ 2026-10-02 — both themes, no clipping, 44 px targets; iPhone ✅ 2026-10-03: both themes, 44 px targets, no overflow at 393 px)* — check the app in light+dark and EN+RU on the iPhone and on a
       MacBook: no clipped text, no horizontal scroll, tap targets reachable, the 4-digit code and word

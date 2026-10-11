@@ -86,6 +86,14 @@ Part of the architecture reference — [README.md](README.md) is the index.
   browser stops the transfer and tells the sender; site storage, forced with the DEV-only
   `?noStream=1`: no dialog, bytes intact; hidden page → Save file) and `connection-lost.spec.ts` (a
   started stream download must end FAILED) / `mobile.spec.ts`, which run on the real path.
+- **Safari's own download question (2026-10-11, owner's decision).** Once the download is handed over,
+  Safari asks before it saves — on iOS before every download, on macOS once per site until it is
+  allowed (both measured: COMPATIBILITY.md). Until it is answered the file is not saved, while the
+  screen already says "Received". On Safari the finished receive row therefore says to answer it
+  (`download-prompt-hint`, shown once the hand-off happened — at once, or after the Save file tap);
+  `ui/platform.ts` `downloadPromptFor` decides from the UA (`platform.test.ts`; e2e `mobile.spec.ts`
+  under the iPhone profile; visual scene `transfer-received-ios`). Other browsers save without asking
+  and show nothing.
 - **Screen Wake Lock while a transfer is in flight (2026-10-03, owner's choice "option c").** iOS Safari
   tears the WebRTC connection down the moment the screen locks (TESTPLAN F1 on the iPhone 15: an 800 MB
   receive died at 14 %, both sides "Connection lost" within 17 s), and a phone left alone while a file

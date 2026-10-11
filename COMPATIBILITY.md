@@ -59,6 +59,15 @@ Chosen per offer, before it reaches the screen — the order and the reasons are
   the picker pointed (seen on Android 2026-09-27, 0 bytes twice; desktop Chrome not checked). The partial
   data is discarded; the file itself is not deleted, because the picker may have pointed at a file the
   user meant to replace.
-- **Testing from the server's own LAN proves nothing about other networks:** there the STUN reply
-  names the router's LAN address (the router hairpins), so a home-side peer never advertises its public
-  mapping ([BACKLOG.md](BACKLOG.md) § Pre-launch review).
+- **Safari asks before it saves a received file** — on iOS before every download, on macOS once per
+  site until it is allowed. Until it is answered the file is not saved, while hushsend already says
+  "Received"; since 2026-10-11 the finished row on Safari says to answer it
+  ([transfer.md](docs/architecture/transfer.md)). Chrome, Firefox and Android Chrome save without asking.
+- **A browser with WebRTC switched off cannot send or receive** (some privacy browsers and hardening
+  settings do that). Since 2026-10-11 hushsend says so up front instead of starting; before, a joiner
+  in such a browser left both sides waiting until the server expired the room
+  ([2026-10-11 run](docs/test-runs/2026-10-11.md)). Whether Tor Browser runs hushsend was not checked.
+- **From the server's own LAN, only the TURN relay's STUN answer is useless:** coturn on 3478 names the
+  router's LAN address to a hairpinned request, while the live bundle's STUN on 3479 returns the public
+  mapping (re-measured 2026-10-11). A test that asks 3478 from home says nothing about other networks
+  ([BACKLOG.md](BACKLOG.md) § Pre-launch review).

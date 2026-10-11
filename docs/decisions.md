@@ -14,6 +14,8 @@ elsewhere. Open questions waiting for a decision are in [BACKLOG.md](../BACKLOG.
 - Only the current browser versions are supported — no minimum-version work.
 - Windows: no Windows machine available — an untested gap, stated.
 - Legal pages and an FAQ: not now.
+- The in-app network-exposure advice names a VPN on both sides, not Tor (2026-10-11), following the
+  audience decision above.
 - The Android save dialog for a file past the site-storage quota stays as it is (2026-10-11): the case
   is rare, and the measured risk — a dialog left open ~10–20 s killed the connection on the emulator and
   left a 0-byte file — is accepted rather than replaced by a refusal or a warning.

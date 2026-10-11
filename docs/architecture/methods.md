@@ -279,6 +279,17 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
   → at pairing start the WebRTC **initiator is the smaller readable id** (see **Per-pairing role**;
   either side may offer, not necessarily the creator) → DTLS → key-confirmation over S → `connected`.
   (`creating`/`joining` → `pairing`[DTLS] → `confirming`[S key-confirm] → `connected`|`failed`.)
+- **Liveness (link, QR and words alike)**: ONE client deadline, 120 s (`preSasTimeoutMs()`, the same
+  DEV override as the SAS window), runs from pairing start through key-confirmation —
+  `SessionController.armConfirmTimeout`, armed in `beginPairing`. Until 2026-10-11 it armed only once
+  the DataChannel was open, so a peer that never answered the offer left the other side waiting for the
+  untrusted server's room TTL (measured: ~165 s on "Agreeing on keys…", docs/test-runs/2026-10-11.md).
+  A stall before the channel ends as "the connection did not come up in time"; after it, as "peer did
+  not complete key confirmation in time". A PeerConnection that cannot be brought up fails the pairing
+  at once (`launchPeer` → `onPeerStartFailure`, through the method's own teardown); without WebRTC in
+  the browser the reason is `WEBRTC_UNAVAILABLE_REASON` — and the app does not get that far, it shows
+  "This browser can't send files" up front (`core/webrtc/available.ts`, App.tsx).
+  `SessionController.pairingDeadline.test.ts`; e2e `link.spec.ts` (the no-WebRTC joiner).
 - **One-time / replay**: the link/QR is for ONE connection; the token room is session-scoped (TTL +
   per-IP rate-limit — the managed-room hardening — see § room method → *Server cap / TTL / rate-limit*).
   The token room is **strictly 1:1** (`ONE_TO_ONE_MAX_PEERS = 2`, like words), NOT the 4-digit lobby:

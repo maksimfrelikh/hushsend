@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useRef, type ReactElement } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { createSessionController } from '../core/SessionController';
 import { parseLink } from '../core/link/link';
 import { SessionProvider, useSession } from './SessionProvider';
 import { PrefsProvider, usePrefs } from './prefs';
 import { ScreenRouter } from './screens';
+import { NoWebRtcScreen } from './screens/FailedScreen';
 import { usePacedScreen } from './screens/usePacedScreen';
+import { webrtcAvailable } from '../core/webrtc/available';
 import { TopBar, StatusBeacon } from './ui';
 import { Diagnostics } from './components/Diagnostics';
 import { historyActions } from '../store/historySlice';
@@ -37,19 +39,20 @@ function Shell(): ReactElement {
   const paced = usePacedScreen();
   const shown = paced.pace.shown;
   const reconnectOutcome = useAppSelector((s) => s.dev.reconnect.outcome);
+  // Asked once: without WebRTC no method can work, so the app is replaced by a page that says so
+  // before anyone makes a link or joins one (docs/test-runs/2026-10-11.md).
+  const [webrtc] = useState(webrtcAvailable);
   const inverted =
     shown.kind === 'screen' && shown.status === 'failed' && reconnectOutcome === 'key-changed';
   return (
     <div className={`hs-app${inverted ? ' hs-app--inverted' : ''}`}>
       <TopBar />
-      <main className="hs-main wrap">
-        <ScreenRouter paced={paced} />
-      </main>
+      <main className="hs-main wrap">{webrtc ? <ScreenRouter paced={paced} /> : <NoWebRtcScreen />}</main>
       <Diagnostics />
       <StatusBeacon />
       <HistorySync />
       <PrivacyModeSync />
-      <LinkFragmentJoin />
+      <LinkFragmentJoin canJoin={webrtc} />
       <PageHideGoodbye />
       <WakeLockDuringTransfer />
     </div>
@@ -152,8 +155,11 @@ function PrivacyModeSync(): null {
  * used to do nothing at all. `hashchange` catches it. The fragment is scrubbed at once whatever the
  * state; the join runs from the home screen and from a finished (failed) session, but never tears
  * down a session in progress or a live channel — a link pasted there is dropped, not followed.
+ *
+ * In a browser without WebRTC (`canJoin` false) the fragment is still scrubbed, but nothing joins: the
+ * page says the browser cannot send files, and the person opens the link they were sent elsewhere.
  */
-function LinkFragmentJoin(): null {
+function LinkFragmentJoin({ canJoin }: { canJoin: boolean }): null {
   const session = useSession();
   const status = useAppSelector((s) => s.connection.status);
   const statusRef = useRef(status);
@@ -168,6 +174,7 @@ function LinkFragmentJoin(): null {
       if (!parsed) return;
       // Scrub the secret out of the URL/history BEFORE any await — keep only path + query.
       window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      if (!canJoin) return;
       const now = statusRef.current;
       if (now !== 'idle' && now !== 'failed') return;
       if (now === 'failed') session.dispose(); // back to idle: the failed session is over anyway
@@ -179,7 +186,7 @@ function LinkFragmentJoin(): null {
     }
     window.addEventListener('hashchange', take);
     return () => window.removeEventListener('hashchange', take);
-  }, [session]);
+  }, [session, canJoin]);
 
   return null;
 }
