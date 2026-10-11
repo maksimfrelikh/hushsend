@@ -717,7 +717,7 @@ export async function openReceive(
     const next = await nextPlan(plan.path, offer.size);
     if (!next) {
       if (plan.path === 'opfs' || plan.path === 'stream') {
-        throw new Error(`this browser could not store the file and it is too big to hold in memory (${storageError(err)})`);
+        throw new Error(`this browser could not store the file and it is too big to hold in memory (${storageError(err)})`, { cause: err });
       }
       throw err;
     }

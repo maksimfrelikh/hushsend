@@ -87,7 +87,7 @@ async function step<T>(label: string, fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
   } catch (err) {
-    throw new Error(`${label} — ${firstLine(err)}`);
+    throw new Error(`${label} — ${firstLine(err)}`, { cause: err });
   }
 }
 
@@ -149,7 +149,6 @@ async function runRung(context: BrowserContext, mb: number): Promise<number> {
 
   let sender: Page | null = null;
   let receiver: Page | null = null;
-  let wireSeconds = 0;
   try {
     sender = await context.newPage();
     await sender.goto('/?forceBlob=1');
@@ -199,7 +198,7 @@ async function runRung(context: BrowserContext, mb: number): Promise<number> {
     } finally {
       watch.stop();
     }
-    wireSeconds = (Date.now() - wireStart) / 1000;
+    const wireSeconds = (Date.now() - wireStart) / 1000;
     await step('the download could not be saved', () => download.saveAs(out));
 
     await step('the received bytes were wrong', async () => {
