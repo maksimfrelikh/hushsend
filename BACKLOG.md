@@ -62,13 +62,21 @@ by address at most, and the probe measured the home router's MAPPING, not its fi
 - `/.well-known/security.txt` — the owner fills it in before the release (today that path is answered
   by the app's HTML with a 200).
 
-**Waiting for the owner's decision:** the Android save dialog past the site quota (a dialog left open
-~10–20 s killed the connection on the emulator and left a 0-byte file — keep it, replace it with a
-refusal, or warn before it); a line warning about the browser's own download prompts (Safari on macOS
+- **A pairing that stalls before the DataChannel opens has no client-side deadline** (link / QR /
+  words; found 2026-10-11 — [the run log](docs/test-runs/2026-10-11.md)). The 120 s deadline arms only
+  in `runKeyConfirmation`, after the channel is open; room/SAS and reconnect arm theirs at
+  `beginPairing`. A joiner whose `startPeer` threw (no `RTCPeerConnection`) left both sides on "Agreeing
+  on keys…" for ~165 s until the server's room TTL ended it — a server that never expires the room would
+  leave them there for good. Arm the deadline at pairing start for these methods too, and catch a
+  `startPeer` failure into a visible one. The ending also had the wrong copy: an expired token room
+  during pairing read "Room not found … Check the digits", the joiner text for a mistyped 4-digit code.
+
+**Waiting for the owner's decision:** a line warning about the browser's own download prompts (Safari on macOS
 "allow downloads from this site", iOS "Download?", Brave holding the download — the site-storage copy
 waits 10 minutes for the answer); the in-app advice "use Tor or a VPN on BOTH sides" (Tor users are not
-the audience, and Tor Browser restricts WebRTC) and an up-front "WebRTC is disabled in this browser"
-message — today `new RTCPeerConnection` runs unguarded.
+the audience; whether hushsend runs in Tor Browser at all was not checked) and an up-front "WebRTC is
+disabled in this browser" message — today `new RTCPeerConnection` runs unguarded, and what that looks
+like is in the 2026-10-11 run log (above). The Android dialog question is decided (docs/decisions.md).
 
 **Ideas to think about (owner, 2026-10-03; not planned):** resume after a drop (look at what the code
 allows — the receiver already writes to site storage), a persistent QR / link "inbox" without storage, a
