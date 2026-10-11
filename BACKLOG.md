@@ -47,8 +47,6 @@ by address at most, and the probe measured the home router's MAPPING, not its fi
   and hash with the original — the Photos picker may hand over a prepared copy of a video), and from
   Android. The windowed reader was measured on Safari on the Mac only.
 - Re-run C6 on real LTE with the Mac on `chrome-pubif` (the iPhone side by the owner).
-- Full test run: the 28 integration tests on a host that may bind ports, the visual gate after
-  `9775117`, the engine matrix.
 - "No logs" end to end: nginx's error.log (client IPs), journald of the signaling service, fail2ban,
   the router — what is written and for how long. (coturn — the TURN relay and the STUN server — writes
   none since 2026-10-10: both templates set `log-file=/dev/null`, both installers check it.)

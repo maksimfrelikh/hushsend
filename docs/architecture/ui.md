@@ -2,10 +2,10 @@
 
 Part of the architecture reference — [README.md](README.md) is the index.
 
-Dependency: `"stark-ui-kit": "github:maksimfrelikh/stark-ui-kit#<sha>"` — a private GitHub repo, pinned by
+Dependency: `"stark-ui-kit": "github:maksimfrelikh/stark-ui-kit#<sha>"` — a public GitHub repo, pinned by
 commit (NOT on the npm registry: `npm install stark-ui-kit` fetches an unrelated package). **Current pin:
-`f9d9250` = kit 0.3.2** (since 2026-10-03 — quiet touch feedback, § UI → *Touch press*; frelikh still pins
-`2a3f7ec` = 0.3.0 and should bump next). Bumping the pin needs `npm install`
+`f9d9250` = kit 0.3.2** (since 2026-10-03 — quiet touch feedback, § UI → *Touch press*); every consumer's
+pin is in the consumers table of the kit's own `CLAUDE.md`. Bumping the pin needs `npm install`
 with the TPM SSH agent (`SSH_AUTH_SOCK=/run/user/1000/ssh-tpm-agent.sock` in a non-interactive shell) —
 npm caches a git dep by sha, so the bump IS the install. The rules for changing the kit and how a change
 travels live in the kit's own `CLAUDE.md`; its `README.md` is the consumer contract.

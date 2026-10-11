@@ -224,3 +224,12 @@ docs:check`, in CI) now fails on a file over 500 lines, a dead link, a `§` poin
 and a missing code path; its first run found pointers that had been dangling before the restructuring
 too (`BACKLOG.md § Third pass` in THREATMODEL.md and five e2e specs — no such section ever existed).
 
+## The full test run after the device pass (2026-10-11)
+
+Asked for in the 2026-10-03 pre-launch review (BACKLOG.md § Pre-launch review): every suite again, on
+the deploy host, on the new toolchain (Vite 8, Vitest 5, Playwright 1.64). Done 2026-10-11; the counts
+are in [README.md](../../README.md) § Status, not here. The screenshot gate needed no re-record: a
+separate compare-only run the same day, in a `/tmp` copy of `6cc4ec9` on the deploy host, passed 181 of
+181. The signaling server's 28 tests run in hush-signaling-server's own CI since the 2026-10-03 split
+(green at `112c37f`).
+
