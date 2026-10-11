@@ -4,46 +4,9 @@ Everything that can be verified without physical devices is done (unit + integra
 e2e across four engine projects, feature-detection review, self-hosted QR WASM); what remains is
 **behaviour on real browsers, real networks, and real NAT**.
 
-This used to open "the last open item before the security audit" — the audit has since run twice
-internally (2026-09-12 and 2026-09-13, BACKLOG § Security audit), so that ordering is gone: the
-device pass was the last open item before a public launch, not before the audit — and **it is DONE:
-47 of 47 cases ticked or closed with a reason on 2026-10-03** (§ Result log, the 2026-10-02 Pixel 5 and
-2026-10-03 iPhone 15 entries). The rest of this paragraph is the 2026-09-28 snapshot, kept for the
-record: **21 of the 47 A–F cases were closed (A4a, A4b, A6, A7, B1, B7, B9, D1–D5, E1–E5, F3, F5–F7 — see § Result log:
-the four 2026-09-27 entries and the 2026-09-28 ones, where A4b closed on the live build and B1 closed
-twice — on the site-storage path in the morning, and again on the straight-to-Downloads path after
-`c5a51c4` went live); the
-desktop halves of A1, A2, A3, A4, A5, A6a, B2, B3, B5, B6, B8, B10, C6, E7 and F8 ran on the REAL
-desktop engines (Chrome, Brave, Safari, Firefox) and wait for their handset half — B2's and B10's under
-the receive paths replaced on 2026-09-28, so those desktop halves are due again; the iOS-Simulator,
-iPad-Simulator and Android-Emulator rehearsals (2026-09-27 evening entry) covered A1, A3, A4, A5, B4
-(paste fallback), B5, B6, B8, B10's caps, F1, F2 and F8 — rehearsals, not ticks; 1 is still FAILED
-(F2, on the emulator with real airplane mode — its root cause is fixed and live since `153addd`, the
-re-run needs a phone) and is in BACKLOG — A4b and F3 failed too and pass on the live build; the rest
-need a handset, a radio or a camera.** (The total read "46" here until 2026-09-28: a stale count — the
-plan has 47 checkbox cases.) The ticks in § 0.1 are PRECONDITIONS, not cases; do not read them as
-progress.
-
-> **2026-09-28: the owner's seven decisions are LIVE** — deployed by the owner at 04:32 UTC (frontend
-> `90fdc15`, whose app code is `673509d`'s: the receiver's confirmation, the A4b stop, the forget
-> confirmation, no device label, the disk-first receive path, "Save file", the failure screens, the
-> relayed verdict; then signaling `3d96125`), verified the same hour — § 0.1 re-ticked. Cases whose
-> expectations changed (B1, B2, B10, F1, F4) are reworded below; B1 was unticked for the change and
-> closed again on the live build.
->
-> **2026-09-28, later: LIVE since 06:32 UTC (`c5a51c4`)** — desktop Chromium now receives STRAIGHT INTO
-> DOWNLOADS through a download worker (no copy in site storage, no RAM, no dialog); site storage is
-> reserved before accept (the incognito quota lie); flow control (a paused download pauses the sender).
-> B1, B2, B10 and F4 were reworded for it; B1 then passed on the live build again the same morning, and
-> the desktop halves of B2 and B10 were re-run there (§ Result log, the last 2026-09-28 entry).
->
-> **2026-09-27, after the pass: the F2/F3 root cause is fixed and DEPLOYED** (the connection-lost
-> path — BACKLOG § UX bugs, first item; live since 19:58 UTC as `153addd`, § 0.1 re-ticked). **F3 passes
-> on the live build** (fourth 2026-09-27 entry). F2 stays unticked until re-run on a real phone.
-> Expected: "Connection interrupted" within ~6 s of the cut, then the "Connection lost" screen when the
-> engine gives up (Chrome ~16 s). The same change closes the transport on `pagehide`: in **F1**, if the
-> session ends the instant the phone locks or switches apps (rather than when the network gives up),
-> suspect that and write it down.
+**Status (2026-10-03): DONE — 47 of 47 cases ticked or closed with a reason.** The runs are recorded one
+file per day in [docs/test-runs/](docs/test-runs/README.md), together with how the pass progressed. The
+ticks in § 0.1 are PRECONDITIONS, not cases; do not read them as progress.
 
 - **Target:** the live deploy — `https://hushsend.frelikh.dev` (production build).
 - **Scope closes:** BACKLOG § Step 6 / 6e "Remaining (real devices, post-deploy)" and DEPLOY.md § 0
@@ -105,11 +68,11 @@ Last run 2026-09-27 against the bundle fetched over HTTPS from the live host (`i
       — re-done 2026-10-03 ~01:35 UTC (commit `981f8df`: the reconnect wait returns to waiting when the
       engaged peer vanishes before any transport — the ghost at the rendezvous); byte-identical to a
       clean local build of `981f8df`, the public URL serves `index-DkYJ-hTt.js`; checked on the phone
-      (§ Result log, end of the 2026-10-02 entry). Before it, 2026-10-03 ~00:55 UTC (commit `190151b`: the three UX fixes from the Pixel 5 pass — the
+      ([the 2026-10-02 run log](docs/test-runs/2026-10-02.md), end of the 2026-10-02 entry). Before it, 2026-10-03 ~00:55 UTC (commit `190151b`: the three UX fixes from the Pixel 5 pass — the
       Max hint under the peer-left race, the reconnect wait's retry, the Finishing line);
       `/var/www/hushsend/dist` is byte-identical to a clean local build of `190151b` (42 files), the public
       URL serves `index-CkRmiW5i.js`, no `stun.l.google`; the three fixes were then checked on the live
-      build (§ Result log, end of the 2026-10-02 entry). The visual gate ran on the deploy host against
+      build ([the 2026-10-02 run log](docs/test-runs/2026-10-02.md), end of the 2026-10-02 entry). The visual gate ran on the deploy host against
       this commit: 181 / 181 after recording `transfer-finishing` (and re-recording the sas-picker's
       seeded decoys, which had moved — see that commit). Before it, 2026-10-02 ~19:20 UTC (commit `9bdda44`: the QR scanner's zxing glue/wasm ABI fix —
       `zxing-wasm` 3.1.3 — plus the vitest ABI gate and this pass's records); `/var/www/hushsend/dist` is
@@ -337,7 +300,7 @@ Both peers on the home Wi-Fi, default **Max-privacy**. Baseline: if these fail, 
 - [x] **A1 · link** *(AND-1 half ✅ 2026-10-02 — Pixel 5 Chrome ×3; IPH half ✅ 2026-10-03 — iPhone 15 Safari, 2.0 / 1.7 s, host↔host)* — MBP-A (Chrome) creates a one-time link → send it to IPH (Safari) out of band →
       IPH opens it. Expected: auto-join, pairing, `connected` with **no SAS screen** (link/QR
       authenticate over the link secret), URL fragment scrubbed from the address bar.
-- [x] **A2 · QR** *(AND-1 half ✅ 2026-10-02 on the fixed live build `9bdda44` — the Pixel 5 decoded the QR off the Mac's screen and connected in 8.5 s; before the fix the scanner was dead on every engine, § Result log. IPH ✅ 2026-10-03: the iPhone's camera read the QR off the Mac's screen, connected in 29 s)* — MBP-A shows the QR, IPH scans it with the in-app scanner. Expected: same as A1.
+- [x] **A2 · QR** *(AND-1 half ✅ 2026-10-02 on the fixed live build `9bdda44` — the Pixel 5 decoded the QR off the Mac's screen and connected in 8.5 s; before the fix the scanner was dead on every engine, [the 2026-10-02 run log](docs/test-runs/2026-10-02.md). IPH ✅ 2026-10-03: the iPhone's camera read the QR off the Mac's screen, connected in 29 s)* — MBP-A shows the QR, IPH scans it with the in-app scanner. Expected: same as A1.
       Note which decoder ran (§ B3).
 - [x] **A3 · words** *(AND-1 half ✅ 2026-10-02; IPH ✅ 2026-10-03)* — MBP-A creates, IPH enters the rendezvous + the 4 secret words. Expected: `connected`
       after CPace + key confirmation, no SAS screen.
@@ -360,7 +323,7 @@ Both peers on the home Wi-Fi, default **Max-privacy**. Baseline: if these fail, 
       BEFORE the picker answers, then taps the abort on the waiting screen. Expected: the session
       fails closed. (A reject is accepted even after our own approval, up to settle — a reader who
       clicked too early must not be trapped.) *(PASS on the live build 2026-09-28 — the "Stop" pill on
-      "Verifying…" ends both sides in the hard stop; § Result log.)*
+      "Verifying…" ends both sides in the hard stop; [the run log](docs/test-runs/README.md).)*
 - [x] **A5 · transfer both ways** *(AND-1 half ✅ 2026-10-02: site storage on the phone, the stream path on the Mac, both verified; IPH ✅ 2026-10-03: site storage on the phone, the stream path on the Mac, both verified)* — over the A1 connection send a small file (≈5 MB) MBP-A → IPH, then
       IPH → MBP-A. Expected: progress advances monotonically, file arrives intact (**check the size and
       open it**), receiver's terminal plaque shows a **"New transfer"** button.
@@ -369,7 +332,7 @@ Both peers on the home Wi-Fi, default **Max-privacy**. Baseline: if these fail, 
       keeps working afterwards. This is the per-pair privacy close: the server must not observe the
       session duration. Reconnect was the last exemption and was folded in on 2026-09-12 — if its
       socket stays open, that regression is the whole point of checking it here.
-- [x] **A6a · path attestation never blocks a transfer** *(✅ 2026-10-03: Chrome ↔ iPhone Safari read `mismatch` on the Mac and the 3 MB send completed — § Result log)* — it is ADVISORY. On every pair, especially
+- [x] **A6a · path attestation never blocks a transfer** *(✅ 2026-10-03: Chrome ↔ iPhone Safari read `mismatch` on the Mac and the 3 MB send completed — [the 2026-10-03 run log](docs/test-runs/2026-10-03.md))* — it is ADVISORY. On every pair, especially
       a Safari↔non-Safari one, confirm the transfer completes regardless of the verdict. A `mismatch`
       here is EXPECTED between engines (see § Phase B) and must stay cosmetic; if a transfer is ever
       refused or torn down because of it, that is a bug, not a detection.
@@ -414,7 +377,7 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       RAM stays flat. *(Reworded twice on 2026-09-28: the morning's tick proved the site-storage path
       — a disk file, no dialog, the dialog only past the quota, all PASS on the live build (§ Result
       log) — which desktop Chrome no longer takes; Firefox and Safari do, so those checks moved to
-      B2/B10. PASS on the live `c5a51c4` the same day — § Result log.)*
+      B2/B10. PASS on the live `c5a51c4` the same day — [the run log](docs/test-runs/README.md).)*
 - [x] **B2 · disk receive on the phone + the RAM fallback's cap** *(IPH disk half ✅ 2026-10-03: 1 GiB and 2 GiB into Safari's site storage, verified; RAM rung ✅ 2026-10-03 in a private Safari tab: 250 MB refused before Accept naming the 200 MB cap and the private window, 200 MiB accepted via RAM and delivered)* — receive on IPH Safari and on MBP-A
       Firefox (both keep site storage — neither may stream, see CLAUDE.md § File transfer). Expected:
       no save dialog; the file goes to site storage and lands via a download at the end — a file well
@@ -424,7 +387,7 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       old caps were 512 MiB phone / 1 GiB desktop.)* **2026-09-28, desktop Chrome incognito: FAILS this
       rung** — there site storage IS usable but holds only ~430 MiB while `navigator.storage.estimate()`
       reports the normal profile's 10 GiB, so a 600 MiB file was accepted on the disk path and died at
-      74 % (§ Result log, BACKLOG § UX bugs). Re-run after the fix: Chrome incognito now streams into
+      74 % ([the run log](docs/test-runs/README.md), BACKLOG § UX bugs). Re-run after the fix: Chrome incognito now streams into
       Downloads (expect a 1 GiB file to complete there, nothing in site storage); Firefox private has no
       site storage (`getDirectory()` → SecurityError, measured) — expect the RAM path, a refusal before
       accept above 200 MiB; Safari private — by hand (safaridriver cannot open one).
@@ -507,7 +470,7 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       an srflx there, that is a real-world limit to state in the README, not a defect to fix: the
       strict model is doing exactly what it promises.
 - [x] **B10 · size ladder up to 5 GB — every receive path, every engine as sender — NEW 2026-09-27
-      (owner's request).** *(Handset half of the site-storage row ✅ 2026-10-02: Pixel 5 Chrome, 1 / 2 / 3 / 4 GiB + 1 B / 5 GiB all PASS at 3.0–5.5 MB/s, Chrome PSS flat 201–264 MB — § Result log. IPH site-storage rungs ✅ 2026-10-03: 1 and 2 GiB block-verified at 12.6 / 29.4 MB/s, 4 GiB + 1 B and 5 GiB by hand in the owner's tab — "Delivered" = the receiver confirmed every declared byte, 11.6 / 12.8 MB/s over Wi-Fi, no block verify on the phone; the RAM rung ✅ in a private tab (B2); past-the-quota on a phone not attempted — the iPhone reports 41 GB free.)* Limits differ by OS, browser and device, and § 0.3's ceilings come from
+      (owner's request).** *(Handset half of the site-storage row ✅ 2026-10-02: Pixel 5 Chrome, 1 / 2 / 3 / 4 GiB + 1 B / 5 GiB all PASS at 3.0–5.5 MB/s, Chrome PSS flat 201–264 MB — [the 2026-10-02 run log](docs/test-runs/2026-10-02.md). IPH site-storage rungs ✅ 2026-10-03: 1 and 2 GiB block-verified at 12.6 / 29.4 MB/s, 4 GiB + 1 B and 5 GiB by hand in the owner's tab — "Delivered" = the receiver confirmed every declared byte, 11.6 / 12.8 MB/s over Wi-Fi, no block verify on the phone; the RAM rung ✅ in a private tab (B2); past-the-quota on a phone not attempted — the iPhone reports 41 GB free.)* Limits differ by OS, browser and device, and § 0.3's ceilings come from
       Playwright builds on one Mac (Chromium and WebKit only: no Gecko, no real Safari, no phone). So
       walk each receive path up its ladder on the REAL engines and devices:
 
@@ -524,7 +487,7 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
       | **NEW · OPFS (Firefox, Safari, mobile — the default there)** | 1, 2, 3 GiB, 4 GiB + 1 B, 5 GiB — up to the site quota | completes with NO dialog, every byte verified, receiver memory flat, the download lands intact |
       | **NEW · past the quota** (Chrome: > 10 GiB here) | quota + 1 GiB | Chrome/Android: the save dialog appears (FSA); Safari/Firefox: refused before accept, naming the room |
       | **NEW · RAM fallback 200 MiB** (a private window without usable site storage) | 200 MiB + 1 B, then exactly 200 MiB | the first refused before accept; 200 MiB completes |
-      | *(2026-09-28, the live `c5a51c4`: the stream rungs PASS on Chrome, the site-storage rungs PASS on Firefox with the over-quota refusal and on Safari to 5 GiB, the RAM rung PASS on Firefox private — § Result log. The desktop half of B10 is done; the handset half is what is left.)* | | |
+      | *(2026-09-28, the live `c5a51c4`: the stream rungs PASS on Chrome, the site-storage rungs PASS on Firefox with the over-quota refusal and on Safari to 5 GiB, the RAM rung PASS on Firefox private — [the 2026-09-28 run log](docs/test-runs/2026-09-28.md). The desktop half of B10 is done; the handset half is what is left.)* | | |
 
       **Build the files so they cost the page nothing and still prove every byte:** 1 MiB blocks, each
       a unique 16-byte header plus one shared body, assembled from Blob parts that REFERENCE that body.
@@ -541,7 +504,7 @@ The point of 6e: every fallback path on a real engine, not a polyfilled test env
 
 IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
 
-- [x] **C1 · Max-privacy direct across networks** *(PASS 2026-10-02, outcome (b): Mac Chrome ↔ Pixel 5 on a VPN Wi-Fi, both sides terminal `failed` with the hint in 18–48 s — § Result log)* — both sides default Max-privacy, link method.
+- [x] **C1 · Max-privacy direct across networks** *(PASS 2026-10-02, outcome (b): Mac Chrome ↔ Pixel 5 on a VPN Wi-Fi, both sides terminal `failed` with the hint in 18–48 s — [the 2026-10-02 run log](docs/test-runs/2026-10-02.md))* — both sides default Max-privacy, link method.
       **⚠️ Caveat found 2026-10-03 — the outcome does not generalise.** In every C1 run (and on the Max side of
       C3) the desktop sat on the SERVER'S OWN LAN, and from there the STUN reply is the ROUTER's LAN address:
       re-measured 2026-10-03, Chrome on the Mac at 192.168.1.38 gathered `srflx 192.168.1.1` from
@@ -553,7 +516,7 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       Expected either (a) `connected` via a `srflx` candidate pair — confirm in webrtc-internals that
       the selected pair is **not `relay`** — or (b) if the NATs won't traverse, a **terminal `failed`
       screen with the "switch to Reliable" hint**. Both are correct; a **hang is not**. Record which.
-- [x] **C2 · Reliable relay** *(PASS 2026-10-02: `relay ↔ relay` on our coturn, 50 MB in 165 s = 0.3 MB/s with the phone behind a VPN — § Result log)* — both sides switch to **Reliable**, repeat. Expected: `connected`; in
+- [x] **C2 · Reliable relay** *(PASS 2026-10-02: `relay ↔ relay` on our coturn, 50 MB in 165 s = 0.3 MB/s with the phone behind a VPN — [the 2026-10-02 run log](docs/test-runs/2026-10-02.md))* — both sides switch to **Reliable**, repeat. Expected: `connected`; in
       webrtc-internals the selected candidate pair is **`relay`**, and coturn logs show an allocation
       from both peers. Then **transfer a ≈50 MB file over the relay** and note throughput — this is the
       only test that proves coturn's `external-ip` / port-forwarding config is actually right.
@@ -575,7 +538,7 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       table and reopen BACKLOG § Security audit / Findings.
       Worth pairing with a control: the same Max ↔ Reliable run where the direct path DOES work must
       still connect normally (the gate must not reject a legitimate `prflx` from a NAT mapping).
-- [x] **C6 · volume padding, and what it costs on a real link — NEW 2026-09-17.** *(✅ 2026-10-03 on the iPhone: 300 KiB → 524 371 B on the wire (+70.7 %), 50 MB → +0.7 % at 4.0 MB/s, files the real size — but the path was not recorded and was probably the USB cable, not LTE, so the cellular cost is still unmeasured; § Result log, the C6 caveat)* In Max privacy the
+- [x] **C6 · volume padding, and what it costs on a real link — NEW 2026-09-17.** *(✅ 2026-10-03 on the iPhone: 300 KiB → 524 371 B on the wire (+70.7 %), 50 MB → +0.7 % at 4.0 MB/s, files the real size — but the path was not recorded and was probably the USB cable, not LTE, so the cellular cost is still unmeasured; [the 2026-10-03 run log](docs/test-runs/2026-10-03.md), the C6 caveat)* In Max privacy the
       transfer is padded so its byte count lands on a bucket edge instead of naming the file
       (`core/transfer/padding.ts`): powers of two below 1 MiB, then ≤12.5% overhead. Send a **300 KiB**
       file (ladder: → 512 KiB, a 70% jump no chunking accident could produce) and a **~50 MB** file
@@ -630,7 +593,7 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       within the 10-minute bucket; a new token at a bucket boundary). Also try: MBP-A on Reconnect
       while IPH does a **plain room join** with any 4-digit code — expected: nothing meets, MBP-A ends
       the same way; no hang, no handshake mismatch (there is no shared room to mismatch in).
-- [x] **E6 · reconnect over a SLOW link** *(PASS 2026-10-02: 5/5 in 5.4–6.7 s, Pixel 5 behind a VPN in France ↔ Mac, relay both ways — the link is slow but not cellular; § Result log)* — the case the 2026-09-17 race lived in.** An early reconnect
+- [x] **E6 · reconnect over a SLOW link** *(PASS 2026-10-02: 5/5 in 5.4–6.7 s, Pixel 5 behind a VPN in France ↔ Mac, relay both ways — the link is slow but not cellular; [the 2026-10-02 run log](docs/test-runs/2026-10-02.md))* — the case the 2026-09-17 race lived in.** An early reconnect
       frame (today the `reconnect-hello` both sides send at channel-open) used to be dropped for good
       when it arrived before the receiving side had processed channel-open, leaving both peers in
       "agreeing on keys" until the 120 s deadline. It is fixed (held and replayed), and the window
@@ -647,7 +610,7 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       (the dedup) — a reconnect from that new row works. **Never a silent auto-accept.** (The
       key-changed hard stop itself — a peer presenting a DIFFERENT key under the SAME pairing — cannot
       be produced on real devices without the DEV forge knob; it is covered by the e2e.)
-- [x] **E7 · clock skew — NEW 2026-09-25.** *(PASS 2026-10-02 on the Pixel 5: +4 min met in 4.1 s; +15 min never met, both sides "did not show up" at 603 s with six rendezvous takes each — § Result log)* The rendezvous is derived from each device's OWN clock in
+- [x] **E7 · clock skew — NEW 2026-09-25.** *(PASS 2026-10-02 on the Pixel 5: +4 min met in 4.1 s; +15 min never met, both sides "did not show up" at 603 s with six rendezvous takes each — [the 2026-10-02 run log](docs/test-runs/2026-10-02.md))* The rendezvous is derived from each device's OWN clock in
       10-minute buckets. Set IPH's clock **+4 minutes** by hand (disable automatic time), then E2.
       Expected: they still meet — at worst after a delay of up to the skew (each side re-derives at
       its own bucket boundary), never a failure. Then set it **+15 minutes** (more than a bucket):
@@ -662,11 +625,11 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       happens; this is the single most likely real-world surprise. **Since 2026-09-28:** if the file
       completed while the screen was locked, the finished row must show **Save file** (the download was
       held, not lost — the simulator rehearsal lost it silently); tap it and check the file.
-- [x] **F2 · network drop** *(PASS 2026-10-02: Pixel 5's Wi-Fi off 20 s mid-600 MB — both sides "Connection lost" 19 s after the cut; an ~8 s cut with nothing in flight recovered by itself — § Result log)* — mid-transfer, disable Wi-Fi on one side for ~20 s and re-enable.
+- [x] **F2 · network drop** *(PASS 2026-10-02: Pixel 5's Wi-Fi off 20 s mid-600 MB — both sides "Connection lost" 19 s after the cut; an ~8 s cut with nothing in flight recovered by itself — [the 2026-10-02 run log](docs/test-runs/2026-10-02.md))* — mid-transfer, disable Wi-Fi on one side for ~20 s and re-enable.
       Expected: a visible failure or a recovery, never a frozen progress bar that claims to be alive.
 - [x] **F3 · tab close** — close the receiver's tab mid-transfer. Expected: the sender notices and shows
       a failure.
-- [x] **F4 · large transfer** *(DROPPED by the owner 2026-10-03: no second computer; the 2 GB-class transfers ran Mac↔phone instead — B10, § Result log)* — ≈2 GB MBP-A Chrome → MBP-B Chrome (the receiver streams straight into
+- [x] **F4 · large transfer** *(DROPPED by the owner 2026-10-03: no second computer; the 2 GB-class transfers ran Mac↔phone instead — B10, [the 2026-10-03 run log](docs/test-runs/2026-10-03.md))* — ≈2 GB MBP-A Chrome → MBP-B Chrome (the receiver streams straight into
       Downloads, no dialog — since 2026-09-28). Expected: it completes, memory stays flat, and the
       signaling socket is long gone by then (A6).
 - [x] **F5 · code expiry** — create a words session and leave it untouched past its TTL, then try to
@@ -679,7 +642,7 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       timing: after the first pair connects, both sockets close and the token room is gone, so the
       second joiner gets the dead-link failure ("the link has expired or was already used") at once;
       the 4002 "room full" bounce is reachable only while the first two are still pairing.
-- [x] **F8 · silent peer on the 1:1 confirm path** *(Android half ✅ 2026-10-03: Pixel 5 on a VPN Wi-Fi, Reliable, Wi-Fi cut right after `welcome` — the sender ended in 25 s, the server's `peer-left` beat the 120 s deadline; § Result log. IPH half CLOSED AS A TOOLING LIMIT 2026-10-03: the "silent peer" needs a hook installed before the page loads, which Safari WebDriver cannot do; the mechanism is proven on the Pixel and headlessly)* — open a link on the receiving device and, the
+- [x] **F8 · silent peer on the 1:1 confirm path** *(Android half ✅ 2026-10-03: Pixel 5 on a VPN Wi-Fi, Reliable, Wi-Fi cut right after `welcome` — the sender ended in 25 s, the server's `peer-left` beat the 120 s deadline; [the 2026-10-03 run log](docs/test-runs/2026-10-03.md). IPH half CLOSED AS A TOOLING LIMIT 2026-10-03: the "silent peer" needs a hook installed before the page loads, which Safari WebDriver cannot do; the mechanism is proven on the Pixel and headlessly)* — open a link on the receiving device and, the
       instant the connection starts, put that browser in a state where it cannot answer (airplane mode
       works; force-quitting the tab does not — that raises a channel close instead, which is a
       different path). Expected: the SENDER ends in **`failed` within ~120 s**, not an endless
@@ -693,982 +656,3 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       real network gets anywhere near the deadline, the deadline is wrong, not the network.
 
 ---
-
-## Result log
-
-Record per case: `ID · track (T1/T2/T3) · device pair · browser versions · PASS/FAIL · notes`. The
-track belongs in the line because the same case can be run two ways: a T1 desktop rehearsal of A1
-proves the mechanism, a T2 run on the named MBP↔iPhone pairing is what closes it, and a log that does
-not say which produced the tick cannot tell them apart later. For a failure capture:
-the selected candidate pair (webrtc-internals / about:webrtc), the WS message trace, the console
-output, and whether it reproduced on the other engine.
-
-### 2026-09-26 · T1 rehearsal · Brave 154 (Chromium 154, macOS), two tabs of ONE profile
-
-Setup: production bundle `index-BBI2zUuS.js` (`efe8b29`); both peers are tabs of the same Brave
-profile, driven over the Claude-in-Chrome MCP from laptop-server. **Same profile = shared
-`localStorage` and shared keystore**, so this setup cannot run the reconnect cases (E) honestly and
-its privacy-mode toggle is global to both tabs. Two corrections to § 0.4 / § 0.5 found on the first
-try: **the MCP extension is Chromium-only — Firefox and Safari cannot be driven by Claude at all**
-(they are T2-style: the owner clicks, Claude observes its own side + the server); and `chrome://`
-pages (`webrtc-internals`) are unreachable through it, so ICE evidence needs the owner's eyes.
-
-- A1 · T1 · Brave↔Brave · **Max privacy · FAIL 2/2** — `pairing` → `failed` at 15.0 s both runs,
-  "Couldn't connect directly" with the switch-to-Reliable hint (so B9's "fails visibly, never a
-  silent hang" holds). **Not the app:** a raw STUN-only `RTCPeerConnection` pair between the same
-  two tabs also ends `connectionState=failed` at 15 s with ZERO candidate pairs in `getStats()`.
-  Candidates gathered: one mDNS host (`<uuid>.local`) + one srflx `192.168.1.1` (the router's LAN
-  address — the hairpinned STUN reply). Root cause open; suspects are macOS "Local Network"
-  permission for Brave and Brave's WebRTC IP-handling policy. To be re-run on Chrome.
-- A1 · T1 · Brave↔Brave · **Reliable · PASS 2/3** — connected in 2 s and in <10 s, no SAS screen,
-  fragment scrubbed from the address bar. One run failed at 17 s with "channel closed during
-  pairing"; `deploy/verify-relay.sh` in the same minute: 16 messages relayed, 0 lost. Unexplained.
-- A5 · T1 · Brave→Brave · Reliable · **PASS** — 5 000 000 B in <3 s, sender "Delivered" / receiver
-  "Received" at 100 %, "New transfer" button present. Reverse direction ran as A7. **Bytes on disk
-  NOT verified** (Brave ships no `showSaveFilePicker` → Blob download into the Mac's Downloads;
-  expected sha256 `5ae91e7e…e2d9`).
-- A6 · T1 · link · Reliable · **PASS** — `ss -tn` on the host: 0 established nginx↔signaling
-  (`:8080`) sockets while both peers were `connected`, and still 0 during the transfer.
-- A7 · T1 · Brave→Brave · **PASS, with a note** — three files are sent as ONE `hushsend-files.zip`
-  (2 700 362 B, stored). That has been the behaviour since the first transfer commit (`1082b7d`)
-  but no doc says so, and this case's "progress is per-transfer / no stale filename" wording
-  assumes three transfers. Fix the wording, or the behaviour — decide, then re-tick.
-- F6 · T1 · **PASS** — reload → history gone.
-- B9 · partial — Brave 154 shields default: `showSaveFilePicker` **undefined** (so B1's FSA path
-  cannot be run on Brave; it needs Chrome), `BarcodeDetector` present. Max privacy fails visibly
-  (above). The WebRTC-policy value and the candidate-pair evidence are still to be read by the owner.
-- **New UX bug (→ BACKLOG):** after `connected`, a peer that leaves (tab navigated away) is never
-  surfaced — the other side sits on "Secure channel open" indefinitely; a later Send fails with
-  "transfer error · data channel is not open" while the status still says `connected`.
-  `onChannelClose` has no `established` branch. Related to F3 but a distinct case (idle, not
-  mid-transfer).
-- **New UX bug (→ BACKLOG):** a link opened in a tab that already shows hushsend is a hash-only,
-  same-document navigation; the app parses the fragment at load only (`App.tsx` `parseLink`), so
-  nothing happens. Pasting a link into the address bar of an open hushsend tab does exactly this.
-- Tool note, not app: the extension's ref-based clicks did not toggle the privacy radio nor open
-  Invite; coordinate clicks did.
-
-### 2026-09-27 · T1 on all three REAL desktop engines · Brave 154 ↔ Claude Chromium 152 ↔ Safari 26.6 ↔ Firefox 156
-
-Setup: production bundle `index-BBI2zUuS.js` (`efe8b29`, unchanged); `/health` ok. Four browsers,
-four separate profiles/keystores: **Brave 154** (Claude-in-Chrome extension; no FSA), **Claude's
-built-in Chromium 152** (its own profile; FSA present but the pane cannot show the save dialog),
-**Safari.app 26.6** and **Firefox.app 156.0.1** driven over **WebDriver** (`safaridriver -p 4444`
-after `safaridriver --enable` + Develop → Allow Remote Automation; `geckodriver 0.37.1` from brew) by a
-file-based driver running in the owner's terminal, outside the Claude sandbox. This supersedes the
-2026-09-26 "Firefox and Safari cannot be driven" note: they can, but two caveats — **safaridriver
-sessions are storage-isolated and geckodriver starts a fresh profile per session**, so Safari/Firefox
-pins live only inside one session (E-cases on them need Safari.app/Firefox.app by hand). SSH to the
-host failed from the sandbox all session (`No route to host`), so server-side evidence (`ss`,
-journalctl) is absent; all WS/ICE evidence below comes from in-page wrappers over `WebSocket` and
-`RTCPeerConnection` installed on the creator side before the pairing. `chrome://webrtc-internals` is
-unreachable from both Chromium drivers.
-
-**Root cause of the 2026-09-26 Max-privacy failures — the macOS "Local Network" permission, not the
-app.** On this LAN every browser gathers one mDNS host candidate (`<uuid>.local`) plus an srflx of
-`192.168.1.1` — the hairpinned STUN reply names the ROUTER's LAN address, useless between LAN peers —
-so a same-LAN Max-privacy pair rides on mDNS alone. Brave could not even connect two
-`RTCPeerConnection`s inside ONE page (ICE stayed `new` for 20 s; Chromium: 8 ms), and the moment the
-owner granted Privacy & Security → Local Network to Brave/Firefox/Safari it opened in 14 ms and every
-Max-privacy case below passed. README item: on macOS 15+ a browser without that permission cannot pair
-on the same LAN in Max privacy; the app fails visibly with the Reliable hint (correct), but the hint
-sends the user to the wrong fix.
-
-Engine pairs (all link method, Max privacy unless stated; `unknown` = "direct path not confirmed"):
-
-| pair (creator → joiner) | connected | selected pair (creator's stats) | WS close after connect | path verdict |
-|---|---|---|---|---|
-| Brave → Chromium · Max | 14 ms after the joiner arrived | host udp → host (mDNS, addresses hidden) | 50 ms | unknown / unknown |
-| Brave → Chromium · **Reliable** | 0.2 s | host udp → host — `turn-request`/`turn-credentials` exchanged, TURN in `iceServers`, relay NOT selected | at connect | unknown |
-| Safari → Chromium | 1.0 s | host → host udp | 160 ms | unknown / unknown |
-| Firefox → Chromium | 1.8 s | host `<uuid>.local` → host `<uuid>.local` udp | 200 ms | unknown / unknown |
-| Firefox → Safari (run 1) | 1.2 s | host (mDNS) → **prflx** | 34 ms | Firefox unknown; Safari pending at +3 s |
-| Firefox → Safari (run 2) | 0.8 s | host (mDNS) → prflx | 20 ms | unknown / unknown |
-| Safari → Firefox | 0.6 s | host → host udp | 208 ms | unknown / unknown (Safari read at +60 s) |
-
-So on one LAN in Max privacy the attestation verdict is `unknown` on EVERY engine pair, including
-Blink↔Blink, because mDNS hides the host addresses the check needs; the headless firefox↔webkit
-`mismatch` did NOT reproduce on the real engines. The A6a table still needs the cross-network runs.
-
-- A1 · T1 · every pair in the table · **PASS** — auto-join, no SAS, fragment scrubbed. (Handset half
-  open.) First Brave→Chromium Max run FAILED at 9.6 s with the Reliable hint — the permission, above.
-- A3 · T1 · Brave creates, Chromium enters the five words · **PASS** — `connected` in 0.8 s, "code
-  words verified", no SAS; only the rendezvous word reached the server (`room=ebook&codeType=word`).
-- A4 · T1 · Brave↔Chromium (room 0164, then 4422) · **PASS** — both land in the lobby, pick → SAS
-  asymmetric: one reader, one blind picker with the real phrase among 3. Roles vary (Safari read once
-  and picked once against Chromium); Brave read in all 3 Brave↔Chromium pairs — sample more.
-- A4a · T1 · **PASS** — both refusals are 52-px full-width pills directly under the confirm
-  (400/431 px wide at desktop), the HEARD sentence sits directly above the reader's confirm; picker's
-  refusal → both sides on "This channel may be compromised" in ≤1.4 s, no transfer UI. Copy nit: the
-  kicker says "numbers didn't match".
-- A4b · T1 · **FAIL** — the reader confirmed before the picker answered and landed on "Verifying…"
-  (`confirming`) with NO control at all: no abort, no Back. The controller would accept a reject after
-  approval; the screen cannot send one. → BACKLOG.
-- A5 · T1 · all directions Brave↔Chromium (Reliable + Max), Chromium↔Safari, Chromium↔Firefox,
-  Safari↔Firefox · **PASS** — 5 000 000 B each way, monotonic, receiver Blob captured via a
-  `URL.createObjectURL` hook and SHA-256 equal to the sender's every time; "New transfer" present.
-  200 MiB Chromium→Brave ≈48 MB/s on the LAN. (Handset half open.)
-- A6 · T1 · link (Max, Reliable), words, room/SAS, reconnect — on Brave, Chromium, Safari, Firefox ·
-  **PASS** — every creator/joiner closed its socket 20–460 ms after `connected` (code 1005), transfers
-  ran afterwards. Reconnect included (Brave 170 ms, Chromium 100 ms).
-- A7 · T1 · **PASS with the known note** — 3 files arrive as one `hushsend-files.zip` (2 700 724 B);
-  wording decision still open, not re-ticked.
-- B2 · T1 desktop half · real Safari and real Firefox receivers · **PASS** — Blob path, no dialog; a
-  1 258 291 200 B offer is refused BEFORE accept within 1.5 s: "This file is 1.2 GB — larger than the
-  1.0 GB this browser can save. Open hushsend in Chrome on desktop to receive it."; the sender shows
-  "declined" + that reason. Note for drivers: the FSA-vs-Blob choice is made when the OFFER arrives.
-- B5 · T1 desktop half · **PASS** — Firefox (no `navigator.share`): Share absent, Copy present;
-  Safari desktop: both present.
-- B6 · T1 desktop half · Chromium emulating 375×812 + dark · **PASS** — home, the open
-  network-exposure block and the words picker: no horizontal scroll, nothing overflows the viewport,
-  52-px pills, 44-px word fields at 17.6 px. Real phone still T3.
-- B8 · T1 · real Safari + real Firefox · **PASS** — `network-exposure` is a `<details>`, closed by
-  default, opens on click, 777 chars naming the direct-connection fact and the Tor/VPN advice; no
-  horizontal scroll at 1000/1710 px. Phone width covered by B6 above (375 px, Chromium).
-- B9 · partial — Brave 154 shields default: Max privacy WORKS once Local Network is granted (host
-  candidates gathered and used, srflx gathered); `showSaveFilePicker` still absent (so B1/F4 need a
-  real Chrome, which the owner does not have). The WebRTC-policy value in `brave://settings` is
-  still the owner's eyes.
-- C6 · T1 arithmetic half · Brave→Chromium Max · **PASS** — 307 200 B file → data-channel
-  `bytesSent` 524 745 B (= the 512 KiB bucket + ~457 B control), receiver wrote the real 307 200 B,
-  hash equal; 5 000 000 B → 5 243 376 B (the 5 MiB bucket, +4.9 %). LTE cost half open.
-- D1 · T1 · room 4422 with Brave, Chromium ×2 tabs, real Safari · **PASS** — every roster lists the
-  other three with a label + join time; leavers disappear; a pair that CONNECTS also leaves the roster
-  (its sockets close on connect — so D3 must be provoked during pairing, and the "room survives" of D4
-  means the other pair's closes do not disturb it).
-- D2 · T1 · Safari(joiner) picks Chromium tab-2(joiner) · **PASS** — one reader, one picker,
-  `connected` in 0.6 s, "SAS confirmed".
-- D3 · T1 · **PASS** — with Brave↔Chromium in the SAS phase, a third member pressed Connect on Brave →
-  "vivid-robin is busy with another peer — pick someone else." in 0.2 s, back in the lobby with the
-  roster intact; Brave's SAS undisturbed.
-- D4 · T1 · Brave↔Chromium and Safari↔Chromium-2 in one room · **PASS** — both connected, transfers on
-  both at once (52 428 800 B in 1.2 s; 5 000 000 B in 0.4 s; hashes equal), both still connected.
-- D5 · T1 · picker chose a decoy · **PASS** — hard failure both sides in ≤0.6 s, no transfer.
-- E1 · T1 · Brave↔Chromium paired 4× today, Chromium↔Safari/Firefox once each · **PASS** — one row
-  per distinct peer key (Chromium: Brave, Firefox, two Safari sessions = 4 rows; Brave: Chromium once).
-- E2 · T1 · Brave(profile A) ↔ Chromium(profile B) · **PASS** — "Waiting for the other device", no
-  code; the other side taps → idle→joining→connected in 0.3 s, "verified via pinned key", no SAS;
-  socket URL `room=<22-char token>&codeType=token&device=Desktop`, no `create=1` (claim recorded);
-  1 000 000 B transfer afterwards, hash equal.
-- E3 · T1 · **PASS** — Chromium-first (Brave ~5 s later; a full minute could not be waited from the
-  sandbox, but the 10-min hold with 2-min re-takes is proven in E5) and both-within-101-ms: connected
-  in 0.3–0.7 s, no SAS, every ordering.
-- E4 · mechanics observed inside E5 (the lone waiter re-took the rendezvous at 120.6/240.6/389.6/
-  510.9 s, a NEW token at 268.6 s = the 06:00 UTC bucket boundary, "did not show up" at 600.15 s);
-  the "MBP-A only" and "plain 4-digit join on the other side" variants not run — not ticked.
-- E5 · T1 · **PASS** — Chromium reconnect to Firefox whose profile no longer holds the pin → 10-min
-  wait → "The other device did not show up" + the pair-afresh copy; forget Brave via the row ×
-  ("Forget device …") → row gone; fresh link pairing → Chromium lists Brave ONCE again; reconnect from
-  the new row → connected in 0.6 s. No silent auto-accept anywhere.
-- F3 · T1 · Chromium sends 900 MB to Brave, Brave's tab closed at 8 % · **FAIL** — the sender froze
-  at 46 % "Sending · connected" and never failed in 72 s of polling; recovered only via Close channel.
-  Same root as the BACKLOG "peer gone after connected" bug, now shown mid-transfer. → BACKLOG.
-- F5 · T1 · **PASS** — Firefox's words room: WS 4010 "expired" at 180.6 s, failed screen "Room not
-  found or code expired" + "New words"; a later join with the same words: 4009 "room not found",
-  same human message with the raw detail as a secondary line. (Copy nit: the CREATOR's expiry reads
-  "Room not found".) Also observed: a 4-digit lobby with two members and no new joins dies at 3 min
-  (idle TTL, by design) with the same "room not found" copy.
-- F6 · T1 · re-confirmed on Chromium (reload → history gone; localStorage = theme/privacy only).
-- F7 · T1 · Safari opens a link Brave→Chromium had already consumed · **PASS, different path** —
-  failed in 0.4 s "the link has expired or was already used": the pair's sockets close on connect, so
-  the token room is gone before a second joiner can be bounced with 4002; 4002 is reachable only while
-  the first two are still pairing. The one-receiver guarantee holds either way.
-- **Transport finding (real WebKit): Firefox(creator)↔Safari(joiner), run 1** connected, then Firefox
-  saw `ice:disconnected` at +14 s and `failed` at +36 s, transport total 1 132 B, data-channel gone;
-  a 5 MB transfer accepted on Safari stayed at 0 %. Run 2 and the reverse direction lived for minutes,
-  and Safari.app CRASHED ("unexpectedly quit") minutes after run 1 and again later in the session —
-  so the likelier reading is a WebKit process crash, not a protocol issue. Watch Console.app crash
-  reports for Safari/WebContent; needs more runs.
-- **UX finding (F2-class):** after that ICE failure BOTH sides kept showing `connected` ("Sending
-  0 %" / "Receiving 0 %") for >60 s. Nothing in the app reacts to a dead connection after
-  `established`. → BACKLOG (same item as F3 / peer-gone).
-- Tooling notes: (1) the built-in-browser JS, the extension JS and Bash calls in one message run
-  SEQUENTIALLY, so a 40 s poll on one side delays the other's action; (2) loading `/` and then the link
-  in the same tab is the hash-only bug — always go through `/health`; (3) the Brave extension's first
-  click after a navigation is often swallowed — JS `.click()` on the testids is reliable; (4)
-  `d.type` in safaridriver hung the session twice — set values with the native setter + `input` event.
-
-### 2026-09-27 (afternoon) · T1 + size ladder to 5 GiB + first iOS-Simulator rehearsal · Chrome 154 ↔ Safari 26.6 ↔ Firefox 156 ↔ iPhone 17 simulator (iOS 27.0)
-
-Setup: production bundle `index-BBI2zUuS.js` (`efe8b29`, unchanged; checked over HTTPS and on the host).
-SSH to the host worked this time (invoked as the bare `ssh laptop-server '…'`): nginx / signaling /
-coturn `active`, `verify-relay.sh` OK, 0 established signaling sockets. **Real Google Chrome 154** is new
-in the matrix, driven over Playwright's `channel:'chrome'` with persistent profiles (chromeA / chromeB),
-so the FSA path finally ran on the product it exists for. Safari/Firefox over WebDriver as in the
-morning. The Mac's srflx this session was a PUBLIC address (212.175.35.143; once 176.88.94.88 on a cold
-Firefox probe), not the morning's hairpinned 192.168.1.1, so this Mac was not behind the server's NAT
-and the hairpin precondition was not exercised. The Mac has **8 GiB of RAM**, which bounds every number
-below that involves memory. The harness (files, drivers, scenarios) is described in
-`~/projects/claude/tools/webdriver/README.md` on the Mac.
-
-**B7 · T1 · all four desktop engines · PASS (verdicts recorded).** Local dev build (`vite :5291`,
-signaling `:8191`), because production has one STUN server and no DEV strip:
-
-| engine | two loopback STUNs (3479 + 3480) | live `turn.hushsend.frelikh.dev:3478` + loopback 3479 |
-|---|---|---|
-| Chromium 152 (built-in) | `agree` · 127.0.0.1 | `disagree` · 212.175.35.143 vs 127.0.0.1 |
-| Chrome 154 | `agree` · 127.0.0.1 | `disagree` · same pair |
-| Safari 26.6 | `agree` · 127.0.0.1 | `disagree` · same pair |
-| Firefox 156 | `unknown` (no srflx from a loopback server) | `unknown` · only 212.175.35.143 answered |
-
-The `disagree` column is the check doing its job, not a bug: one server really sees loopback and the
-other the public address. The open Firefox question is settled: **on a real network Firefox does report
-an srflx candidate with its address in `getStats()`** (212.175.35.143), so the feature covers three
-engines once two real STUN operators exist. Two caveats: from a LOOPBACK server Firefox reports nothing,
-and on a cold profile its first srflx took **9.8 s** (a 4 s probe got none; warm probes took 0.26 s),
-above `PROBE_TIMEOUT_MS` (4 s), so a cold Firefox can read `unknown` in production. → BACKLOG.
-
-**B10 · size ladder (new case) · desktop half PASS, mobile rung rehearsed on the simulator.**
-
-| receive path · pair | sizes | outcome |
-|---|---|---|
-| FSA (dialog → OPFS handle) · Chrome B → Chrome A | 1, 2, 3 GiB, 4 GiB + 1 B, 5 GiB | all done, every block verified; 51.1 / 50.7 / 47.0 / 45.1 / 50.6 MB/s; progress monotonic |
-| senders into Chrome FSA | Safari → Chrome 5 GiB · Firefox → Chrome 5 GiB | both done, verified; 50.0 and 48.1 MB/s |
-| Blob, desktop cap · Chrome B → Safari / Firefox / Chrome-without-FSA | 1 GiB + 1 B, 5 GiB | refused BEFORE accept in 0.3–1.0 s, reason names the 1.0 GB limit |
-| same three | exactly 1 GiB | done; Blob verified in-page AND the file the browser saved to disk has the expected SHA-256 (`edef0d81…`) on all three |
-| Blob, mobile cap · Chrome A → iPhone 17 simulator | 512 MiB + 1 B, 5 GiB | refused before accept, reason names the **512 MB** limit (the UA picked the mobile cap) |
-| same | exactly 512 MiB | delivered in ~16 s; iOS asked "Do you want to download…", saved to Files; SHA-256 of the saved file matches (`486628bc…`) |
-
-Memory (RSS of each browser's process tree, sampled every 5 s): the Chrome FSA receiver stayed flat for
-every size (tree ≤ ~550 MiB, largest process ≤ 256 MiB at 5 GiB); the Chrome sender likewise (largest
-≤ 215 MiB). **The Safari SENDER did not stay flat**: its WebContent process grew to ~940 MiB near the end
-of the 5 GiB send (from ~300 MiB) and dropped after it. That is harmless on this Mac and a risk on a
-phone. → BACKLOG. The simulator's largest process peaked at ~640 MiB while holding the 512 MiB Blob, but
-simulator memory is the Mac's, so that number says nothing about a real iPhone. Copy nit: the cap + 1 B
-refusal reads "This file is 1.0 GB — larger than the 1.0 GB this browser can save" (same for 512 MB).
-
-- A7 · T1 · Chrome B → Chrome A (Blob path, download saved) · **PASS** under the corrected wording — the
-  sender listed three files ("Send · 3 files"), the receiver was offered `hushsend-files.zip` 3.8 MB,
-  `unzip -v` shows three Stored members and each is byte-identical (SHA-256) to its source; the next
-  single file after "New transfer" was offered under its own name.
-- A4 · T1 · Chrome A creates, Chrome B joins, 6 fresh rooms · roles vary: in the 5 that completed the
-  creator read 3 times and picked 2 times, the real phrase was always among the picker's 3, all reached
-  "SAS confirmed". One room creation showed no code within 20 s while the iOS Simulator was booting and
-  the Mac was out of memory — not reproduced, unexplained.
-- F8 · T1 desktop half · Chrome A creates a link, a separate Chrome profile joins and never sends its own
-  confirmation tag (transport alive, app silent) · **PASS** — the creator sat on "Verifying…" with its
-  signaling socket still open, then failed **≈120 s after its channel opened** (channel up ~12 s after
-  the join; failure seen between the 126 s and 133 s polls: "Couldn't connect — peer did not complete
-  key confirmation in time"), well before the 180 s token-room TTL, and closed its own socket. The silent side had already verified the creator's tag, showed "Secure channel open" and
-  kept showing it after the creator gave up — the same "peer gone after connected" hole as F3 (BACKLOG).
-- A2 · T1 desktop rehearsal · Chrome A shows the QR; a Chrome profile whose fake camera plays that QR
-  (`--use-file-for-fake-video-capture`) scans it in the app · **PASS** — connected 6.2 s after tapping
-  Scan, fragment scrubbed, creator "one-time secret verified". The real-camera and handset halves stay open.
-- B3 · T1 desktop half · same run · **PASS**, and one plan claim corrected — the only host contacted was
-  `hushsend.frelikh.dev`; the decoder came from `/assets/zxing_reader-B47v7G7e.wasm` (200,
-  `application/wasm`). Chrome HAS a native `BarcodeDetector` and the app still fetched the WASM: the
-  ponyfill never uses the native one, so CLAUDE.md § QR and this plan's AND-1 expectation were wrong
-  (both corrected). iOS/Firefox scans remain.
-- B9 · T1 · **PASS, closed** — the owner confirmed Brave's WebRTC IP-handling policy is **Default**;
-  candidates gathered and A1 + A5 in both modes are in the morning entry. The Brave extension stopped
-  answering this afternoon (two calls timed out) while the Mac was out of memory; not an app issue.
-- A6a · T1 desktop half · **PASS** — every transfer in both 2026-09-27 sessions completed; every verdict
-  on one host was `unknown`; nothing was refused or torn down over attestation.
-- A1 · T1 rehearsal · Chrome A → iPhone 17 simulator (link opened via `simctl openurl`) · **PASS** — "Secure
-  channel open", no SAS; host↔host UDP; Chrome's signaling socket closed 0.3 s after connect.
-- A5 · T1 rehearsal · Chrome A → simulator 5 000 000 B · **PASS** — iOS "Received" + the download prompt;
-  the saved file's SHA-256 matches (`89391b9f…`). The simulator → desktop direction was not run.
-- Tooling, not app: safaridriver cannot open a session on the iOS 27 simulator ("Could not find any
-  session hosts", and its Safari → Advanced has no Remote Automation switch), so the simulator is driven
-  by taps and screenshots with the evidence taken on the desktop side of the pair.
-
-### 2026-09-27 (evening) · iPhone + iPad simulators, Android emulator, B1/E4/E7 on desktop · Chrome 154 ↔ iPhone 17 sim (iOS 27.0) ↔ iPad (A16) sim (iPadOS 27.0) ↔ Pixel 9 Pro emulator (Android 17, Chrome 149)
-
-Setup: production bundle `index-BBI2zUuS.js` (`efe8b29`, unchanged; checked over HTTPS and on the host);
-`/health` ok, nginx / signaling / coturn `active`, 0 established signaling sockets. SSH worked at 18:20
-and returned `No route to host` from 19:45, so there is no server-side evidence after that. Harness as in
-the afternoon (`claude/tools/webdriver/` on the Mac) plus three engines in the Playwright driver:
-`android` (Chrome in the emulator over CDP through `adb forward … localabstract:chrome_devtools_remote`),
-`none` (plain `adb`), and `chrome-direct` (desktop Chrome with mDNS host-candidate obfuscation off, so
-the emulator can reach it). One simulator or emulator at a time (8 GiB RAM); the owner closed Music and
-Safari when the simulator's input lagged by seconds; the Wi-Fi was off for a moment at the start and the
-reconnect attempt that ran into it is discarded. **Everything on a simulated device is a REHEARSAL**
-(§ 0.5 — the Mac's RAM, CPU and network, no camera) and ticks no handset half; B1 and E4 are desktop
-cases and are ticked.
-
-**iPhone 17 simulator (iOS 27.0, Safari) ↔ Chrome A**, Max privacy, host↔host UDP:
-- Link pairing (twice, once through the paste field) · PASS — "one-time secret verified", no SAS, Chrome's
-  socket closed after connect.
-- A5 · simulator → Chrome A · 5 000 000 B picked in Files · PASS — received into OPFS (dialog stubbed),
-  every block verified, SHA-256 `89391b9f…` = expected, sender "Delivered". The afternoon ran only the
-  other direction.
-- A3 · Chrome A creates, the simulator enters the five words · PASS on the third try — "code words
-  verified", no SAS, the touch listbox offered completions ("lever" → "levers"), only the rendezvous word
-  reached the server. The first two tries expired while typing under memory pressure outlasted the words
-  room's 180 s TTL: the creator got 4010 and "Room not found or code expired" + "New words" — the TTL
-  doing its job.
-- A4 · 3 rooms, Chrome A creates · PASS — exactly one reader each time; Chrome A read in rooms 1–2 and
-  was the blind picker in room 3; the real phrase always among the picker's 3; all "SAS confirmed".
-- D1 · the simulator's lobby row for Chrome reads "<readable id> joined HH:MM" — no device label is
-  rendered any more (case text annotated, BACKLOG).
-- E1/E2 · PASS — after a fresh link pairing each lists the other once; Chrome taps Reconnect, the
-  simulator taps its row → connected 5.1 s after Chrome's tap, "verified via pinned key", no SAS; socket
-  `room=<22 chars>&codeType=token&device=Desktop`, no `create=1`, closed after connect; then 1 000 000 B
-  Chrome → simulator over that channel, saved in Files, SHA-256 `93a9b27b…` = expected. Before this, the
-  simulator's keystore was found empty (a new identity, 0 pins) — likely a stray tap of mine on "Forget
-  pinned devices", which acts without confirmation (BACKLOG); not verified.
-- B4 (no camera) · PASS — "Scan a QR code" in the simulator: the viewfinder stays empty and the
-  paste-the-link field is there; a pasted link joined. The real Deny/Allow camera prompt stays open.
-- B5 · PASS — Share opens the iOS share sheet (Reminders / Safari / More; Copy / Add to Reading List /
-  Open in Safari); the app's Copy link put the full 75-character link on the pasteboard (`simctl pbpaste`).
-- B6/B8 · 402 pt, the app's light and dark themes (the toggle persists across reload) · PASS — "What your
-  network can still see" is closed by default, opens on tap, and all four paragraphs fit with no clipping
-  or horizontal scroll in both themes; the word slots are legible in both, the 4-digit hero checked in
-  light. With the OS set to dark the app stays light — by design (`data-theme="light"` in `index.html`).
-- F1 · 400 MB Chrome → simulator, screen LOCKED right after Accept · the transfer finished (sender
-  "Delivered" after 28 s; 11 s unlocked), but **after unlock no download prompt was pending, no file was in
-  Files, no error was shown** — the Blob hand-off was lost. Control run unlocked: prompt, saved, SHA-256
-  `b7353bc3…` = expected. → BACKLOG. The real-phone F1 stays open.
-
-**iPad (A16) simulator (iPadOS 27.0)** — B10 / the BACKLOG question · **the DESKTOP cap**: a 1 GiB + 1 B
-offer was refused naming "the 1.0 GB this browser can save", a 512 MiB + 1 B offer was offered (Accept
-shown, declined), and the iPad's coarse label in `peer-joined` was `Desktop`. A link opened into the
-iPad's existing hushsend tab did nothing (the hash-only bug, BACKLOG).
-
-**Pixel 9 Pro emulator (Android 17 user build, Chrome 149.0.7827.5, UA `Linux; Android 10; K … Mobile`)**,
-behind QEMU's SLIRP NAT (guest 10.0.2.15):
-- A1 · Max privacy · the creator failed visibly with "Couldn't connect directly — Switch to Reliable"
-  (expected here: the guest cannot resolve the Mac's mDNS host candidates); the Android joiner showed
-  "Room not found or code expired … signaling closed (code 1006)" — the wrong copy (BACKLOG).
-- A1 · Reliable · PASS — connected (19 s on the slow guest), no SAS, fragment scrubbed, both sockets closed
-  after connect; `getStats()` on both sides selected `relay udp 94.46.199.61` ↔ `relay udp 94.46.199.61`
-  while both pages' path verdict was `ok` ("direct path confirmed") — **the BACKLOG suspicion, confirmed**.
-  Android's `peer-joined` label: `Mobile`.
-- A3 · Reliable · PASS — the Android page (touch mode) entered the five words; connected 13.3 s after
-  Connect, "code words verified", no SAS, `room=<word>&codeType=word`, sockets closed after connect.
-- A4 · Reliable · 3 rooms · PASS — creator picker / reader / picker, exactly one reader each time, the real
-  phrase always among the picker's 3, all "SAS confirmed".
-- A5 · Chrome A → Android · PASS, with a finding — **Chrome 149 on Android has `showSaveFilePicker`**:
-  Accept opens Android's own save UI (DocumentsUI → Downloads → SAVE) inside the gesture, i.e. the FSA
-  path, not the Blob path § 0.4 expected (corrected). With SAVE pressed within ~12 s: 5 000 000 B saved,
-  SHA-256 `89391b9f…` = expected. Every run where the dialog stayed up 40 s or more lost the connection
-  (BACKLOG, with the numbers). Cancelling the dialog ends the receiver cleanly ("Transfer ended ·
-  cancelled").
-- A5 · Android → Chrome A · 5 000 000 B, twice · PASS — monotonic, every block verified, 0.4 MB/s through
-  the relay.
-- B5 · PASS — Share opens Android's system share sheet ("Sharing link", the link, copy, Send to devices,
-  QR Code); BACK closes it.
-- B10 caps · PASS — by default (FSA present) 512 MiB + 1 B and 5 GiB are both OFFERED (uncapped). With
-  `showSaveFilePicker` removed in-page (the Blob path) both are refused before accept, naming 512 MB — the
-  UA selects the mobile cap. 64 MiB on that Blob path over the relay: delivered, every block verified
-  in-page; the app triggered the download (Playwright saw the event for the blob URL), but Chrome under
-  CDP automation canceled it, so its landing in Downloads is NOT verified.
-- B10 512 MiB · **not completed** — on the FSA path (SAVE after 11 s; a 200 ms heartbeat in the page never
-  paused more than 1.1 s) over a direct path (Chrome with mDNS obfuscation off, the emulator throttled to
-  16 Mbit/s) it reached 49 MB at ~0.5 MB/s, then the connection failed. Transfers INTO the emulator beyond
-  a few MB died this way — unthrottled after ~1.3–1.8 MB, on the direct SLIRP path and on the relay alike;
-  throttled, a 64 MiB relay run survived at 0.4 MB/s (~25 min for 512 MiB). An emulator networking limit:
-  the phone-sized receive stays open for a real phone. Every stall left both screens on "transferring"
-  (BACKLOG, peer-gone).
-- F2 · real airplane mode for 20 s, 9.6 s into a 30 MB Android → Chrome send · **FAIL** — both peer
-  connections `disconnected` ~10 s into the cut and `failed` 10 s later; after the network returned: no
-  recovery and no visible failure — both sides on "transferring" (3 407 872 / 4 194 304 B) for 150 s+.
-  Same root as F3 (BACKLOG).
-- F8 · real airplane mode the moment the Android joiner's socket had its `welcome` · PASS by the transport
-  path — the creator failed **22 s** after the cut with "Couldn't connect — channel closed during pairing"
-  (ICE failed first, so the 120 s confirm deadline was not needed); the joiner, back online, showed the
-  1006 "Room not found" copy again.
-
-**Desktop:**
-- B1 · T2 · Chrome B → Chrome A (MBP-A), 2 GiB, Max privacy · **PASS** — Accept (a real click) opened
-  Chrome's native save dialog inside the gesture; the owner clicked Save; ~51 MB/s (24 % → 100 % in 32 s);
-  the saved file is 2 147 483 648 B with SHA-256 `0df1e700…` = expected. Receiver RAM flat: Chrome A's
-  process tree 270–407 MiB, largest process ≤ 214 MiB (sampled every 5 s). The dialog defaulted to
-  `~/Documents`, not Downloads. The test file went to the Trash afterwards.
-- E4 · T1 · Chrome B on Reconnect for Chrome A, which never taps it · **PASS** — the rendezvous re-taken
-  at 120 s (same token), a NEW token at 123.8 s (the 20:50:00 bucket boundary), again at 243.8 / 363.8 /
-  483.9 s; "The other device did not show up" + the pair-afresh copy at exactly 600.0 s. Meanwhile Chrome A
-  did a plain room join (4711 → 4009 "room not found", readable copy) and sat 60 s in a lobby of its own,
-  which stayed empty: nothing met, no hang.
-- E7 · T1 rehearsal — a separate profile's PAGE clock shifted by an init script (`skew-init.js`), not a
-  device clock · **+4 min · PASS** — both tapped Reconnect at 20:56:44, 6.5 min into the unskewed side's
-  bucket, when the skewed side was already in the next one; they met at 21:00:00–21:00:03, the unskewed
-  side's boundary, "verified via pinned key" — the stated "at worst after a delay of up to the skew"
-  (3 min 16 s here). **+15 min** · they never met: the skewed side took the next bucket's token at 262.5 s (its own
-  21:20 boundary = real 21:05), the unskewed side at 560.8 s (real 21:10), so the two never held the same
-  token, and BOTH ended "The other device did not show up" at 600.1 s. A skew larger than one bucket is
-  not absorbed by the wait — the stated limit, now measured. The real-device clock half stays open.
-- B10 desktop Blob cap on **Brave 154** (the retry — its extension had timed out in the afternoon), Chrome B → Brave,
-  Max privacy, host↔host · **PASS** — Brave has no `showSaveFilePicker`; 1 GiB + 1 B and 5 GiB were refused
-  BEFORE accept in 0.5 / 0.7 s naming "the 1.0 GB this browser can save"; exactly 1 GiB was delivered in
-  ~21 s (~51 MB/s), "Received", and the file in `~/Downloads` is 1 073 741 824 B with SHA-256 `edef0d81…`
-  = expected (created 21:12:38, right after the transfer). It was NOT visible in Downloads at 21:13–21:14
-  and was at 21:16, after the owner was asked to look at Brave — most likely held by Brave's download UI
-  until confirmed (not observed by me). This completes the Blob row of the ladder for every desktop
-  engine named in it. Test file moved to the Trash.
-
-Tooling notes (not app): the iPhone simulator's input lagged by seconds under memory pressure, and on a
-freshly booted iPad simulator wallpaper/Siri indexing pinned the CPU for minutes (`kernel_task` 188 %).
-The emulator's first Chrome launch after boot was killed by Play Services ("forcing restart due to module
-googlecertificates"). Chrome's first-run was skipped with `am set-debug-app --persistent
-com.android.chrome` + `/data/local/tmp/chrome-command-line` (both reverted afterwards). Playwright calls
-into the Android page hung for the full 170 s while DocumentsUI was in front, so native UI is driven with
-`adb shell input tap` (web content appears in `uiautomator dump` with its bounds).
-
-### 2026-09-27 (late evening) · the connection-lost fix, deployed · F3 on the live build · Chrome 154 ↔ Chrome 154
-
-Setup: production bundle `index-DJlj4l6z.js` (`153addd`; its code is `defe379`'s), deployed by the owner
-at 19:58 UTC. `/var/www/hushsend/dist` is byte-identical to a local build of `153addd` (41 files, equal
-sha256 manifests), `stun.l.google` is absent, `/health` ok, nginx / signaling / coturn `active`, the
-signaling server unchanged at `2b5b913`. Real Google Chrome 154 driven by Playwright (`channel:
-'chrome'`), two SEPARATE browser contexts on the Mac with mDNS host-candidate obfuscation off
-(same-machine pairing); the receiver's `showSaveFilePicker` deleted so it takes the Blob path (headless
-Chrome cannot show the native picker). Link pairing, Max privacy, a 512 MB sparse file.
-- F3 · the receiver's tab closed with 1 MiB received · **PASS** — the sender ended on "Connection lost"
-  25 ms after the close: "not delivered · stopped at 3.5 MB", signal "data channel closed" (the
-  receiver's `pagehide` goodbye). Before the fix the same shape left the sender on "Sending 46 %" for
-  over a minute.
-- Its mirror (not a plan case) · the SENDER's tab closed with 1 MiB received · the receiver ended
-  "Connection lost · not received · stopped at 1.3 MB" after 16.2 s, signal "ICE failed" — the
-  Chromium-only delay CLAUDE.md § Known residuals records; no frozen screen in between.
-- The sender counted 3.5 MB while the receiver had 1 MiB: "sent" is what went into the send buffer —
-  which is why a "Delivered" that waits for the receiver's confirmation is in the works (BACKLOG).
-
-### 2026-09-28 · the owner's decisions, deployed · A4b and B1 on the live build, Chrome incognito · Chrome 154 ↔ Chrome 154
-
-Setup: production bundle `index-9nSghGio.js` (`90fdc15`; its app code is `673509d`'s), deployed by the
-owner at 04:32 UTC. `/var/www/hushsend/dist` is byte-identical to a clean local build of `90fdc15` (41
-files, equal sha256 manifests; the public URL serves the same entry), `stun.l.google` is absent; the
-signaling server's running copy is at `3d96125`, relaunched 04:32:44 UTC, `/health` ok, TURN configured.
-Real Google Chrome 154 driven by Playwright (`channel: 'chrome'`): two persistent profiles (chromeA,
-chromeB) for A4b and B1; for the incognito rows, off-the-record contexts of one Chrome — the storage
-model of an incognito window. Memory = RSS of each profile's whole Chrome process tree, every 2 s.
-- A4b · T1 · chromeA creates a 4-digit room, chromeB joins (room 8249; the creator picked, the joiner
-  read) · **PASS** — the reader confirmed first and got "Verifying…" with "Stop — they don't have this
-  phrase" while the picker was still choosing; Stop ended BOTH sides in the hard stop ("This channel may
-  be compromised"; reasons "SAS rejected — words did not match" / "peer reported a SAS mismatch"), no
-  transfer UI on either. Copy nit: that screen tells a picker who never confirmed anything "The phrase
-  you confirmed doesn't match your peer's".
-- B1 · T1 · chromeA → chromeB, 2 GiB, the browser left as is · **PASS** — no save dialog asked for
-  (`showSaveFilePicker` wrapped: 0 calls); 39.4 s, 54.5 MB/s, progress monotonic, the sender
-  "Delivered"; the site-storage copy verified block by block in-page, and Chrome's own download of it
-  saved a 2 147 483 648-byte file with the expected SHA-256 (`0df1e700…`); the receiver's tree stayed at
-  414–643 MiB (largest process ≤ 222 MiB) through the whole 2 GiB. Past the quota (reported 10 240 MiB;
-  an 11 GiB offer): Accept asked for the save dialog inside the gesture (`navigator.userActivation.isActive`
-  true at the call). The dialog was answered "Cancel" in-page, so the native window itself was not on
-  screen in this run (it was on 2026-09-27, clicked by the owner); the receiver ended "cancelled", the
-  sender "declined · recipient cancelled". The hold after hand-off (`OPFS_HOLD_MS`, 10 min): 7 min in,
-  the site-storage folder still held exactly the delivered 2 GiB file (usage 2 048 MiB); at 05:05:44,
-  ~10 min after the hand-off, it was empty and usage 0 — the timer removes it on the live build.
-- B2's private-window rung, on the desktop (not the tick — B2 is a phone case) · Chrome incognito ·
-  **FAIL** — the receiver reports quota 10 240 MiB, usage 0, but site storage holds only ~430 MiB there
-  (a bare write stopped at 426 MiB with `QuotaExceededError`). hushsend plans by the reported quota, so
-  a 600 MiB file was ACCEPTED on the disk path and died at 445 MB (74 %): receiver "transfer error · The
-  operation failed because it would cause the application to exceed its storage quota.", sender
-  "cancelled · stopped at 448 MB". The incognito browser's tree grew from ~765 to ~1 124 MiB during it
-  and fell back once the partial file was removed — that storage looks RAM-backed. A normal profile, for
-  comparison: 1 GiB written in 0.9 s, tree +10 MiB. → BACKLOG § UX bugs.
-
-### 2026-09-28 (later) · the no-copy rule's engineering · a probe page and the LOCAL build · Chrome 154 ↔ Firefox 156 ↔ Safari 26.6 (the Mac)
-
-Not ticks — measurements that decided the design (CLAUDE.md § File transfer), on real engines.
-- **Memory, one yardstick** (RSS of every process of the receiving browser, 1 GiB received from Chrome
-  on the live build): the table given to the owner earlier mixed yardsticks (Chrome's whole browser vs
-  Firefox's main process vs Safari's largest process). Measured the same way: a blank tab already costs
-  Chrome ~790 MiB (browser 195, GPU 117, network 85, storage 61, renderers 330) and Firefox ~1.7 GiB
-  (six pre-launched content processes); the hushsend tab's own process is Chrome ~152 MiB idle / 175
-  connected / 215–242 receiving, Firefox ~198 / 226 / ~347 — its JS heap 4 MiB idle, 10 MiB connected
-  (Chrome's `performance.memory`). Safari's numbers swing with macOS compression on this 8 GiB Mac.
-  None grows with the file.
-- **Straight into Downloads through a service worker** (probe: `/dl/sw.js`, a transferred stream, 1 GiB
-  of structured blocks): Chrome — 1 GiB in 1.2 s, the saved file's SHA-256 right, memory back at once;
-  Firefox — the same (1.65 s, SHA-256 right); Safari — `DataCloneError` for a transferred stream, and
-  fed chunk by chunk it created the download and wrote **0 bytes**. Failure modes: an aborted stream
-  ends the download "canceled" on Chrome (bundled Chromium and Chrome 154), and so does a worker killed
-  mid-download (CDP `ServiceWorker.stopAllWorkers`); on **Firefox** an aborted stream leaves the
-  download in progress for good (a `.part` of 6–8 MiB plus an empty file under the real name, also with
-  the worker erroring its own stream), and once the worker was unregistered Firefox **completed a 7 MiB
-  file declared as 64 MiB** under the real name. A stream closed short completes on both engines (the
-  app never closes short — it errors). Chrome kept a 420 s stream alive with a ping every 10 s and the
-  file arrived intact (past the 5-minute event limit). → the stream path is desktop Chromium only.
-- **Reservation** (`truncate(size)` on a fresh writable): 5 GiB in 1–2 ms on Chrome, Firefox and Safari,
-  counted in the quota at once, writes then start at 0; incognito Chrome refuses 1 GiB in 2 ms
-  (`QuotaExceededError`) and takes 300 MiB; Safari's `estimate()` still counts a removed file for a
-  while. Firefox private: no site storage at all (`getDirectory()` → `SecurityError`).
-- **The local build in real Chrome** (two persistent profiles, vite + the dev signaling server on the
-  Mac): 2 GiB received through the download worker at 50.6 MB/s, the sender "Delivered", nothing in
-  site storage, no hand-off, the saved file's SHA-256 right (`0df1e700…`), the receiver's tree 804–985
-  MiB throughout. **Flow control:** the 5 GiB download PAUSED in `chrome://downloads` 3 s after Accept —
-  for the 15 s it stayed paused the sender did not move a byte (174 063 616) and sat 15.3 MiB ahead of
-  the receiver (the 16 MiB window), the receiver's tree flat at 935–947 MiB; after Resume both ended
-  "done" and the 5 GiB file's SHA-256 was right (`7a9e331b…`).
-- Suites on this code: unit 313/313, integration 26 + 2 skipped (turn-relay: no coturn on the Mac, as
-  before), e2e 143 passed / 14 skipped / 2 failed (the two WebKit path-attestation cases, as before),
-  axe 112/112.
-
-### 2026-09-28 (after `c5a51c4` went live) · the stream path and the ladders on the live build · Chrome 154 ↔ Firefox 156 ↔ Safari 26.6 (the Mac)
-
-Setup: `c5a51c4` live since 06:32 UTC (§ 0.1). Real browsers on the Mac: Chrome through Playwright
-(persistent profiles chromeA → chromeB; incognito = an off-the-record context), Firefox and Safari
-through WebDriver (Firefox private = `browser.privatebrowsing.autostart`); chromeA sends every file
-(1 MiB structured blocks, every byte checked by the saved file's SHA-256). Memory = RSS of the
-receiving browser's whole process tree every 2 s. The Mac was under heavy memory pressure (swap
-3.5 of 5 GB), so absolute numbers run high; what matters is that none grows with the file.
-- B1 · T1 · Chrome · **PASS** (ticked) — the download worker is registered only when the file is offered
-  (none before) and the stream frame appears at Accept; 2 GiB arrived in 49 s, 0 save dialogs, 0
-  hand-offs, nothing in site storage, the saved file intact, the sender "Delivered", the receiver's
-  tree 441–819 MiB. Cancelled in `chrome://downloads` 3 s in: receiver "error · the browser stopped the
-  download (cancelled, or the disk is full)", sender "cancelled · stopped at 137 MB", no file kept.
-  Paused there 3 s in: the sender did not move a byte for 15 s and sat 15.3 MiB (the window) ahead of the
-  receiver, tree flat (538–872 MiB); resumed, both "done", the file intact. 75 s after the last
-  download the worker was gone again.
-- B2's private rung · Chrome incognito · PASS — 1 GiB through the stream path (the worker at the offer,
-  the frame at Accept), nothing in site storage, the file intact (the quota it reports is still the
-  fake 10 GiB — no longer read on this path). The morning's FAIL is fixed.
-- B2's desktop half · Firefox · PASS — 1 GiB through site storage (no worker: Firefox never streams),
-  46 MB/s, the copy held in site storage, the saved file intact. Firefox private · PASS — no site
-  storage (`getDirectory()` → SecurityError); 250 MiB refused in ~1 s, before accept ("This file is 250
-  MB — larger than the 200 MB this browser can take right now…"), 200 MiB + 1 B refused in bytes
-  ("209715201 bytes — larger than the 209715200 bytes"), exactly 200 MiB received through RAM, intact.
-- B2's desktop half · Safari · PASS for 1 GiB — site storage (quota 78 643 MiB, no worker), 32.5 MB/s;
-  the WebDriver window counts as hidden, so the app held the file and showed "It arrived while this
-  page was in the background. Tap to save it."; the tap handed it over, the site-storage copy verified
-  and the file Safari saved to ~/Downloads intact.
-- B10 · stream rungs · Chrome · **PASS** — 1, 2, 3 GiB, 4 GiB + 1 B, 5 GiB: 46.6 / 50.2 / 51.4 / 45.0 /
-  49.5 MB/s, progress monotonic, 0 hand-offs, nothing in site storage, every saved file intact; the
-  receiver's tree 322–725 MiB over the whole ladder (largest process ≤ 341 MiB).
-- B10 · site-storage rungs · Firefox · **PASS** — 1, 2, 3 GiB, 4 GiB + 1 B, 5 GiB: 54.4 / 60.0 / 61.7 /
-  52.8 / 58.8 MB/s, each held for "Save file" (background window), tapped, every saved file intact;
-  tree 123–631 MiB. 11 GiB (past the 10 GiB quota): refused before accept in 3 s — "larger than the 9.9
-  GB this browser can take right now". **Found:** a second big file right after the first — 6 GiB
-  received, then 5 GiB offered 4 s later — was refused "larger than the 3.9 GB … Free up disk space"
-  with 267 GB free: the first file's held copy fills the quota for up to 10 minutes (BACKLOG § UX bugs).
-- B10 · site-storage rungs · Safari · first run stopped at 2 GiB — the transfer reached site storage,
-  "Save file" was tapped, and then Safari asked whether to allow the download (confirmed by the owner,
-  who saw it); that prompt blocks WebDriver. Not a product failure (no crash report, nothing in
-  WebKit's log). **Re-run the same evening with downloads allowed for the site: PASS** — 2, 3, 4 GiB +
-  1 B, 5 GiB at 43.7 / 43.9 / 40.9 / 42.9 MB/s, no worker, the site-storage copy verified block by block
-  each time, and every file Safari saved to ~/Downloads has the expected SHA-256.
-- Harness, not product: Chrome 154 crashed (browser process, SIGSEGV) on the first download in a
-  Playwright profile relaunched after an intercepted download — a plain 5-byte blob download crashed
-  it too, and with the profile's `History` moved aside it did not. Recorded for the harness.
-- F4 · attempted with the deploy host as the second machine (headless Chromium 149 on Linux, the live
-  site reached through its own nginx, the Mac's Chrome with real host IPs) · **not a result** — the two
-  never finished pairing, in Max privacy nor in Reliable ("Agreeing on keys…" on both, no page error):
-  the host firewalls every inbound port but 80/443/22/3478 and the relay range, and from inside the LAN
-  it cannot reach its own public address (where its TURN listens). An environment limit, not a product
-  one; F4 still needs a second real machine (or the phone).
-
-### 2026-09-28 (evening) · the owner's eviction rule on the live build · Chrome 154 → Firefox 156 (the Mac)
-
-Setup: `1f2abab` live since ~18:00 UTC (its app code `254c31b`'s: a delivered copy held ≥ 2 min gives
-way to the next big file; before that the refusal says so) — § 0.1. chromeA sends to Firefox (site
-storage, 10 GiB quota), each file checked by the saved file's SHA-256.
-- 6 GiB received at 54.4 MB/s, handed over at once, intact; site storage then holds its copy (6 145 MiB).
-- 5 GiB offered 21 s after that hand-off · refused before accept, in the new words: "This file is 5.0
-  GB, and this browser's storage is still holding the last file it received while its download
-  finishes. Try again in a couple of minutes, or receive it in another browser."
-- 5 GiB offered again 125 s after the first hand-off · **accepted** — the 6 GiB copy gave way — received
-  at 60.6 MB/s, intact; site storage then holds only the new copy (5 121 MiB). The BACKLOG item "a second
-  big file right after the first" is closed on the live build.
-
-### 2026-10-02 · the FIRST real handset · Chrome 154 (the Mac, Playwright) ↔ **Pixel 5** (Android 14, Chrome 152) over USB — Phase A on the LAN, Phase C over a VPN Wi-Fi
-
-Setup: live `8c9ea59` (§ 0.1 unchanged). The phone is the owner's Pixel 5 (`redfin`, Android 14, security
-patch 2023-11-05 — no updates any more, Chrome 152.0.7977.82, 1080×2340 @ 440 dpi, no SIM), attached over
-USB and driven over CDP exactly like the emulator (`adb forward … chrome_devtools_remote`; the
-`android-device` skill). Desktop side: the installed Chrome 154 through Playwright (`chromeA`). Two
-networks: **home LAN** (Mac 192.168.1.35, phone 192.168.1.34, same /24; the phone drops ICMP) and, from
-F8 on, the phone on a **second Wi-Fi that exits through a VPN in France** ("enlight me", srflx seen as
-81.53.x.x) — the stand-in for "LTE" (no SIM in the phone). Every number below says which.
-
-**Phase A on the LAN (default Max privacy on both — see the trap at the end).**
-- **A1 · T2 · Mac Chrome → Pixel Chrome · PASS** — ×3. Connected in 0.9 / 1.0 / 1.0 s (joiner, from
-  opening the link), fragment scrubbed (`location.href` = the bare origin), no SAS screen, selected pair
-  `host ↔ host` on the LAN (the Mac's host candidate is mDNS-obfuscated, so the phone sees it as `prflx`
-  with no address). Both signaling sockets close ≤ 1.4 s after `connected` (A6 on the phone).
-- **A3 · T2 · Mac creates words, Pixel types them · PASS** — the five words typed into the five fields in
-  touch mode (listbox), `connected` 2.4 s after Connect, "code words verified", `host ↔ host`.
-- **A4 · T2 · Mac creates a room, Pixel joins, Mac picks the Pixel row · PASS** — 8 fresh rooms: exactly
-  one reader + one picker every time, the real phrase among the picker's three every time, both sides
-  "verified — SAS confirmed". The reader landed on the creator 5 times and on the phone 3 times — the
-  split is not fixed to the creator, as designed. (Stand note: the phone's lobby roster read back empty
-  in 4 of 8 rooms — the harness read it after the pick had already left the lobby screen; not a product
-  finding.)
-- **A5 · T2 · both ways · PASS** — 5 MB Mac → Pixel in 2.3 s: the phone took the **site-storage path**
-  (no dialog, `usageDetails.fileSystem` 5 000 368 after, an `incoming` directory present), every block
-  verified, "Received" + **New transfer** on the finished row. 5 MB Pixel → Mac in 2.2 s: desktop Chrome
-  streamed it straight into Downloads (nothing in its site storage), the saved file's SHA-256 right.
-- **A6a** — the phone read "direct path not confirmed" (`unknown`: its selected remote is the Mac's
-  mDNS-hidden `prflx`) while the Mac read "direct path confirmed"; the transfers above ran regardless.
-  Advisory, as it must be. Verdict table row: Chrome-desktop ↔ Chrome-Android on one LAN = `ok` / `unknown`.
-- **E1 (phone half)** — after all of the above the phone's Reconnect section lists the Mac **once**
-  (`device e7:f2:4e:82`), and the Mac lists the phone once (`device 41:d2:23:80`).
-- **B5 · T2 · Pixel · PASS** — the Share screen has Share AND Copy; a real `adb` tap on Share opened the
-  system share sheet (`com.android.intentresolver … ChooserActivityLauncher`, screenshot
-  `and_share.png`: the link in the sheet's preview); Back returned to Chrome.
-- **B8 · T2 · Pixel · PASS** — "What your network can still see" present, **closed** by default, opens on
-  tap (777 characters), nothing clipped (the only element with `scrollWidth > clientWidth` is an
-  `sr-only` span, by design), no horizontal scroll at 392 CSS px.
-- **B6 (Android half) · PASS** — light and dark (the kit toggle flips `data-theme`, stored), the home,
-  method picker and the open disclosure at 392 × 721 CSS px: no clipping, no horizontal scroll, all 14
-  controls on the home ≥ 44 px (screenshots `b6_*.png`). RU is not checked: English only by decision.
-- **F8** — NOT drivable on the LAN: from `welcome` to `connected` the link path takes ~1.5 s and
-  `svc wifi disable` lands later than that, so the cut hit an open channel (and gave an F2 datum: an
-  ~8 s cut without a transfer in flight → "Connection interrupted" on the Mac after ~6 s, then ICE came
-  back by itself and both sides were `connected` again ~16 s after the cut). The emulator's SLIRP
-  slowness is what made F8 drivable there; on a real LAN it needs a different cut (owner's airplane
-  mode is on already — the phone has no SIM — so that switch is not available either).
-- **F2 · T2 · Pixel → Mac, 600 MB over the relay, Wi-Fi off at 9 s for 20 s · PASS (visible failure)** —
-  both PeerConnections `disconnected` 7–9 s after the cut, `failed` 10 s after that; both screens
-  "Connection lost" 19 s after the cut, i.e. before the Wi-Fi came back; no frozen bar. (By then the
-  phone had silently rejoined a DIFFERENT Wi-Fi — see the trap.)
-
-**Phase C — the phone on the VPN Wi-Fi (France), the Mac on the home LAN.** *(Caveat added 2026-10-03:
-on the home LAN the STUN reply is the router's LAN address, so the Max-privacy failures below are an
-artefact of the stand — see case C1.)*
-- **C1 · T2 · Max ↔ Max, link · PASS, outcome (b)** — ×2: terminal `failed` with "Couldn't connect
-  directly — Switch to Reliable" on BOTH sides (the Mac's also carries the macOS Local Network hint),
-  phone 18 s, Mac 18–48 s. No hang.
-- **C2 · T2 · Reliable ↔ Reliable, link · PASS** — connected in 5.2 s, selected pair **`relay ↔ relay`**
-  (our coturn, 94.46.199.61) on both sides, both rows read "relayed through the server", sockets closed
-  after connect. **50 MB Mac → Pixel over the relay: 165 s = 0.3 MB/s**, intact. That is well under the
-  relay's per-session cap (`max-bps=5000000` counts BYTES — ~5 MB/s; this line used to read it as
-  5 Mbit/s, which the 3.84 MB/s of § 0.3 rules out) and the 1.86 MB/s measured on 2026-09-19; the VPN leg is the likely
-  bottleneck. A 600 MB send the other way ran at the same 0.3 MB/s (F2 above).
-- **C3 · T2 · mixed privacy, both directions, link AND room · PASS (no deadlock)** — four runs, every one
-  terminal in 16–19 s, never a stuck "agreeing on keys". The Max side's copy depends on a RACE: when its
-  own ICE failed first (phone-Max on link; both room runs) it read "Couldn't connect directly — Switch to
-  Reliable"; when the Reliable peer's ICE gave up ~2 s earlier (Mac-Max as link creator, twice) the
-  `peer-left` arrived first and the Max side read **"peer left during pairing"** — fail-closed, but
-  without the hint the case promises. BACKLOG § UX bugs.
-- **C4 · T2 · PASS** — in all four C3 runs the Max side sent **no `turn-request`** (full frame log; the
-  Reliable side sent exactly one) and nothing connected, so no relayed pair could exist: "failed ⇒ the
-  fix works". Control: the Phase A runs where the phone was unknowingly on Reliable (the trap) and the
-  Mac on Max connected `host ↔ host` on the LAN — the gate passes a legitimate direct path.
-- **F9 · T2 · words + room/SAS over the VPN relay (Reliable both) · PASS** — words `connected` 5.5 s
-  after Connect; room/SAS ×2 connected, both verified. Nowhere near the 120 s deadlines.
-- **E6 · T2 · reconnect ×5 over the VPN relay (Reliable both) · PASS** — 5/5 "reconnect — verified via
-  pinned key" in 5.4–6.7 s from the first tap, no SAS screen, `relay ↔ relay`, socket
-  `room=<22>&codeType=token`, no `create=1`, closed after connect.
-- **E7 · T2 · phone clock +4 min (`cmd alarm set-time`, auto time off) · PASS** — met in 4.1 s.
-  **+15 min:** see the line below this entry (ran in the background).
-
-- **E7 +15 min · PASS — the stated limit, observed in full (second run, later that evening, phone on the
-  LAN over wireless adb).** Phone clock +15 min, both tapped Reconnect within a second: neither side ever
-  met the other; each re-took the rendezvous on its own schedule (6 sockets each over the wait — the
-  2-min refresh plus each side's own bucket boundary, the phone's 15 min ahead of the Mac's), and **both
-  ended at 603 s with "The other device did not show up"** — the Mac and the phone within the same 10 s
-  poll. No hang, no SAS, no handshake mismatch. (A first attempt earlier in the evening observed only
-  200 s — the driver's 170 s command limit — and then the owner switched the phone's Wi-Fi mid-wait: its
-  socket died with **1006 and the phone ended at once with "Couldn't connect — reconnect: signaling
-  connection failed"** instead of re-taking — BACKLOG § UX bugs.)
-
-**Back on the LAN (phone on ROSTELECOM again, both Max).**
-- **B2 (phone half) · T2 · Mac → Pixel 1 GiB · PASS** — **site storage, no dialog**: 197 s = 5.5 MB/s
-  on this LAN, every block verified, `usageDetails.fileSystem` = 1 073 742 192 after, "Received" + New
-  transfer; Chrome's total PSS on the phone sampled every 5 s: **245–257 MB** for the whole receive (40
-  samples) — flat. (This is also the OPFS ladder's 1 GiB rung on a handset — B10.) The RAM-fallback rung
-  (a private window over 200 MiB) was NOT run: an incognito tab cannot be driven through this CDP socket.
-- **C6 (LAN stand-in, Max privacy) · PASS on the arithmetic** — 300 KiB went over the DataChannel as
-  **524 371 bytes** (the 512 KiB bucket, +70.7 %), 50 MB as **50 331 735** (the 48 MiB bucket, +0.7 %);
-  both received intact at their REAL sizes ("300 KB" / "48 MB" rows). 1.4 s and 8.6 s on the LAN. The
-  cellular COST stays unmeasured: no SIM.
-- **F1 (Android half) · T2 · 200 MB Mac → Pixel, screen locked by `keyevent 26` ~6 s after Accept, left
-  locked ~40 s · PASS with a surprise** — the transfer **kept going while locked**, slower (done at 66 s
-  against 36 s with the screen on), and completed. **`document.visibilityState` stayed `visible`
-  throughout** — Android Chrome did not report the lock to the page — so the finished row did NOT show
-  "Save file": the download was started at once (`download click` in the log). Whether a download
-  started under a locked screen lands cannot be checked under CDP (Playwright cancels downloads in a
-  browser it is attached to — nothing in `/sdcard/Download`); needs one run by hand, Chrome detached.
-  **Done by hand, Chrome NOT attached (00:05, after the ladder) — F1 Android half · PASS, and the
-  `visible` above was a CDP artefact.** Chrome force-stopped and the link opened by `am start`; the owner
-  tapped Accept; `keyevent 26` locked the screen 6 s later; the owner left it locked ~40 s. The sender
-  reached "Delivered" 43 s after the lock (the transfer ran on under the locked screen, 200 MB in ~49 s).
-  On the phone, nothing in Downloads yet — instead the finished row "Received … 191 MB ✓" with **"It
-  arrived while this page was in the background. Tap to save it." and the Save file pill** (screenshot
-  `f1_after.png`): the page DID go hidden for real, and the hold worked as designed (2026-09-28). One
-  tap on Save file (a real `input tap`): `/sdcard/Download/hs-f1-manual-200000000.bin`, 200 000 000
-  bytes, **SHA-256 equal to the generator's**. So on Android Chrome: a receive survives the screen lock,
-  the download is held rather than lost, and a single tap lands it intact.
-- **F8 · T2 · the phone on the VPN Wi-Fi, Reliable both, Wi-Fi cut 1.8 s after `welcome` · PASS (25 s).**
-  Over the relay the join takes ~5 s, so the cut landed while the phone was still "Joining…" (no
-  PeerConnection yet — it was waiting for its TURN credentials). The Mac sat in "Agreeing on keys…" with
-  its PeerConnection `new` and ended at **25.3 s** with "Couldn't connect — peer left during pairing":
-  the SERVER noticed the dead socket and broadcast `peer-left` long before the 120 s client deadline
-  would have. No endless wait. (The phone, Wi-Fi back 8 s later: "Lost the connection to the server —
-  Check your internet connection and start again", plus the relay-unavailable line because its
-  `turn-credentials` never arrived — honest, if a little misleading about WHY there was no relay.) On
-  the LAN this case is not reachable: the join completes in ~1.5 s, faster than `svc wifi disable`.
-- **B10 · past the quota on the phone · PASS** — a 16 GiB offer (the phone's site quota read 10–15 GB
-  across the evening) was accepted on the Pixel 5 through a trusted click: planReceive skipped site
-  storage and **the system save dialog came to the front** (`com.google.android.documentsui …
-  PickActivity`, screenshot `quota_dialog.png`) — the File System Access path, as the table predicts for
-  Chrome/Android. Back out of the dialog: receiver "Transfer ended · cancelled", sender "declined —
-  recipient cancelled", nothing transferred, the channel still open.
-- **B10 · the "RAM rung" in an incognito tab on the phone · NOT APPLICABLE on Android Chrome.** An
-  incognito tab (opened from Chrome's menu; reachable over the same DevTools socket — Android hands every
-  tab, incognito included, to one BrowserContext, so the harness picks it by URL) reported site storage
-  **usable** (the one-byte OPFS probe wrote and closed), `estimate()` 10 GB, `showSaveFilePicker` present.
-  A 250 MiB offer over the relay was accepted with **no dialog and went to site storage** ("Receiving …
-  1 %"), so the RAM path is never reached there: unlike desktop Chrome incognito (430 MiB of real room
-  behind a 10 GiB estimate) and Firefox private (no OPFS at all), Android Chrome incognito simply has
-  working site storage. The 200 MiB cap stays covered by the e2e and by Firefox private on the desktop.
-
-**The three fixes (`190151b`, deployed 2026-10-03 ~00:55 UTC, byte-identical to a clean build), checked
-on the live build after clearing every browser's cache:**
-- **Finishing line** — chromeA → chromeB on the Mac, Max, 1 GiB + 1 B (bucket 1.125 GiB → 128 MiB of
-  filler): at 23.9 s both panels switched to "Finishing", the sender's status line "Hiding the file's
-  size — a little extra data goes out after the file.", the receiver's "The sender is hiding the file's
-  size — a little extra data arrives after the file.", 2.4 s later Delivered / Received.
-- **Max hint under the peer-left race** — the C3 run that used to lose it (Mac Max creator ↔ Pixel 5
-  Reliable on the VPN Wi-Fi, link): the phone's ICE failed at 17.7 s, its `peer-left` reached the Mac at
-  19.6 s while the Mac's PeerConnection was still `connecting`, and the Mac now reads **"Couldn't connect
-  directly — Switch to Reliable…"** (18.7 s). Fail-closed as before; the copy is now the useful one.
-- **Reconnect wait across a network drop** — Pixel 5 alone on the wait screen, Wi-Fi off 12 s: the socket
-  died with 1006, the wait **stayed up** and re-took the rendezvous every 3 s while offline (each
-  attempt closing 1006 at once), and the first socket after the network returned opened — the fix
-  works. Then a new finding: that socket found a peer in the token room — **the phone's own previous
-  socket, which the server had not yet declared dead** (it needs ~25 s, cf. F8) — pairing began
-  against the ghost, nothing answered, and the server's eventual `peer-left` ended the wait as
-  "reconnect aborted — peer left during re-auth". BACKLOG § UX bugs (the ghost at the rendezvous).
-- **The ghost fix (`981f8df`, deployed ~01:35 UTC, byte-identical to a clean build) — the same scenario
-  on the live build:** Wi-Fi off 12 s → sockets re-taken every 3 s while offline → the first socket after
-  the network returned met the ghost ("Agreeing on keys…", ~3 s) → **back to "Waiting for the other
-  device" on a fresh socket** and still waiting when the 120 s observation ended. The wait survives both
-  the drop and the ghost; the cap is the original one (`waitUntil`).
-- **B10 (phone, site-storage ladder) · T2 · Mac → Pixel 5 over USB, Max, one pair:** **2 GiB PASS** (510 s
-  = 4.2 MB/s, every block verified, Chrome PSS 223–264 MB over 99 samples, site storage then 2048 MB of a
-  12.3 GB quota), **3 GiB PASS** (1062 s = 3.0 MB/s, verified, PSS 211–229 MB; usage 3072 MB — the 2 GiB
-  copy had already given way), **4 GiB + 1 B · INCONCLUSIVE — the harness called a stall that was the
-  padding tail.** Every declared byte arrived (both counters at 4 294 967 297 / 4 294 967 297 after
-  ~1040 s = 3.9 MB/s, PSS 201–231 MB), and in Max privacy the sender then pushes the filler: at 2^32 + 1 the
-  bucket is 4.5 GiB, so **512 MiB of filler, ~137 s at this speed, during which both sides sit at "100 %"
-  by design** (progress is not emitted for filler). The harness's stall detector fires after 60 s without
-  receiver progress, declared `stalled` at 1100 s, and the next rung's set-up tore the session down — so
-  whether the receive would have completed ~1 min later was not observed. (A snapshot taken in that
-  window showed the OPFS `incoming/` folder with the writable's `.crswap` pre-sized to 4 294 967 297
-  bytes next to a 0-byte target, both sides `transferring`, PeerConnection `connected` — consistent with
-  the filler still in flight; a first reading of it as "close() hung for 46 min" was wrong: the 46 min
-  was the page's uptime since pairing.) Two probes exonerate OPFS itself on this phone: sparse files of
-  2^32 − 1 / 2^32 / 2^32 + 1 bytes and a REAL 4 GiB + 1 B write (28 s, ~150 MB/s) all `close()` in ≤ 5 ms
-  with the right size. **Re-run with a 400 s stall window (`STALL_S`), fresh pair, Max: 4 GiB + 1 B PASS**
-  — done in 1144 s = 3.8 MB/s, every block verified (verify 32 s on the phone), PSS 238–249 MB over 221
-  samples, "Received … 4.0 GB" + New transfer; **5 GiB PASS** — 1279 s = 4.2 MB/s (no filler: 5 GiB is a
-  bucket edge), verified (40 s), PSS 240–243 MB over 247 samples, site storage then 5120 MB of a 15.4 GB
-  quota (the 4 GiB copy had given way). **So the phone's site-storage ladder is 1 · 2 · 3 · 4+1 B · 5 GiB,
-  all PASS, memory flat throughout — the handset half of B10's OPFS row is closed.** Not walked on the
-  phone: the RAM rung (incognito is not reachable over this CDP socket) and past-the-quota (would need
-  > 15 GB). Product note for BACKLOG: on a slow link a big file's padding tail is minutes of "100 %"
-  with no sign of life — the UI should say what it is doing.
-- **B4 (Android half) · T2 · PASS, deny half** — the owner tapped Block on Chrome's camera prompt: the
-  viewfinder gave way to "Camera unavailable — paste the link below instead." with the paste field under
-  it, no crash, `permissions.query({name:'camera'})` = `denied`. ("Never allow" is what Chrome offered,
-  so re-allowing meant the site-settings sheet — Permissions → Camera — not a second prompt.)
-- **A2 · T2 · Pixel 5 scans the QR on the Mac's screen · FAIL on the live build — and so does the desktop
-  rehearsal now.** Camera re-allowed, the QR framed large and sharp in the viewfinder (screenshot
-  `scan_now.png`): no decode, ever. The phone's console: every frame dies in **`LinkError:
-  WebAssembly.instantiate(): Import #78 "a" "ya": function import requires a callable`**. The desktop
-  fake-camera rehearsal (`sc_qr`, Chrome 154) against the SAME live build: the identical error, 60 s, no
-  connect — the rehearsal that PASSED on 2026-09-27. **Cause:** the live site had moved to a build of
-  `c5f6e94` (2026-10-01, "runtime deps refreshed within their ranges"): `barcode-detector` went
-  3.2.0 → 3.2.2, whose inlined glue is **zxing-wasm 3.1.3 (78 imports)**, while the exact direct pin
-  still vendored the **3.1.0 reader (80 imports)** — the version coupling CLAUDE.md § QR warns about,
-  with nothing enforcing it: `tsc`, `vite build` and the e2e (which scans through the paste fallback)
-  all stayed green. **B3 therefore also FAILS on this build on every engine** — the self-hosting half
-  holds (the ponyfill 15 KB and the 1064 KB `.wasm` came from `hushsend.frelikh.dev` only, nothing
-  from jsdelivr/fastly, on the phone and on the desktop), the decoding half does not. **Fixed in the
-  working tree 2026-10-02 (not yet committed/deployed):** `zxing-wasm` pinned to 3.1.3 (one deduped
-  copy with barcode-detector's), the built glue's 78 keys match the built `.wasm`'s 78 imports, and a
-  new `vitest` gate in `src/ui/zxingWasm.test.ts` instantiates the ponyfill's glue with the vendored
-  reader and decodes a real hushsend-link QR (its negative control — the same glue with the old 3.1.0
-  bytes — reproduces the LinkError). Verified on a local `vite preview` of the fixed build with the
-  fake camera: decoded in 0.5 s, `zxing_reader-BxB2YfIY.wasm` fetched same-origin, no console error.
-  **Committed and deployed as `9bdda44` the same evening (§ 0.1); the desktop fake-camera scan on the
-  LIVE build then decoded + connected in 0.5 s — A2's desktop rehearsal and B3's desktop half PASS
-  again.**
-- **A2 · T2 · Pixel 5 scans the QR on the Mac's screen · PASS on the fixed live build (`9bdda44`)** —
-  the phone's Chrome cache cleared over CDP (it had the old bundle open; the entry chunk then read
-  `index-CL2avokU.js`), the owner pointed the camera at the Mac's Share screen: the scanner left the
-  viewfinder 7.3 s after opening (decode), `connected` at 8.5 s, both sides "one-time secret verified",
-  fragment scrubbed, `host ↔ host`. The phone's Chrome was **154.0.8037.126** by then — the owner updated
-  it mid-pass (everything above A2 ran on 152). **B3 (Android half) · PASS** in the same run: the scan
-  fetched `ponyfill-BuxwROcg.js` (15 KB) and `zxing_reader-BxB2YfIY.wasm` (1068 KB) from
-  `hushsend.frelikh.dev` only — nothing from jsdelivr / fastly / any third party. (Stand note: the USB
-  cable comes loose when the phone is lifted to the screen; Wireless debugging works without pairing —
-  `adb mdns services` → `adb connect <ip>:<port>` — but Android switched it off when the screen slept.)
-
-**The trap this session hit — record the phone's privacy mode AND its SSID with every run.** The phone's
-stored pref was Reliable from an earlier session, so the first A1/A3/A4/A5 runs were mixed-privacy on the
-LAN (they connected `host ↔ host`, which is the C4 control, and A1 was re-run Max ↔ Max before being
-ticked). And `svc wifi enable` after an F2/F8 cut rejoined the STRONGER saved network — the VPN Wi-Fi —
-so from F8 on every run was cross-network until the roster dump said so. Read the SSID back
-(`dumpsys wifi`) before claiming which network a run used.
-
-**When the pass is done:** fold the results into `BACKLOG.md` § Step 6 / **6e** (and its
-"Remaining (real devices, post-deploy)" line) and `CLAUDE.md` § Current state / Build order in the
-SAME pass — doc drift is a bug (CLAUDE.md § Keep this file in sync). Bugs found here become new
-BACKLOG items under "UX bugs — found in the manual test pass"; anything security-shaped goes to
-§ Security audit instead of being fixed ad hoc.
-
-### 2026-10-03 · the FIRST real iPhone · Chrome 154 (the Mac) ↔ **iPhone 15** (iOS 26.6, Safari 26.6) over USB — Phase A/B/E on the LAN, Phase C on LTE
-
-Setup: live `981f8df` (`index-DkYJ-hTt.js`, § 0.1 unchanged). The phone is the owner's iPhone 15
-(`iPhone15,4`, iOS 26.6 / 23G71), attached over USB and — for the first time — **driven by WebDriver**
-(`safaridriver` 26.6 → the phone's Safari with Remote Automation on; caps and gotchas in the
-`mobile-devices` skill). Three stand facts shape everything below: (1) **each automation session is a
-clean, ephemeral profile** (no pins, no prefs; pins live for one session), (2) **locking the phone — or
-pausing Remote Automation — ends the session**, so the lock / camera / share / download-question cases ran
-in the owner's normal Safari tab with Claude reading the Mac side, and (3) **the USB cable is a network**:
-the Mac gets an `iPhone USB` link-local interface AND Apple's CoreDevice developer tunnel (`utun6`, an
-IPv6 ULA both devices share), and ICE happily picks either — every "cross-network" pair connected over the
-cable until the interface was taken down (`sudo ifconfig en9 down`) and the Mac's Chrome was started
-with `--webrtc-ip-handling-policy=default_public_interface_only` (harness engine `chrome-pubif`). Desktop
-side: the installed Chrome 154 through Playwright (`chromeA`; `chromeD` = real local IPs; `chromeP` =
-the public-interface-only one for Phase C). Networks: **home LAN** for A/B/E (Mac 192.168.1.38, phone
-192.168.1.37); for Phase C the **phone on LTE with Wi-Fi off** (after a first try on a VPN Wi-Fi whose
-runs all went over the cable — discarded).
-
-**Phase A on the LAN (Max privacy on both unless said).**
-- **A1 · T2 · Mac Chrome → IPH Safari · PASS** — connected 2.0 s / 1.7 s (two runs), fragment scrubbed, no
-  SAS screen, "one-time secret verified", selected pair `host ↔ host` udp (the phone's LAN address
-  192.168.1.37 seen on the Mac). The phone's socket closed 1005 at connect.
-- **A2 · T2 · IPH scans the Mac's QR · PASS** (by hand: the owner allowed the camera and pointed it at the
-  Mac's Chrome window) — connected 29 s after the handover started (token socket open +0.5 s, closed at
-  connect +55.7 s). Closes **B3's iPhone half** too: the ponyfill + the self-hosted zxing WASM decoded on a
-  real iPhone.
-- **A3 · T2 · Mac creates words, IPH types them (touch mode) · PASS** — "code words verified" on both;
-  the phone's `room=<word>&codeType=word` socket closed 1005 right at connect.
-- **A4 · T2 · Mac creates a room, IPH joins, Mac picks the IPH row · PASS** — 2 rooms (4670, 6352): one
-  reader + one picker each time, the split landed BOTH ways (creator reader, then creator picker), the
-  real phrase among the picker's three, both "verified — SAS confirmed".
-- **A5 · T2 · both ways · PASS** — 5 MB Mac → IPH: the phone took the **site-storage path** (no dialog),
-  every block verified (37 ms), "Received" + New transfer; 5 MB IPH → Mac: desktop Chrome streamed it into
-  Downloads, SHA-256 right. Both sides read "direct path not confirmed".
-- **A6a · T2 · PASS — the first real `mismatch`.** After the QR pairing the Mac's badge read "route did
-  not match": its selected remote is the phone's real address, learned peer-reflexively, while WebKit can
-  attest only its mDNS names (CLAUDE.md § Path attestation predicted exactly this). A 3 MB send completed
-  regardless — "Delivered" 7 s after the owner's Accept. Verdict table row: Chrome-desktop ↔ Safari-iOS
-  on one LAN = `mismatch` (Mac) / `unknown` (phone). Advisory, as it must be.
-
-**Phase B / F on the phone.**
-- **B2 (phone, disk half) · PASS** — 1 GiB Mac → IPH into Safari's site storage: 85 s = **12.6 MB/s** over
-  Wi-Fi, monotonic, verified; no dialog, the download at the end is a blob URL of the stored file. **B10
-  rung 2 GiB: 73 s = 29.4 MB/s** (over the USB link), verified. The 4 GiB + 1 B rung was cut at ~2.95 GB by
-  the stand (the owner paused Remote Automation to switch to LTE) — still open, with the RAM rung in a
-  private window (by hand; safaridriver cannot open one). Safari's `storage.estimate()` is erratic on
-  iOS (quota 41 → 77 → 41 GB across reads) — a number, not a fact.
-- **The iOS download** — in the owner's normal tab the 3 MB file reached the phone's Downloads folder
-  (owner); in the automation window the anchor click produced no visible question (that window shows
-  no system sheets to WebDriver).
-- **B4 · IPH · PASS** (by hand) — camera denied → "Camera unavailable — paste the link below instead", no crash.
-- **B5 · IPH · PASS** (by hand) — Share opened the iOS share sheet.
-- **B6 (iPhone half) · PASS** — home / method picker / words-read in light + dark: no control under 44×44
-  CSS px, no horizontal overflow at 393 px (`scrollWidth` = `innerWidth`). RU half n/a (English only).
-- **F1 · IPH · FAIL (platform)** — 800 MB Mac → IPH in the owner's tab: Accept, 114 MB in ~6 s, the owner
-  locked the phone → the receive stopped at 14 %; the Mac showed the `interrupted` line 7 s later (ICE
-  `disconnected`) and "Connection lost · not delivered · stopped at 109 MB · ICE failed" 17 s after the
-  stall; the phone, unlocked, showed "Connection lost" too. **iOS Safari tears the WebRTC connection down
-  on screen lock** (the Pixel 5 ran on under the lock). The app's loss path reported it honestly on both
-  sides within 17 s; the hand-off / Save file logic never came into play. → BACKLOG § UX bugs (Screen
-  Wake Lock while a transfer is in flight).
-
-**Phase E (within one automation session — pins are per session).**
-- **E2 · T2 · PASS** — Mac taps Reconnect first, phone 5 s later: both "reconnect — verified via pinned
-  key"; the Mac's socket was a 22-char token room, closed 1005 at connect (~4 s after the phone's tap).
-- **E3 · T2 · PASS** — phone first (its wait screen shows no code), Mac 20 s later: both verified via
-  pinned key within ~1 s of the Mac's tap.
-- **E1 (phone half)** — after A1 / A3 / A4 the phone's Reconnect section listed the Mac **once**
-  (`device db:85:ec:5b`).
-
-**Phase C — Mac Chrome (Wi-Fi only) on the home LAN ↔ IPH Safari on LTE.** *(Caveat added later on
-2026-10-03: on the home LAN the STUN reply is the router's LAN address, so the Max-privacy failures below
-are an artefact of the stand, not a property of the networks — see case C1.)*
-- **C1 · T2 · Max↔Max · link · PASS, outcome (b)** — both sides terminal `failed` with the direct-fail hint
-  ("Couldn't connect directly. Switch to Reliable to allow relaying through a server."; the Mac adds the
-  macOS Local Network line, the phone correctly does not) 15.9 s / 16.1 s after the join (ICE `failed`
-  at +18.5 s on the Mac). No hang, no relay. The LTE carrier NAT + the home NAT did not traverse — the
-  same outcome as the Pixel 5 behind its VPN.
-- **C2 · T2 · Reliable↔Reliable · PASS** — connected 2.2 s; ICE chose the relay by itself: the Mac's
-  selected pair local = `relay udp 94.46.199.61` (our coturn), both screens "relayed through the server"
-  (the `relayed` verdict works on Safari); **50 MB in 29.7 s = 1.7 MB/s on LTE**, monotonic, verified.
-  (Earlier, over the cable, a relay-forced run gave `relay ↔ relay` and 1.0 MB/s with the phone behind a
-  VPN Wi-Fi — same relay, slower uplink.) coturn's `external-ip` / port-forwarding proven with a real
-  iPhone on a carrier NAT.
-- **C3 · T2 · both directions × link, plus room · PASS** — Mac Max ↔ phone Reliable (link): both terminal
-  in 17.0 / 17.2 s, the Max side keeps its hint, the Reliable side reads "Couldn't connect — channel
-  closed during pairing". Mac Reliable ↔ phone Max (link): the same shape, the phone (Max) showing the
-  hint. Room, Mac Max creates / phone Reliable joins / Mac picks: 15.9 / 16.0 s, Mac hint, phone
-  "channel closed during SAS pairing". No deadlock, no "agreeing on keys" hang anywhere — and the
-  2026-10-03 "Max hint survives the peer-left race" fix held on a real iPhone.
-- **C4 · T2 · PASS** — a `WebSocket.send` hook on the Mac: as the Max side it sent **0** `turn-request`
-  frames (C1 and the C3 Max run); as the Reliable side **1**. Every Max side ended `failed` + hint; nothing
-  relayed. (The phone's frames are not observable over WebDriver — the hook can only be installed after
-  the join.)
-- **C6 · T2 · PASS** — Max privacy over LTE: a 300 KiB file went on the wire as 524 371 B (the 512 KiB
-  bucket, **+70.7 %**), a 50 MB file as 50 331 735 B (the 48 MiB bucket, **+0.7 %**), 18.9 s =
-  **4.0 MB/s**; both received files are the REAL size and verified — the filler is never written. The
-  small file's padding (~0.13 s of wire at that rate) is invisible next to the per-file handshake; the
-  cost that would bite a per-megabyte plan is the +12.5 % ceiling on big files, not the small-file jump.
-  **Caveat added 2026-10-03 (later): the PATH of this run was not recorded, and "over LTE" is doubtful.**
-  It connected in Max ↔ Max, while C1 (Max ↔ Max, same LTE, the Mac on `chrome-pubif`) and every Max side
-  of C3 could not go direct. `sc_iph_c6` defaults the Mac to `chrome-direct`, which per the harness notes
-  pairs over the USB cable's CoreDevice tunnel even with the phone on LTE — so the 4.0 MB/s is probably
-  the cable, not cellular. The byte counts stand regardless (padding is deterministic: the Pixel 5's
-  LAN run gave the identical 524 371 / 50 331 735). What is NOT established is the case's point — the
-  cost on a real cellular link; to settle it, re-run with the Mac on `chrome-pubif` and read the
-  selected pair's local candidate.
-
-**Open on the iPhone after this session (as of the entry's first write; all closed the same morning — see below):**
-B10 rungs ≥ 4 GiB, B2's RAM rung, E5–E7 (ticked earlier on the Pixel), F8's iPhone half, C5, the iOS download question.
-
-**Stand notes (not product):** the WebDriver click on Accept did not land once (DOM fallback took over);
-`__hs.pathOf()` on the phone has no addresses; the E2/E3 "15 s" in the harness log is a wait for a screen
-the phone never shows when the peer is already there; Chrome hides a `prflx` remote's address in
-`getStats()` even with media permission — read the LOCAL side (`chrome-direct` / `chrome-pubif`) to know
-which interface a pair used. See the `mobile-devices` skill for the iPhone recipe.
-
-**Late additions the same morning.** B5's Firefox half: Firefox 156 on the Mac has no `navigator.share`,
-so the Share screen shows only Copy link; the click reads "Copied" and `navigator.clipboard.readText()`
-returned exactly the link. Owner's decisions on the rest: B3's Android-Firefox half, C5 and F4 dropped
-(too rare / already covered by the phone↔Mac cross-network runs / no second computer); F1 on iOS and F8's
-iPhone half closed as platform / tooling limits (the connection dies on screen lock; a pre-load hook is
-not possible over Safari WebDriver). The ticks say so in place.
-B2's RAM rung, by hand in a **private** Safari tab on the iPhone (words typed by the owner): a 250 000 000 B
-offer was refused before Accept — the sender's row read "declined · This file is 238 MB — larger than the
-200 MB this browser can take right now. Free up disk space, or receive it in another browser or in a normal
-(not private) window." (private Safari has no usable site storage → the RAM path and its cap, and the text
-says why); exactly 200 MiB was then accepted through RAM and "Delivered" in ~17 s. On the phone the
-receive ended in iOS's own "Download" question (the owner accepted it) — so the system download prompt IS
-shown in a normal or private tab; only the WebDriver automation window hid it earlier. Copy nit: those sizes are
-MiB values printed with an "MB" label.
-**B10's last iPhone rungs, by hand** (the owner's normal tab paired over words, Wi-Fi only): 4 GiB + 1 B
-"Delivered" in 370 s = 11.6 MB/s (the sender's bar sat at 100 % for ~54 s while the 2^32 + 1 padding tail
-went out — the Finishing state), then 5 GiB "Delivered" in 421 s = 12.8 MB/s; both rows "Received" on the
-phone. Delivered means the receiver confirmed every declared byte; the per-block verify ran only on the
-automated 1 and 2 GiB rungs. **Stand finding that ended the automated run:** from ~08:30 the iPhone's USB
-link started flapping (the charging indicator blinked on and off with nobody touching it) — every flap
-drops the CoreDevice tunnel, safaridriver answers `invalid session id` / `no such window`, and Safari closes
-the automation window a few seconds later (the Mac reads "data channel closed"). Idle sessions survived
-because only a receive loads the phone enough to trigger it. Not a product issue; a cable/port matter.
-With that, every case in this plan is ticked or closed with a reason: **47 / 47**.
-
-**Screen Wake Lock (the F1 mitigation), same morning, by hand on the iPhone 15.** First build (`93e4c37`):
-the keep-screen-on line showed, but with Auto-Lock at 30 s the screen still went dark and a 3 GiB receive
-died at 633 MB ("Connection lost · ICE failed" at +63 s) — the lock had been requested from the phase-change
-effect, without user activation, and iOS Safari refused it silently. Second build (`bf485ae`, requested
-inside the Accept / Send tap): the same 3 GiB receive with Auto-Lock at 30 s and the phone untouched ran to
-"Delivered" in 149 s (21.7 MB/s) — the owner watched: the screen stayed on and iOS asked to download at the end. An app switch (Home for 30 s, measured on the first
-build) ends the connection like a lock does: "Connection lost · stopped at 721 MB · ICE failed" 15 s later —
-which is what the second half of the line warns about. Also seen on the way: a 5 GiB offer refused before
-Accept on a phone with 4.5 GB free (the refusal names the cap and the fix), and its reason clipped at the
-right edge of the ended row on the phone — first wrapped in `bf485ae`, then done properly in `eb3c7ad`: a
-sentence-long reason gets its own line under the label (`.hs-box__reason`).
-
-**Afternoon, after the pass — two fixes measured on real browsers.**
-- **Safari as a SENDER (B10's open note) — fixed in `816046f`.** Root cause: WebKit's `File.stream()` hands
-  the whole file over as ONE chunk (a probe on Safari 26.6: a 1 GiB File → one 1 GiB read). The sender now
-  reads 4 MiB windows through `slice().arrayBuffer()`. A real 2 GiB random file picked in the owner's own
-  Safari and sent to Chrome on the Mac: **40.5 s = 53 MB/s, SHA-256 equal**, progress steady, WebContent
-  memory spiking and falling back within seconds, never growing with the file. Two attempts before it
-  ended "ICE failed" at 1.0–1.2 GB on a swap-bound Mac (4.4 of 6 GB swap in use) — the stand: after closing
-  the extra Chrome profiles the third run passed. The harness's synthetic blob is useless for this question
-  (any Blob read allocates), and a WebDriver file upload measures the driver (safaridriver spent 41 s
-  copying the file in).
-- **B3 — the native decoder (`b73651d`, owner's decision: no extra megabyte where the browser decodes QR).**
-  Chrome 154 with the fake camera scanned a QR from the live site and connected 1.1 s after the scan tap,
-  requesting nothing of zxing (no `ponyfill-*.js`, no `.wasm`). Control, `BarcodeDetector` hidden in a fresh
-  profile: the same 1.1 s, with `ponyfill-BuxwROcg.js` + `zxing_reader-BxB2YfIY.wasm` fetched from our origin.
-  iOS Safari and Firefox keep the zxing path (unchanged code; scanned on the iPhone this morning). The owner
-  then reloaded and scanned by hand: **works on the Pixel 5 (Chrome) and the iPhone 15 (Safari)**. Which decoder
-  ran on the Pixel was not observed (no cable) — a broken native one falls back to zxing on its first throw.

@@ -207,7 +207,7 @@ message — today `new RTCPeerConnection` runs unguarded.
     no offer, no hang). See CLAUDE.md § Privacy mode + ICE / Max-privacy strict model.
 - ✅ **Cross-browser pass (6e) — DONE.** The no-device parts landed first (below); the real-device pass ran
   2026-10-02 (Pixel 5, Android 14 Chrome) and 2026-10-03 (iPhone 15, iOS 26.6 Safari over WebDriver) — TESTPLAN
-  47/47 ticked or closed with a reason (§ Result log). Android Firefox was dropped by the owner.
+  47/47 ticked or closed with a reason ([the run log](docs/test-runs/README.md)). Android Firefox was dropped by the owner.
   - ✅ **Self-hosted QR-scan WASM — DONE.** `barcode-detector@3.2.0`'s default `locateFile` fetched
     `zxing_reader.wasm` from `fastly.jsdelivr.net` at scan time (iOS/Firefox fallback) — a privacy
     (client-IP leak) + supply-chain (executable WASM from an uncontrolled host) risk. Now vendored:
@@ -288,7 +288,7 @@ message — today `new RTCPeerConnection` runs unguarded.
     cross-network (TESTPLAN § C: Max fails closed with the hint, Reliable relays through coturn — 1.7 MB/s
     on LTE) ✅, and iOS mid-transfer suspension (§ F1) MEASURED: iOS Safari ends the connection on screen
     lock (§ UX bugs, first item). Engine-level transport interop is pre-covered headlessly (above). The pass
-    is tracked case by case in TESTPLAN.md — **47 of 47 closed as of 2026-10-03** (its § Result log; B3's
+    is tracked case by case in TESTPLAN.md — **47 of 47 closed as of 2026-10-03** ([the 2026-10-03 run log](docs/test-runs/2026-10-03.md); B3's
     Android-Firefox half, C5 and F4 were dropped by the owner, F1-iOS and F8-iPhone closed as platform /
     tooling limits — the ticks say so). The findings are in § UX bugs below. **6e is DONE.**
 - ✅ **Deployment behind nginx (6f) — LIVE at hushsend.frelikh.dev (see DEPLOY.md § 0 — the
@@ -719,7 +719,7 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   Wake Lock** (`navigator.wakeLock.request('screen')`, Safari ≥ 16.4, Chrome, Firefox) while a transfer
   is in flight on either side — the lock by timeout then never happens (a deliberate button press still
   ends it), released on done / cancel / fail; (b) a one-line hint on the phone's transfer screen
-  ("keep the screen on"); (c) both. Measured, not assumed: § Result log 2026-10-03.
+  ("keep the screen on"); (c) both. Measured, not assumed: [the 2026-10-03 run log](docs/test-runs/2026-10-03.md).
 - 🔴→✅(code) **QR scanning dead on the live build since the 2026-10-01 dependency refresh — found
   2026-10-02 on the Pixel 5, confirmed on desktop Chrome 154 (TESTPLAN A2/B3).** `c5f6e94` moved
   `barcode-detector` 3.2.0 → 3.2.2 within its `^` range; its inlined zxing glue is now zxing-wasm 3.1.3
@@ -842,7 +842,7 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   probes before enabling it), and a paused download on the live build (TESTPLAN B10).
 - ✅ **Chrome incognito: a file past ~430 MiB was accepted to site storage and died mid-transfer —
   FIXED 2026-09-28, LIVE since 06:32 UTC (`c5a51c4`); found and re-checked the same day on the live
-  build (TESTPLAN § Result log, B2's private-window rung: incognito Chrome now streams 1 GiB straight
+  build ([the run log](docs/test-runs/README.md), B2's private-window rung: incognito Chrome now streams 1 GiB straight
   into Downloads, nothing in site storage).** In an incognito (off-the-record) context
   `navigator.storage.estimate()` reports the normal profile's quota (10 GiB on this Mac — Chrome does
   not let a site tell incognito apart by its quota) while site storage holds only ~430 MiB and looks
@@ -879,7 +879,7 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   DataChannel closes, and this side stays on "Secure channel open" / `connected` indefinitely. A
   later Send fails visibly ("transfer error · data channel is not open"), so it is not a hang, but
   the screen lies until then. Expected: a "peer left" terminal state (or a notice + return home).
-  **Confirmed 2026-09-27 in two more shapes (TESTPLAN § Result log): (a) F3 — the receiver's tab was
+  **Confirmed 2026-09-27 in two more shapes ([the 2026-09-27 run log](docs/test-runs/2026-09-27.md)): (a) F3 — the receiver's tab was
   closed at 8 % of a 900 MB send and the SENDER froze at 46 % "Sending · connected" for >70 s, no
   failure, recoverable only via Close channel; (b) a Firefox↔Safari pair whose ICE went
   `disconnected`→`failed` 14–36 s after connect left BOTH sides on `connected` ("Sending 0 %" /
@@ -909,7 +909,7 @@ deadline above), and the entry-point ergonomics make the mix far less likely.
   hold the file (quota) — CLAUDE.md § File transfer. Needs the real Android phone to confirm (OPFS on
   Chrome 149 for Android was not probed on a device). The report, for the record:
   **Android Chrome: the transfer dies if the system save dialog stays open for more than ~10–20 s
-  (found 2026-09-27, emulator, TESTPLAN § Result log third entry).** Chrome 149 on Android HAS
+  (found 2026-09-27, emulator, [the 2026-09-27 run log](docs/test-runs/2026-09-27.md) third entry).** Chrome 149 on Android HAS
   `showSaveFilePicker`, so Accept opens Android's own save UI (DocumentsUI → Downloads → SAVE) inside
   the gesture — the FSA path, uncapped, not the 512 MiB Blob path the plan assumed. With the picker in
   front for 40 s or more (four runs — my automation was slow to press SAVE) both peers' ICE went

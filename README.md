@@ -170,7 +170,7 @@ user. In short:
    permissions on desktop Chrome / Brave / Safari / Firefox, a Pixel 5 (Android 14, Chrome) and an
    iPhone 15 (iOS 26.6, Safari), plus a cross-network TURN relay check over LTE:
    [TESTPLAN.md](TESTPLAN.md) has all 47 cases ticked or closed with a reason (Android Firefox was
-   dropped) and the per-run numbers in its § Result log. The one platform limit it found: iOS Safari
+   dropped) and the per-run numbers in [the run log](docs/test-runs/README.md). The one platform limit it found: iOS Safari
    ends the connection when the screen locks ([CLAUDE.md](CLAUDE.md) § Known residuals).
 3. **STUN under a different operator**, which is the precondition for path attestation becoming an
    enforced control rather than an advisory one.

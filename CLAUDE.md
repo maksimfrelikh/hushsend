@@ -1357,7 +1357,7 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
      **Real-device status:** Android Chrome verified 2026-10-02 (Pixel 5); **iOS Safari verified 2026-10-03
      on an iPhone 15** (iOS 26.6, driven by WebDriver): transport on the LAN, on LTE (Max fails closed with
      the hint, Reliable relays through coturn at 1.7 MB/s), site-storage receive to 2 GiB, QR scan + camera
-     deny, share sheet, reconnect — TESTPLAN § Result log 2026-10-03. One platform limit found: iOS Safari
+     deny, share sheet, reconnect — [the 2026-10-03 run log](docs/test-runs/2026-10-03.md). One platform limit found: iOS Safari
      ends the connection on screen lock (§ Known residuals). TESTPLAN 47/47 closed 2026-10-03; Android
      Firefox was dropped by the owner (too rare a combination) and stays untested.
    - ✅ **6f — nginx deployment — LIVE at hushsend.frelikh.dev** — the config
@@ -1385,7 +1385,7 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
      this line used to say OFF). External smoke ALL green (security headers/CSP, `/health`,
      `.wasm` as `application/wasm`, `/ws`→426 reaching Node, SPA fallback). The in-browser
      P2P/SAS/transfer test on two devices and the cross-network TURN relay check are DONE (6e real-device,
-     2026-10-02/03 — TESTPLAN § Result log). (link/qr high-entropy rendezvous = codeType=token, done pre-deploy.)
+     2026-10-02/03 — [the 2026-10-02 run log](docs/test-runs/2026-10-02.md)). (link/qr high-entropy rendezvous = codeType=token, done pre-deploy.)
 
 ## Current state
 - ✅ `src/core/crypto/` — `cpace` (CFRG draft-21 vectors passing), `keyConfirmation` (channel
