@@ -37,7 +37,7 @@ and production reads the URL in exactly two places: `SignalingClient.connect`, b
 query (`app` / `room` / `codeType`), and the link-join scrub that rewrites the address to
 `pathname + search` to strip the secret fragment. A third occurrence is a knob that shipped.
 
-Last run 2026-09-27 against the bundle fetched over HTTPS from the live host (`index-BBI2zUuS.js` + the lazy `ponyfill-DEVIBFUV.js`, still `efe8b29`): no globals, and 1 + 1, both in the entry chunk. (The ponyfill chunk does contain the string `fastly.jsdelivr.net` — its default `locateFile`, overridden at runtime; B3 is where it must never be requested.) **Re-run it after any deploy** — do not trust this line. Every build renames the bundle, so naming a hash here only guarantees the note goes stale; what the host is serving right now is
+Last run 2026-10-13 against the bundle fetched over HTTPS from the live host (`index-DMFBuANo.js` + the lazy `ponyfill-DUnUwklG.js`, `afaabd4`): no globals, and 1 + 1, both in the entry chunk. (The ponyfill chunk does contain the string `fastly.jsdelivr.net` — its default `locateFile`, overridden at runtime; B3 is where it must never be requested.) **Re-run it after any deploy** — do not trust this line. Every build renames the bundle, so naming a hash here only guarantees the note goes stale; what the host is serving right now is
 `grep -o 'index-[^"]*\.js' /var/www/hushsend/dist/index.html`. So:
 
 - **Failure injection is NOT available on prod** — those paths are covered by e2e. This pass observes
@@ -48,63 +48,29 @@ Last run 2026-09-27 against the bundle fetched over HTTPS from the live host (`i
 ### 0.1 Preconditions
 
 - [x] Frontend redeployed from current `main` (`bash ~/projects/hushsend/deploy/deploy-frontend.sh`)
-      — re-done 2026-10-03 ~01:35 UTC (commit `981f8df`: the reconnect wait returns to waiting when the
-      engaged peer vanishes before any transport — the ghost at the rendezvous); byte-identical to a
-      clean local build of `981f8df`, the public URL serves `index-DkYJ-hTt.js`; checked on the phone
-      ([the 2026-10-02 run log](test-runs/2026-10-02.md), end of the 2026-10-02 entry). Before it, 2026-10-03 ~00:55 UTC (commit `190151b`: the three UX fixes from the Pixel 5 pass — the
-      Max hint under the peer-left race, the reconnect wait's retry, the Finishing line);
-      `/var/www/hushsend/dist` is byte-identical to a clean local build of `190151b` (42 files), the public
-      URL serves `index-CkRmiW5i.js`, no `stun.l.google`; the three fixes were then checked on the live
-      build ([the 2026-10-02 run log](test-runs/2026-10-02.md), end of the 2026-10-02 entry). The visual gate ran on the deploy host against
-      this commit: 181 / 181 after recording `transfer-finishing` (and re-recording the sas-picker's
-      seeded decoys, which had moved — see that commit). Before it, 2026-10-02 ~19:20 UTC (commit `9bdda44`: the QR scanner's zxing glue/wasm ABI fix —
-      `zxing-wasm` 3.1.3 — plus the vitest ABI gate and this pass's records); `/var/www/hushsend/dist` is
-      byte-identical to a clean local build of `9bdda44` (42 files, equal sha256 manifests), the public
-      URL serves `index-CL2avokU.js` and `zxing_reader-BxB2YfIY.wasm`, no `stun.l.google`. Checked live
-      the same minute with real Chrome 154 and its fake camera: the QR decoded and the pair connected in
-      0.5 s, the `.wasm` fetched from our origin only — **a browser that had the site open keeps the OLD
-      bundle until a hard refresh / cache clear (`index.html` is cached), so every test device needs one
-      before re-testing.** Before it, the owner's 2026-10-01 deploy of `c5f6e94` (`index-6QS8zIWA.js`),
-      which is the build the scanner was found dead on. Before that, 2026-09-29 19:44 UTC (commit `8c9ea59`: a link opened into an already-open
-      tab joins via `hashchange`; honest failure copy — a waiting side's own expired room, the mismatch
-      description by cause; the macOS Local Network hint; the STUN probe window 12 s);
-      `/var/www/hushsend/dist` is byte-identical to a clean local build of `8c9ea59` (42 files, equal
-      sha256 manifests) and the public URL serves `index-C-42SlIP.js`. Checked live with real Chrome the
-      same evening: a link set as the fragment of an open home tab joined in 608 ms with no reload (a
-      marker in `window` survived) and the fragment was scrubbed; a link nobody opened failed on its
-      creator exactly 180 s later (the live `TOKEN_ROOM_TTL_MS`) as "Your link expired — Nobody opened
-      it in time" (`data-reason` `nobody joined before the code expired`). Before it, 2026-09-29 18:47
-      UTC, `273e9e7` (the screen pacing — a screen the
-      FSM leaves for a pre-connection stage is held 400 ms with its controls quiet, the Connecting
-      screen appears only when a stage outlasts that, each of its titles stays ≥ 500 ms; CLAUDE.md §
-      UI / styling → Screen pacing); `/var/www/hushsend/dist` is byte-identical to a clean local build
-      of `273e9e7` (42 files, equal sha256 manifests) and the public URL serves `index-CwM5wm6M.js`.
-      Checked live the same evening with real Chrome on both sides (link method, 5 direct + 3 relayed
-      runs, on a LAN that was slow that night — 59 ms average ping to the server): no screen flashed;
-      a run under 400 ms went straight from the held Share screen / an empty column to Transfer, a
-      longer one showed "Creating session…" / "Joining…" / "Agreeing on keys…" for 500–650 ms, and a
-      confirming stage of 2–20 ms never got its "Verifying…" title. The day before, `1f2abab` (app code
-      `254c31b`: a held copy gives way to the next big file after 2 min) was checked the same way — 42
-      files, `index-Cs9XZg39.js`. Earlier on 2026-09-28 `c5a51c4`
-      (straight into Downloads on desktop Chromium, flow control, the site-storage reservation) was
-      checked the same way — 42 files, `dl/sw.js` the download worker, served as `index-B-Rj0zzX.js`; `dl/sw.js`
-      is served as `application/javascript`, and a `/dl/<id>` no worker answers falls back to the app
-      page with `X-Frame-Options: DENY` (so a hidden iframe can never render it). The signaling
-      server's running copy (`/var/www/hush-signaling-server`) is unchanged at `3d96125`, `/health` ok,
-      nginx / hushsend-signaling / coturn `active` — checked 2026-09-29 after the 19:44 deploy. **Re-run it if `main` has moved since**, and
-      re-tick. It had gone stale
-      once already (ticked 2026-09-12, `main` moved, nobody re-ticked) — this tick is only worth the
-      date next to it.
+      — 2026-10-13 ~18:56 UTC, commit `afaabd4` (the 2026-10-11 pre-launch fixes —
+      [history](history/pre-launch.md)). `/var/www/hushsend/dist` is byte-identical to a clean local
+      build of `afaabd4` (42 files, equal sha256 manifests) and the public URL serves
+      `index-DMFBuANo.js`. Checked live the same evening in a Chromium browser: the home page carries
+      the VPN advice; a well-formed link whose token room nobody holds fails at once as "This link
+      expired or was already used", fragment scrubbed; with `RTCPeerConnection` deleted and the served
+      entry module evaluated again, the page is "This browser can't send files", a link fragment is
+      scrubbed and no WebSocket is opened. The signaling server's running copy is unchanged at
+      `112c37f`. **Re-run it if `main` has moved since**, and re-tick — this tick is only worth the
+      date next to it (it went stale twice: ticked 2026-09-12 and 2026-10-03, `main` moved, nobody
+      re-ticked). The earlier redeploys and what each was checked with:
+      [followups-and-ops.md](history/followups-and-ops.md) § Frontend redeploys checked live.
 - [x] **Verify the new bundle is live:** `grep -r 'stun.l.google' /var/www/hushsend/dist` returns
-      nothing — re-confirmed 2026-09-29 for `index-C-42SlIP.js` (on the clean build the live dist is
-      byte-identical to) (the pre-2026-09-12 bundle matched; this was the BACKLOG
-      "verify after redeploy" item). The only STUN in the served bundle is
-      `stun:turn.hushsend.frelikh.dev:3478`, i.e. our own — which is also the whole of BACKLOG's
-      "separate the STUN server" item: one operator still holds app, signaling and STUN.
+      nothing — re-confirmed 2026-10-13 for `index-DMFBuANo.js` (on the clean build the live dist is
+      byte-identical to, and on the served chunks) (the pre-2026-09-12 bundle matched; this was the
+      BACKLOG "verify after redeploy" item). The only STUN in the served bundle is
+      `stun:stun.hushsend.frelikh.dev:3479` — hushsend-stun-server since 2026-10-10, on the same box, so
+      one operator still holds app, signaling and STUN ([BACKLOG.md](../BACKLOG.md) § Security — open).
 - [ ] Hard-refresh every test device (Ctrl/Cmd+Shift+R; on iOS: close the tab and reopen) so no
       device runs the cached old bundle. Confirm the asset hash in devtools matches the deployed one.
-- [x] `curl -s https://hushsend.frelikh.dev/health` → `ok`; nginx / hushsend-signaling / coturn all
-      `active` — 2026-09-27 (curl from the Mac; `systemctl is-active` over SSH). Worth the date only.
+- [x] `curl -s https://hushsend.frelikh.dev/health` → `ok`; nginx / hushsend-signaling / coturn /
+      hushsend-stun all `active` — 2026-10-13 (`/health` from the Mac; `systemctl is-active` over SSH).
+      Worth the date only.
 - [x] **The relay actually relays:** `bash /var/www/hush-signaling-server/deploy/turn/verify-relay.sh` (the script lived in this repo's `deploy/` until 2026-10-03) → OK — 2026-09-27 on the server:
       16 messages relayed, 0 lost, average RTT 30 ms. Worth the date only. `coturn` being `active` does
       NOT mean Reliable mode works — if its `static-auth-secret` and the signaling server's

@@ -233,3 +233,52 @@ separate compare-only run the same day, in a `/tmp` copy of `6cc4ec9` on the dep
 181. The signaling server's 28 tests run in hush-signaling-server's own CI since the 2026-10-03 split
 (green at `112c37f`).
 
+## Frontend redeploys checked live (2026-09-28 … 2026-10-03)
+
+Until 2026-10-13 the "Frontend redeployed" tick of [test-setup.md](../test-setup.md) § 0.1 kept every
+redeploy and what it was checked with, newest first; the tick now names the current deploy only, and the
+list moved here as it stood.
+
+- **2026-10-03 ~01:35 UTC — `981f8df`** (`index-DkYJ-hTt.js`): the reconnect wait returns to waiting
+  when the engaged peer vanishes before any transport — the ghost at the rendezvous. Byte-identical to a
+  clean local build; checked on the phone ([the 2026-10-02 run log](../test-runs/2026-10-02.md), end of
+  the 2026-10-02 entry).
+- **2026-10-03 ~00:55 UTC — `190151b`** (`index-CkRmiW5i.js`): the three UX fixes from the Pixel 5 pass
+  — the Max hint under the peer-left race, the reconnect wait's retry, the Finishing line. Byte-identical
+  to a clean local build (42 files), no `stun.l.google`; the three fixes were then checked on the live
+  build (the same run log). The visual gate ran on the deploy host against this commit: 181 / 181 after
+  recording `transfer-finishing` (and re-recording the sas-picker's seeded decoys, which had moved —
+  see that commit).
+- **2026-10-02 ~19:20 UTC — `9bdda44`** (`index-CL2avokU.js`, `zxing_reader-BxB2YfIY.wasm`): the QR
+  scanner's zxing glue/wasm ABI fix (`zxing-wasm` 3.1.3), the vitest ABI gate and that pass's records.
+  Byte-identical (42 files, equal sha256 manifests), no `stun.l.google`. Checked live the same minute
+  with real Chrome 154 and its fake camera: the QR decoded and the pair connected in 0.5 s, the `.wasm`
+  fetched from our origin only. A browser that had the site open keeps the OLD bundle until a hard
+  refresh / cache clear (`index.html` is cached), so every test device needs one before re-testing.
+- **2026-10-01 — `c5f6e94`** (`index-6QS8zIWA.js`), the owner's deploy: the build the scanner was found
+  dead on.
+- **2026-09-29 19:44 UTC — `8c9ea59`** (`index-C-42SlIP.js`): a link opened into an already-open tab
+  joins via `hashchange`; honest failure copy — a waiting side's own expired room, the mismatch
+  description by cause; the macOS Local Network hint; the STUN probe window 12 s. Byte-identical (42
+  files, equal sha256 manifests). Checked live with real Chrome the same evening: a link set as the
+  fragment of an open home tab joined in 608 ms with no reload (a marker in `window` survived) and the
+  fragment was scrubbed; a link nobody opened failed on its creator exactly 180 s later (the live
+  `TOKEN_ROOM_TTL_MS`) as "Your link expired — Nobody opened it in time" (`data-reason` `nobody joined
+  before the code expired`). After it the signaling server's running copy
+  (`/var/www/hush-signaling-server`) was unchanged at `3d96125`, `/health` ok, nginx /
+  hushsend-signaling / coturn `active`.
+- **2026-09-29 18:47 UTC — `273e9e7`** (`index-CwM5wm6M.js`): the screen pacing — a screen the FSM
+  leaves for a pre-connection stage is held 400 ms with its controls quiet, the Connecting screen
+  appears only when a stage outlasts that, each of its titles stays ≥ 500 ms
+  ([ui.md](../architecture/ui.md), Screen pacing). Byte-identical (42 files, equal sha256 manifests).
+  Checked live the same evening with real Chrome on both sides (link method, 5 direct + 3 relayed runs,
+  on a LAN that was slow that night — 59 ms average ping to the server): no screen flashed; a run under
+  400 ms went straight from the held Share screen / an empty column to Transfer, a longer one showed
+  "Creating session…" / "Joining…" / "Agreeing on keys…" for 500–650 ms, and a confirming stage of
+  2–20 ms never got its "Verifying…" title.
+- **2026-09-28 — `1f2abab`** (app code `254c31b`, `index-Cs9XZg39.js`): a held copy gives way to the
+  next big file after 2 min. Checked the same way — 42 files.
+- **2026-09-28 — `c5a51c4`** (`index-B-Rj0zzX.js`): straight into Downloads on desktop Chromium, flow
+  control, the site-storage reservation. Checked the same way — 42 files, `dl/sw.js` the download
+  worker; `dl/sw.js` is served as `application/javascript`, and a `/dl/<id>` no worker answers falls
+  back to the app page with `X-Frame-Options: DENY` (so a hidden iframe can never render it).
