@@ -17,25 +17,27 @@ integrity anyone can check (§ *Verifying a deploy*). Artifacts: [`nginx.conf.ex
 
 ## 0. Live instance — as deployed (hushsend.frelikh.dev)
 
-First bring-up **2026-06-20** on a VPS; since **2026-08-16** everything runs on the owner's home server
-(laptop-server), behind a residential NAT. The box itself — network, firewall, other services,
-secrets, deploy history — is described in the owner's private `laptop-server/` notes, not here.
+First bring-up **2026-06-20** on a VPS; **2026-08-16 … 2026-10-17** on the owner's home server
+(laptop-server, behind a residential NAT); since **2026-10-17** on the owner's VPS **netcup**
+(`62.83.23.26` + IPv6, the public address is on the interface — no NAT, no router). The box itself —
+network, firewall, other services, secrets, deploy history — is described in the owner's private
+`netcup/` notes, not here.
 
 | | |
 |---|---|
 | OS / nginx / Node | Ubuntu 26.04.1 · nginx 1.28.3 · Node v22 (system `/usr/bin/node`) |
-| Frontend | dev clone `~/projects/hushsend`, built on the server by `deploy-frontend.sh` → `/var/www/hushsend/dist` |
+| Frontend | build clone `/opt/hushsend` (root), built on the server by `bash /opt/hushsend/deploy/deploy-frontend.sh` → `/var/www/hushsend/dist` |
 | nginx vhost | `/etc/nginx/sites-available/hushsend` from [`nginx.conf.example`](nginx.conf.example): static `dist/`, SPA fallback, `/ws` + `/health` → `127.0.0.1:8080` with `X-Real-IP`; security headers repeated in every location (verified 6/6 on HTML, JS and `.wasm`, 2026-09-17); `access_log off` everywhere; HTTP/2 on |
-| TLS | the box's wildcard `*.frelikh.dev` (certbot DNS-01, Cloudflare plugin) |
+| TLS | the box's wildcard `*.frelikh.dev` (certbot DNS-01, Cloudflare plugin; issued on netcup 2026-10-17) |
 | Build-time env | [`build-env.sh`](build-env.sh): `VITE_SIGNALING_URL=wss://hushsend.frelikh.dev/ws`, `VITE_STUN_URLS=stun:stun.hushsend.frelikh.dev:3479` |
 | Signaling + TURN | `hushsend-signaling.service` + `coturn.service` — see hush-signaling-server `deploy/DEPLOY.md` § 0 |
-| STUN | hushsend-stun-server since 2026-10-10: `stun.hushsend.frelikh.dev:3479` on this same box (`hushsend-stun.service`, STUN only, no relay, no logs) — its `DEPLOY.md` § 0. The TURN relay's coturn still answers STUN on 3478 (a TURN server cannot switch that off), but the client no longer asks it |
-| Router + ufw | 80/443 tcp (nginx), 3478 tcp+udp and 49160–49200 udp (TURN), 3479 udp (STUN) |
+| STUN | hushsend-stun-server since 2026-10-10 (on netcup since 2026-10-17): `stun.hushsend.frelikh.dev:3479` on this same box (`hushsend-stun.service`, STUN only, no relay, no logs) — its `DEPLOY.md` § 0. The TURN relay's coturn still answers STUN on 3478 (a TURN server cannot switch that off), but the client no longer asks it |
+| ufw | 80/443 tcp (nginx), 3478 tcp+udp and 49160–49200 udp (TURN), 3479 udp (STUN); no router — the public address is on the interface. DNS (Cloudflare, DNS only): explicit records, A+AAAA for `hushsend`, **A only** for `turn.hushsend` and `stun.hushsend` — both coturn instances listen on IPv4 only |
 
-**Repeat frontend redeploys** (signaling/nginx unchanged): `bash ~/projects/hushsend/deploy/deploy-frontend.sh`
-pulls, `npm ci`, builds with the live `VITE_*` baked in, and publishes `dist/` to
-`/var/www/hushsend/dist`. It restarts nothing (a static-asset swap needs no restart), uses `sudo`
-only if the web root were unwritable (it is not), and swaps the new build in with a rename: the
+**Repeat frontend redeploys** (signaling/nginx unchanged): `bash /opt/hushsend/deploy/deploy-frontend.sh`
+(as root) pulls, `npm ci`, builds with the live `VITE_*` baked in, and publishes `dist/` to
+`/var/www/hushsend/dist`. It restarts nothing (a static-asset swap needs no restart), runs as root so `sudo` never enters
+the picture, and swaps the new build in with a rename: the
 previous one stays as `dist.old` until the smoke check passes, so a rollback is
 `mv dist dist.bad && mv dist.old dist`.
 
