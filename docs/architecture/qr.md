@@ -28,9 +28,9 @@ input (`src/ui/screens/ScanScreen.tsx`).
   (`zxing-wasm/reader/zxing_reader.wasm?url` → fingerprinted into `dist/assets/`, same-origin) and
   calls `setZXingModuleOverrides({ locateFile })` to point the loader at that asset **before** the
   detector instantiates. Lazy loading is preserved (only the URL string is in the bundle; the
-  ponyfill JS + WASM still load only on a real scan, now from `'self'`). **`zxing-wasm@3.1.3`** is pinned
-  as a direct dep (exact, matching the copy `barcode-detector@3.2.2` inlines — since 2026-10-02; it was
-  3.1.0 / 3.2.0 before) so the import resolves independent of hoisting. `zxingWasm.test.ts` tests the
+  ponyfill JS + WASM still load only on a real scan, now from `'self'`). **`zxing-wasm@3.1.6`** is pinned
+  as a direct dep (exact, matching the copy `barcode-detector@3.2.3` inlines — since 2026-10-25; it was
+  3.1.3 / 3.2.2 from 2026-10-02 and 3.1.0 / 3.2.0 before) so the import resolves independent of hoisting. `zxingWasm.test.ts` tests the
   wired `locateFile` (resolves to a same-origin asset, never jsdelivr/fastly) AND, since 2026-10-02, is
   the **ABI gate**: it instantiates the ponyfill's glue with the vendored `zxing_reader.wasm` in Node and
   decodes a real hushsend-link QR, so a glue/wasm version drift fails `vitest` instead of production. ScanScreen calls `createQrDetector()` instead of
