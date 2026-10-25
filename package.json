@@ -36,7 +36,7 @@
     "@axe-core/playwright": "^4.13.0",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.64.0",
-    "@types/node": "^22.10.0",
+    "@types/node": "^24.19.2",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
@@ -49,5 +49,8 @@
     "typescript-eslint": "^8.71.1",
     "vite": "^8.3.4",
     "vitest": "^5.0.3"
+  },
+  "allowScripts": {
+    "github:maksimfrelikh/stark-ui-kit#e08697faa19c9c5b3899cc6ecb3657cf82162ea6": true
   }
 }
