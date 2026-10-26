@@ -86,12 +86,12 @@ Each is enforced in code and covered by tests; the linked file has the mechanism
 
 Commands are in [README.md](README.md) § Run it. Before a change is done:
 - `npm run typecheck && npm run lint && npx vitest run`, and `npm run docs:check` when a document changed;
-- the e2e: `npx playwright test`. **On the deploy host (laptop-server) both default ports are live
-  services** — run it as `E2E_SIGNALING_PORT=8191 E2E_VITE_PORT=5291 npx playwright test`, never on the
-  defaults (`reuseExistingServer` would attach the suite to the production signaling server). The engine
-  projects (firefox / webkit / interop / mobile-webkit) also need `E2E_STUN_URLS` with two loopback STUN
-  servers — the recipe is in TESTPLAN.md, case B7 (ports 3480/3481 there: 3478 and 3479 are the live
-  TURN relay and STUN server);
+- the e2e: `npx playwright test`. `reuseExistingServer` means the suite silently attaches to whatever
+  already listens on 8080 / 5173 — on a box that also runs a signaling server (laptop-server did until
+  the 2026-10-17 move to netcup) run it as `E2E_SIGNALING_PORT=8191 E2E_VITE_PORT=5291 npx playwright test`.
+  The engine projects (firefox / webkit / interop / mobile-webkit) also need `E2E_STUN_URLS` with two
+  loopback STUN servers — the recipe is in TESTPLAN.md, case B7 (ports 3480/3481 there, clear of the
+  3478 / 3479 a live TURN relay and STUN server take);
 - for a UI change also `npm run test:a11y` (axe over every screen state × both themes, plus the
   keyboard contracts) and `npm run visual` (screenshots, tokens, geometry). Both drive the states
   through the DEV-only `window.__hsStore` / `__hsKeystore` hooks — no peer, no server. The screenshot
