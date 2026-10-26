@@ -25,7 +25,7 @@ network, firewall, other services, secrets, deploy history — is described in t
 
 | | |
 |---|---|
-| OS / nginx / Node | Ubuntu 26.04.1 · nginx 1.28.3 · Node v22 (system `/usr/bin/node`) |
+| OS / nginx / Node | Ubuntu 26.04.1 · nginx 1.28.3 · Node 24 LTS from NodeSource's `node_24.x` apt repo (`/usr/bin/node`, v24.22.1 on 2026-10-26) |
 | Frontend | build clone `/opt/hushsend` (root), built on the server by `bash /opt/hushsend/deploy/deploy-frontend.sh` → `/var/www/hushsend/dist` |
 | nginx vhost | `/etc/nginx/sites-available/hushsend` from [`nginx.conf.example`](nginx.conf.example): static `dist/`, SPA fallback, `/ws` + `/health` → `127.0.0.1:8080` with `X-Real-IP`; security headers repeated in every location (verified 6/6 on HTML, JS and `.wasm`, 2026-09-17); `access_log off` everywhere; HTTP/2 on |
 | TLS | the box's wildcard `*.frelikh.dev` (certbot DNS-01, Cloudflare plugin; issued on netcup 2026-10-17) |
