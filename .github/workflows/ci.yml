@@ -16,7 +16,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: '22' # matches the deploy host (Node v22 via /usr/bin/node)
+  NODE_VERSION: '26' # the LTS line (26 is LTS from 2026-10-28); the deploy host follows it via
+  # NodeSource, see deploy/DEPLOY.md. The bundle does not depend on the Node major — the two-build
+  # guard in build-attest is what proves that per commit.
 
 jobs:
   checks:
