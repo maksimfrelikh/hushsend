@@ -29,7 +29,7 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-redux": "^9.2.0",
-    "stark-ui-kit": "github:maksimfrelikh/stark-ui-kit#v0.3.2",
+    "stark-ui-kit": "github:maksimfrelikh/stark-ui-kit#v0.3.3",
     "zod": "^4.6.5",
     "zxing-wasm": "3.1.6"
   },
@@ -53,6 +53,6 @@
     "vitest": "^5.0.3"
   },
   "allowScripts": {
-    "github:maksimfrelikh/stark-ui-kit#e08697faa19c9c5b3899cc6ecb3657cf82162ea6": true
+    "github:maksimfrelikh/stark-ui-kit#ca9d14d03a67706c76f8091ec767fa2e768d44a9": true
   }
 }
