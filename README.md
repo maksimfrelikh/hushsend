@@ -149,11 +149,18 @@ beyond the first step described above.
 ```bash
 npm install
 npm run dev        # vite dev server
-npm run typecheck  # tsc --noEmit
+npm run typecheck  # tsc --noEmit — TypeScript 7 (native); see the note below
 npx vitest run     # unit tests (the signaling server's own tests run in its repository)
 npm run test:e2e   # playwright (drives two real browser tabs through a live DataChannel)
 npm run build      # typecheck + vite build
 ```
+
+Two TypeScripts are installed on purpose, the layout Microsoft recommends for the 6 → 7
+transition: `tsc` comes from `@typescript/native` (an npm alias of `typescript@7`, the native
+compiler), while the package named `typescript` is `@typescript/typescript6`, the 6.0
+compatibility build, because typescript-eslint needs the programmatic compiler API and TypeScript
+7.0 ships none (7.1 brings a new one). Vite strips types itself, so the bundle does not depend on
+either. When typescript-eslint supports the 7.1 API, both aliases collapse into `typescript@^7`.
 
 CI runs the cheap checks (typecheck, lint, unit) on every push and the Chromium e2e alongside
 them; the full engine matrix — Firefox, WebKit, the phone profile and the cross-engine
