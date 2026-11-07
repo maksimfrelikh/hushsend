@@ -45,7 +45,7 @@
     "@vitejs/plugin-react": "^6.1.2",
     "eslint": "^10.12.0",
     "globals": "^17.13.0",
-    "hush-signaling-server": "github:maksimfrelikh/hush-signaling-server#cd98f9c718c374281ebc76be7ba1fa00b0116709",
+    "hush-signaling-server": "github:maksimfrelikh/hush-signaling-server#3d8e5c7fb6b74ec95d7acb79729b07c8d8e044bd",
     "prettier": "^3.9.10",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "typescript-eslint": "^8.71.1",
