@@ -5,7 +5,7 @@
  * chunks are 16–256 KiB and the total is ≈ the file size. Anyone who sees the path — a hostile
  * signaling server that placed itself on it, or either side's ISP — reads "4,723,811 bytes in 12 s".
  * When the adversary already has a candidate set of documents, an exact byte count identifies which
- * one, as surely as the filename would. THREATMODEL.md § 4 / road-map item 6.
+ * one, as surely as the filename would. README § Risk 4 / road-map item 6.
  *
  * THE LADDER, and the trade it makes, stated rather than buried.
  *

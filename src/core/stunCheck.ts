@@ -81,7 +81,7 @@ export function compareStunViews(views: readonly StunView[]): StunCheckResult {
 
 /**
  * How long one server gets to answer before we record it as silent. Was 4 s: on a FRESH Firefox
- * profile the first srflx from the live STUN took 9.8 s (TESTPLAN B7, 2026-09-27; warm probes take
+ * profile the first srflx from the live STUN took 9.8 s (README § B7, 2026-09-27; warm probes take
  * 0.26 s), so a cold Firefox read `unknown`. The probe is fire-and-forget and gates nothing, so
  * waiting longer costs only a throwaway PeerConnection that lives a few seconds more. (With the one
  * STUN operator deployed today the probe does not run at all — `probeStunViews` needs two.)

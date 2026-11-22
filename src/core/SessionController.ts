@@ -334,7 +334,7 @@ const RECONNECT_REFRESH_MS = 2 * 60_000;
 const RECONNECT_MAX_REJOINS = 8;
 /** A rendezvous socket that could not even OPEN while waiting alone — the network went away under the
  *  wait (a phone walking from Wi-Fi to cellular, roaming between access points; the previous socket
- *  died with a 1006 a moment earlier — TESTPLAN E7, 2026-10-02) — is retried after this pause, within
+ *  died with a 1006 a moment earlier — README § E7, 2026-10-02) — is retried after this pause, within
  *  RECONNECT_MAX_REJOINS and the overall wait, instead of ending the wait at once. */
 const RECONNECT_RETRY_MS = 3_000;
 /** Stable reason markers the FailedScreen keys its copy off. */
@@ -743,8 +743,8 @@ export class SessionController {
    *  while `onopen` runs the Max-privacy relay gate, which AWAITS `getStats()` before handing the
    *  channel to this controller. So the peer's `reconnect-hello` can be delivered while we are still
    *  inside that await. The frame used to be dropped there and the sender never resends, so both
-   *  sides sat in `pairing` until the 120 s deadline, with nothing logged anywhere — see BACKLOG
-   *  § Third pass. Held here and replayed by `onReconnectChannelOpen`, exactly as
+   *  sides sat in `pairing` until the 120 s deadline, with nothing logged anywhere — see
+   *  docs/history/security-audits.md ("Reconnect stalled"). Held here and replayed by `onReconnectChannelOpen`, exactly as
    *  {@link pendingEnrollFrame} and `pendingPathAttest` do for the same class of race. */
   private pendingReconnectFrames: ReconnectFrame[] = [];
 
@@ -1267,7 +1267,7 @@ export class SessionController {
    * two NATs both sides' ICE times out ~15 s after `connecting`, and whichever fails first closes its
    * socket — when that is the peer, its `peer-left` reaches us a moment before our own `failed`, and the
    * session used to end as "peer left during pairing" instead of the one actionable line, "Switch to
-   * Reliable" (TESTPLAN C3, 2026-10-02: the hint showed or not depending on who lost the race). The
+   * Reliable" (README § C3, 2026-10-02: the hint showed or not depending on who lost the race). The
    * outcome is the same either way — fail closed, no bytes; only the copy was wrong. So with a
    * PeerConnection in flight and no transport yet, in Max privacy, the peer-left ends through
    * failDirect, i.e. the DIRECT_FAIL_REASON the FailedScreen renders its hint off.
@@ -1423,7 +1423,7 @@ export class SessionController {
    * An authenticated channel died — the one outcome for every signal that reports it (DataChannel
    * close, connection closed, ICE failed, the interrupt backstop). Until 2026-09-27 none of them had a
    * branch after `established`, so both screens went on saying "Secure channel open" / "Sending 46 %"
-   * to a peer that was gone (TESTPLAN F2, F3, the Android save-dialog death).
+   * to a peer that was gone (README § F2, F3, the Android save-dialog death).
    *
    * Fails whatever was in flight so its row says what became of the file, drops the PeerConnection,
    * and lands on the FailedScreen's "connection lost" variant: `connected → failed`, no new state.
@@ -2593,7 +2593,7 @@ export class SessionController {
    * deadline with the channel never opened. On the reconnect method that is not the end: the device we
    * are waiting for may still come, and the "peer" was quite possibly our own GHOST — after a network
    * blip the first socket that opens finds the previous one still in the token room, because the
-   * server needs ~25 s to notice a dead socket (TESTPLAN 2026-10-03, the Pixel 5: Wi-Fi off 12 s →
+   * server needs ~25 s to notice a dead socket (test run 2026-10-03, the Pixel 5: Wi-Fi off 12 s →
    * paired against itself → "peer left during re-auth" when the server finally dropped the ghost).
    * So: tear the half-started pairing down, go back to the wait screen (`pairing → awaitingPeer`, the
    * lobby's own transition — no new state) and take the rendezvous again. Bounded twice over: the
@@ -3336,8 +3336,8 @@ export class SessionController {
    *
    * So the verdict is computed, logged and projected (`dev.pathVerdict` / `pathSelected` /
    * `pathPeerAddrs`) but nothing is torn down and no byte is gated. What it buys today is evidence:
-   * the real-device pass (TESTPLAN) can now record what each engine actually reports, which is
-   * exactly the input needed to decide whether this can become a control. Tracked in BACKLOG.
+   * the real-device pass (README § Test plan) can now record what each engine actually reports, which is
+   * exactly the input needed to decide whether this can become a control. Tracked in README § Security — open.
    */
   private startPathAttestation(): void {
     if (this.pathAttest) return; // one per pairing
@@ -3350,7 +3350,7 @@ export class SessionController {
       // `unknown`, NOT `mismatch`: silence is not evidence of an interposer. It is what an engine
       // that cannot enumerate its candidates produces, and the user-facing copy for `unknown` says
       // exactly that. (If this ever becomes a control, silence is the case that must be argued
-      // about separately — see BACKLOG.md § Security — open.)
+      // about separately — see README § Security — open.)
       this.dispatch(connectionActions.pathSettled({ verdict: 'unknown' }));
       this.dispatch(devActions.appendLog('path: peer never attested — UNVERIFIED (advisory)'));
     }, PATH_ATTEST_TIMEOUT_MS);
@@ -3392,7 +3392,7 @@ export class SessionController {
    * STOP on the same terminal path as a SAS mismatch"; the body below has never done that, and the
    * gap survived two audits because the sentence read as a specification. It is not one. All three
    * verdicts are RECORDED and shown to the user, and the transfer proceeds either way — see
-   * `startPathAttestation` for the measured reason enforcement is deferred, and BACKLOG.md § Security —
+   * `startPathAttestation` for the measured reason enforcement is deferred, and README § Security —
    * open for what has to land before it can become a control.
    *
    * `unknown` (no selected address yet, or an engine that reports no usable candidates) is benign by
@@ -3448,7 +3448,7 @@ export class SessionController {
       // reliably know the address its peer reaches it on (mDNS host candidates, peer-reflexive
       // learning), so "the address I selected is not one you named" is not, on its own, evidence of an
       // attacker. Whether that disagreement survives on REAL networks with a real STUN server is
-      // exactly what TESTPLAN § Phase B is now collecting; flipping this to fatal is a decision for
+      // exactly what README § Phase B is now collecting; flipping this to fatal is a decision for
       // that data, not for a loopback run.
       this.dispatch(
         devActions.appendLog(
@@ -3469,7 +3469,7 @@ export class SessionController {
    * AND tell the peer to attest that same address — and the attestation passes with an attacker in
    * the middle. Two independent STUN servers make that lie visible. Today the deployment has ONE, so
    * this reports `unknown` and buys nothing yet; it is the client half of a property that starts to
-   * exist when the servers are run by different people (BACKLOG.md § Security — open).
+   * exist when the servers are run by different people (README § Security — open).
    *
    * Fire-and-forget, never gating: a disagreement can also be an honest multi-WAN or CGNAT client,
    * so it is surfaced and not acted on — the same rule as `mismatch` in path attestation, for the

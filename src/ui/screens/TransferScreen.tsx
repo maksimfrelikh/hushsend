@@ -73,7 +73,7 @@ export function TransferScreen(): ReactElement {
         <>
           <Space h={12} />
           {/* ICE `disconnected`: nothing is arriving, so the progress below is not live — say so
-              instead of letting it pose as a working transfer (TESTPLAN F2). It either clears by
+              instead of letting it pose as a working transfer (README § F2). It either clears by
               itself or the core ends the session as lost. */}
           {interrupted && <AlertLine testId="interrupted">{t('interrupted')}</AlertLine>}
           {/* Reliable mode fell back to the relay: say so, quietly — it is the mode working as chosen,
@@ -237,7 +237,7 @@ function TransferPanel({
 
   const { privacyMode } = usePrefs();
   // The keep-the-screen-on line is for phones (a coarse pointer): a desktop that sleeps does not drop
-  // its WebRTC connection the way iOS Safari does on lock (TESTPLAN F1), and the wake lock in App.tsx
+  // its WebRTC connection the way iOS Safari does on lock (README § F1), and the wake lock in App.tsx
   // covers the idle timer; this line covers what it cannot — a deliberate lock or an app switch.
   const [coarsePointer] = useState(onCoarsePointer);
   // Safari asks its own question before a received file is saved (every time on iOS, once per site on
@@ -251,7 +251,7 @@ function TransferPanel({
   // Every declared byte has crossed but the transfer has not ended: the sender is pushing the volume
   // padding (Max privacy) and then waiting for `received`; the receiver is dropping that padding and
   // closing its sink. No progress is emitted for any of it by design, so without a word the bar sits
-  // at 100% looking dead — minutes on a slow link (TESTPLAN B10, 2026-10-02). Say what is going on.
+  // at 100% looking dead — minutes on a slow link (README § B10, 2026-10-02). Say what is going on.
   const finishing = phase === 'transferring' && totalBytes > 0 && transferredBytes >= totalBytes;
   const name = fileName ?? '—';
   const title = finishing ? t('finishingTitle') : panelTitle(transfer, t);

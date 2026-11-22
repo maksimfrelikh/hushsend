@@ -16,7 +16,7 @@ import { createLink, fragmentOf, joinQrByPaste } from './helpers';
  *
  * What it does NOT cover, and must not be read as covering: real iOS memory pressure, background-tab
  * suspension mid-transfer, camera permissions, or cellular NAT. Playwright's WebKit is WebKitGTK on
- * Linux wearing an iPhone's UA — the same engine family, not the same device. TESTPLAN § B/F1 stay
+ * Linux wearing an iPhone's UA — the same engine family, not the same device. README § Phase B / F1 stay
  * open until a real handset runs them.
  *
  * WebKit needs a STUN server on a host with no mDNS responder (see playwright.config.ts):

@@ -15,7 +15,7 @@
 #
 # WHY THIS EXISTS, and what it does NOT do.
 #
-# THREATMODEL.md ranks code delivery as the dominant risk: the server the threat model declares
+# README § Risk 1 ranks code delivery as the dominant risk: the server the threat model declares
 # untrusted is the same server that hands you the JavaScript, so an operator who is compromised or
 # compelled can serve a modified bundle — to one IP if they like — and every other guarantee in the
 # product becomes theatre. Neither CSP nor SRI helps, because the same server emits both.

@@ -9,7 +9,7 @@ import {
 } from './fileTransfer';
 
 /**
- * What a transfer does when the channel dies under it (TESTPLAN F2 / F3). SessionController calls
+ * What a transfer does when the channel dies under it (README § F2 / F3). SessionController calls
  * `fail(reason)` on the live send or receive the moment a loss is reported, BEFORE it tears the
  * session down; these pin what that must and must not do on each side. The browser half — a drain
  * wait that used to hang forever on a closed channel — lives in PeerConnection and is exercised end to

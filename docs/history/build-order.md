@@ -41,7 +41,7 @@ Dated records, not maintained — the current state is in the living documents (
      client side, see **Privacy mode + ICE** §.)
    - ✅ **5b** — link + QR methods. High-entropy one-time secret S in the URL fragment
      (scrub-after-read), token rendezvous (`codeType=token` — initially a 4-digit room; replaced
-     with a high-entropy token rendezvous pre-deploy, see [methods.md](../architecture/methods.md) § link/qr method), channel-bound key-confirmation over S
+     with a high-entropy token rendezvous pre-deploy, see [methods.md](../../README.md#connection-methods-4) § link/qr method), channel-bound key-confirmation over S
      (`LINK_CONFIRM_DOMAIN`) — no PAKE, no SAS. qr = the same link via `qrcode` (generate) +
      `barcode-detector` ponyfill + `getUserMedia` (scan, with a paste fallback). `src/core/link/` +
      link/qr screens + `src/ui/qr.ts` + e2e (link happy / link wrong-secret / qr post-scan).
@@ -57,7 +57,7 @@ Dated records, not maintained — the current state is in the living documents (
      role is now per-pairing by readable-id order**
      (`src/core/sasRole.ts`, projected as `connection.sasRole`, fail-closed restart on a missing id)
      so the lobby's joiner↔joiner pairs still get one reader + one picker. See **Signaling server**
-     [claude-md-retired-sections.md](claude-md-retired-sections.md) § *Managed-room hardening* and room/SAS [methods.md](../architecture/methods.md) § *Server cap / TTL / rate-limit* + *SAS role*.
+     [claude-md-retired-sections.md](claude-md-retired-sections.md) § *Managed-room hardening* and room/SAS [methods.md](../../README.md#connection-methods-4) § *Server cap / TTL / rate-limit* + *SAS role*.
    - ✅ **6b — per-pairing transport/crypto role** — `this.role` (initiator/responder) is now fixed
      **PER-PAIRING from the readable ids** (`src/core/pairingRole.ts` `pairingRoleFor`, same id order
      as the SAS reader/picker; unit-tested in `pairingRole.test.ts`), NOT create/join. This breaks the
@@ -168,7 +168,7 @@ Dated records, not maintained — the current state is in the living documents (
   (`SessionController.closeSignalingAfterConnect` + `this.channelOpen`) — applied to the `words`,
   `link/qr` AND `room/SAS` `onPeerLeft` branches (`SessionController.sasPeerLeft.test.ts` covers the
   SAS branch + the room per-pair close + reconnect's own close and peer-left gate) — see
-  **[connection.md](../architecture/connection.md) § Signaling WS lifecycle**.
+  **[connection.md](../../README.md#connection--the-state-machine-the-signaling-socket-early-frames) § Signaling WS lifecycle**.
 - ✅ `src/core/` — transport (SignalingClient, PeerConnection), file transfer (+ `transfer/opfs.ts`, the
   site-storage receive path; `transfer/streamDownload.ts` + `public/dl/sw.js`, the straight-to-Downloads
   path), SessionController
@@ -192,7 +192,7 @@ Dated records, not maintained — the current state is in the living documents (
   every teardown — the **mixed-privacy / link-qr deadlock fix** (`SessionController.pendingPeerSignals.test.ts`;
   see **Privacy mode + ICE** §). The post-connect loss path — `onConnectionLost` (every loss signal
   after `established`), `onPeerInterrupted` + the `INTERRUPT_GRACE_MS` backstop, `closeOnPageHide` — is
-  described in [transfer.md](../architecture/transfer.md) § File transfer → *Liveness after connect* (`SessionController.connectionLost.test.ts`).
+  described in [transfer.md](../../README.md#file-transfer) § File transfer → *Liveness after connect* (`SessionController.connectionLost.test.ts`).
 - ✅ `src/core/relax.ts` — Max-privacy STRICT relay enforcement (step 6d + the 2026-09-12 audit fix;
   pure + `relax.test.ts`): the relay-candidate predicate (`isRelayCandidate`/`shouldDropCandidate` —
   Max-privacy ALWAYS drops the peer's `typ relay` candidates, off in Reliable) AND the
@@ -205,10 +205,10 @@ Dated records, not maintained — the current state is in the living documents (
   / `relax` signaling frame / `relaxConnection`/`declineRelax` / `restartIce`-over-relay machinery was
   removed (strict model, this pass).
 - ✅ `src/ui/` — **real, status-driven screens, REDESIGNED 2026-09-26 from the Claude Design canvas**
-  ([ui.md](../architecture/ui.md) § UI / styling has the reference, the rules and the gates), built on kit tokens + the kit's
+  ([ui.md](../../README.md#ui--styling--stark-ui-kit-required) § UI / styling has the reference, the rules and the gates), built on kit tokens + the kit's
   `controls.css` / `theme-toggle.css` / `layout.css` (monochrome, inversion-as-emphasis, light/dark via
   `[data-theme]`, English only — the RU table is kept, the switch hidden). `ScreenRouter` picks a screen by
-  FSM status (+ method), paced ([ui.md](../architecture/ui.md) § UI / styling → Screen pacing); `HomeScreen` (h1, the **Max privacy / Reliable radio group** — step 6d, drives
+  FSM status (+ method), paced ([ui.md](../../README.md#ui--styling--stark-ui-kit-required) § UI / styling → Screen pacing); `HomeScreen` (h1, the **Max privacy / Reliable radio group** — step 6d, drives
   `iceServers` — Invite someone → the method picker [Link or QR code / Code words / Room], the room code
   form, Enter code words → `WordPicker`, Scan a QR code → `ScanScreen`, a **Reconnect section** listing
   paired devices with a per-device Reconnect [`session.reconnectTo(pairingId)`, no code shown or typed]
@@ -321,7 +321,7 @@ Dated records, not maintained — the current state is in the living documents (
   relay candidates are stripped, renegotiation after channel-open is refused, the step-1
   unauthenticated path is deleted, protocol strings are length-bounded, the 1:1 confirm path got its
   own liveness deadline, and the SAS refusals carry the same weight as the confirms (kept through
-  the 2026-09-26 redesign — see [ui.md](../architecture/ui.md) § UI / styling). Regressions in
+  the 2026-09-26 redesign — see [ui.md](../../README.md#ui--styling--stark-ui-kit-required) § UI / styling). Regressions in
   `SessionController.auditFixes.test.ts` + `sasRole.test.ts` + `relax.test.ts`. Full write-up in
   **[security-audits.md](security-audits.md) § Security audit / Second pass**; of its two open items, path attestation is built
   (advisory) and the `pairingId` disclosure is closed structurally by the codeless reconnect
@@ -331,6 +331,6 @@ Dated records, not maintained — the current state is in the living documents (
   2026-09-25 — [security-audits.md](security-audits.md) § Security audit (a)) and the `peerLeftAbortsPairing` narrowing both held
   (with sharper arguments recorded); the **Max-privacy strict relay claim did NOT** — a peer-reflexive candidate
   could still complete a relayed path in a mixed-privacy pair, **now fixed** by the selected-path check
-  above ([privacy-and-ice.md](../architecture/privacy-and-ice.md) § Max-privacy strict model). Verdicts, the remaining findings, and the doc corrections they
+  above ([privacy-and-ice.md](../../README.md#privacy-modes-ice-and-path-attestation) § Max-privacy strict model). Verdicts, the remaining findings, and the doc corrections they
   forced are in **[security-audits.md](security-audits.md) § Security audit**. An INDEPENDENT audit is still wanted before a public
   launch.

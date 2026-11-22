@@ -1,6 +1,6 @@
 # Pre-launch fixes
 
-Work that came out of the 2026-10-03 pre-launch review ([BACKLOG.md](../../BACKLOG.md) § Pre-launch review
+Work that came out of the 2026-10-03 pre-launch review ([BACKLOG.md](../../README.md#backlog--open-work-only) § Pre-launch review
 holds what is still open). Append-only and dated, like the rest of [docs/history/](README.md).
 
 ## 2026-10-11 — a stalled 1:1 pairing, a browser without WebRTC, Safari's download question, the VPN advice
@@ -13,7 +13,7 @@ left both sides on "Agreeing on keys…" for ~165 s, then both read "Room not fo
   methods armed only once the DataChannel was open, so a peer that never answered the offer left the
   other side waiting for the untrusted server's room TTL. It now arms in `beginPairing` and covers the
   bring-up as well as the confirmation; a stall before the channel ends as "the connection did not come
-  up in time". ([methods.md](../architecture/methods.md) § link / qr method.)
+  up in time". ([methods.md](../../README.md#connection-methods-4) § link / qr method.)
 - **A PeerConnection that cannot be brought up fails the pairing visibly.** `startPeer` was called with
   `void`, so a throw inside it was an unhandled rejection with nothing on screen; every bring-up now goes
   through `launchPeer`, and a failure ends the pairing through the method's own teardown.
@@ -26,6 +26,6 @@ left both sides on "Agreeing on keys…" for ~165 s, then both read "Room not fo
   don't work any more"; the 4-digit room keeps its own. Visual scene `failed-link-gone`.
 - **Safari's download question is announced.** On Safari the finished receive row says to answer it —
   iOS asks before every download, macOS once per site — because until then the file is not saved
-  ([transfer.md](../architecture/transfer.md)). Owner's decision: Safari only, other browsers unchanged.
+  ([transfer.md](../../README.md#file-transfer)). Owner's decision: Safari only, other browsers unchanged.
 - **The network-exposure advice names a VPN, not Tor** (owner: Tor users are not the audience —
-  [decisions.md](../decisions.md)). The same in THREATMODEL.md.
+  [decisions.md](../../README.md#decisions)). The same in THREATMODEL.md.

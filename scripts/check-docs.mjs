@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 // Documentation drift checks — run in CI (`npm run docs:check`) and before committing doc changes.
 //
+// README.md is the only living document; docs/history/ and docs/test-runs/ are dated records.
 // Every tracked Markdown file is checked for:
-//   1. size — no file over MAX_LINES lines: one topic per file, so a file that big is several topics;
+//   1. size — no record over MAX_LINES lines (README.md is exempt: it is the one living document);
 //   2. links — a relative link must name a file or directory that exists, and a #fragment must match
 //      a heading of the target;
-//   3. section references — prose pointers such as "THREATMODEL.md § 3" or "§ File transfer" must name
+//   3. section references — prose pointers such as "README § Risk 3" or "§ File transfer" must name
 //      a heading that exists in that file (the same file when none is named): moving or renaming a
 //      section without updating its pointers is the drift this catches. In the dated records only the
-//      file has to exist — they may point at a sub-item of a document as it was then;
+//      file has to exist — they may point at a sub-item of a document as it was then, and the names of
+//      the documents merged into README.md on 2026-11-22 (TESTPLAN, THREATMODEL, …) resolve to it;
 //   4. code paths — `src/…`, `tests/…`, `deploy/…` (and the like) quoted in a LIVING document must
 //      exist. The append-only records (docs/history/, docs/test-runs/) are exempt: they describe the
 //      tree as it was on their date.
@@ -22,10 +24,13 @@ const MAX_LINES = 500;
 const RECORDS = ['docs/history/', 'docs/test-runs/'];
 const ROOT = execSync('git rev-parse --show-toplevel', { encoding: 'utf8' }).trim();
 const files = execSync("git ls-files '*.md'", { cwd: ROOT, encoding: 'utf8' }).split('\n').filter(Boolean);
-// Short names the prose uses for the root documents ("BACKLOG § Deferred", "DEPLOY.md § 0").
-const ALIASES = {
-  CLAUDE: 'CLAUDE.md', BACKLOG: 'BACKLOG.md', TESTPLAN: 'TESTPLAN.md', THREATMODEL: 'THREATMODEL.md',
-  README: 'README.md', COMPATIBILITY: 'COMPATIBILITY.md', DEPLOY: 'deploy/DEPLOY.md',
+// Short names the prose uses for the root documents ("README § Backlog").
+const ALIASES = { CLAUDE: 'CLAUDE.md', README: 'README.md' };
+// The documents merged into README.md on 2026-11-22. The dated records still name them; only there do
+// they resolve (to README.md) — in the living documents they are dead names.
+const RETIRED = {
+  BACKLOG: 'README.md', TESTPLAN: 'README.md', THREATMODEL: 'README.md', COMPATIBILITY: 'README.md',
+  DEPLOY: 'README.md', decisions: 'README.md', 'test-setup': 'README.md',
 };
 const problems = [];
 const report = (file, line, msg) => problems.push(`${file}:${line}: ${msg}`);
@@ -66,7 +71,7 @@ function sectionExists(target, prose) {
   const num = /^(\d+(?:\.\d+)*[a-z]?)\b/.exec(ref);
   if (num) return hs.some((h) => h === num[1] || h.startsWith(num[1] + ' ') || h.startsWith(num[1] + '.'));
   const caseId = /^([a-f]\d+[a-z]?)\b/i.exec(ref);
-  if (caseId && target === 'TESTPLAN.md') return lines.some((l) => l.includes(`**${caseId[1].toUpperCase()} `));
+  if (caseId && target === 'README.md') return lines.some((l) => l.includes(`**${caseId[1].toUpperCase()} `));
   const first2 = ref.split(' ').slice(0, 2).join(' ');
   return hs.some((h, i) => h.startsWith(ref) || ref.startsWith(h) || (first2.includes(' ') && h.startsWith(first2))
     || ref === shorts[i] || ref.startsWith(shorts[i] + ' '));
@@ -77,7 +82,7 @@ const inRepo = (p) => existsSync(join(ROOT, p));
 
 for (const file of files) {
   const { lines, prose } = load(file);
-  if (lines.length > MAX_LINES) report(file, 1, `${lines.length} lines — over ${MAX_LINES}: split it by topic`);
+  if (file !== 'README.md' && lines.length > MAX_LINES) report(file, 1, `${lines.length} lines — over ${MAX_LINES}: split it by topic`);
   const here = dirname(file);
   const slugs = (f) => new Set(load(f).headings.map(slug));
 
@@ -109,12 +114,13 @@ for (const file of files) {
     for (let m; (m = REF.exec(refText)); ) {
       const lead = refText.slice(Math.max(0, m.index - 12), m.index);
       if (/RFC\s*\d+\s*$/i.test(lead) || /\uE000\s*$/.test(lead)) continue; // an RFC's section, or a code file's
-      let named = m[1] ?? (m[2] && ALIASES[m[2]]);
+      let named = m[1] ?? (m[2] && (ALIASES[m[2]] ?? (isRecord(file) ? RETIRED[m[2]] : m[2] + '.md')));
       // a bare "§ X" right after "FILE § Y and" / "FILE § Y," continues that file; otherwise it means this file
       if (!named && lastNamed && /^[\s,;&/]*(and|or)?[\s,;&/]*$/.test(refText.slice(lastEnd, m.index))) named = lastNamed;
       let target = file;
       if (named) {
-        const candidates = [named, normalize(join(here, named)), ALIASES[named.replace(/\.md$/, '')]].filter(Boolean);
+        const base = named.replace(/\.md$/, '').split('/').pop();
+        const candidates = [named, normalize(join(here, named)), ALIASES[base], isRecord(file) && RETIRED[base]].filter(Boolean);
         target = candidates.find((c) => inRepo(c) && statSync(join(ROOT, c)).isFile());
         if (!target) { report(file, n, `section reference to a missing file: ${named} § …`); continue; }
         lastNamed = named;

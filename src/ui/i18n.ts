@@ -3,7 +3,7 @@
  * the translator falls back to `en` when it is missing, so the EN|RU switch stays hidden until the
  * Russian half is complete (prefs.tsx keeps the language state, the header shows no switch). New
  * strings get `en` only. Copy is the owner's placeholder, taken from the Claude Design canvas
- * boards (see docs/architecture/ui.md) except the security sentences, which are the ones the
+ * boards (see README § UI) except the security sentences, which are the ones the
  * threat model needs said in exactly these words.
  *
  * Pure UI copy — no security-relevant text routes through here in a way tests depend on: the
@@ -61,7 +61,7 @@ export const STR = {
   },
   /**
    * What the NETWORK can see — the two exposures that are inherent to a direct browser-to-browser
-   * transfer and that no amount of cryptography inside the app removes. THREATMODEL.md § 3b and § 4.
+   * transfer and that no amount of cryptography inside the app removes. README § Risk 3b and § Risk 4.
    * Both facts are observable from ONE side, with no cooperation from anyone, and neither is visible
    * anywhere else in the UI. Deliberately NOT an alarm: a permanent property, so it lives as a
    * collapsed item with one concrete action at the end.
@@ -76,7 +76,7 @@ export const STR = {
     en: 'In Max privacy the transfer goes straight between the two of you, so each side’s provider sees a direct connection to the other side’s address. Establishing that two people were in contact needs data from ONE of the two networks only. The contents cannot be read; the fact of contact cannot be denied.',
     ru: 'В режиме макс. приватности передача идёт напрямую между вами двоими, поэтому провайдер каждой стороны видит прямое соединение с адресом другой. Чтобы установить, что два человека были на связи, достаточно данных ОДНОЙ из двух сетей. Содержимое прочитать нельзя; сам факт связи — отрицать нельзя.',
   },
-  // VPN only, not Tor (owner, 2026-10-11): Tor users are not the audience (docs/decisions.md), and a
+  // VPN only, not Tor (owner, 2026-10-11): Tor users are not the audience (README § Decisions), and a
   // WebRTC app is not what Tor Browser is built for.
   netAdvice: {
     en: 'If either of those matters to you, use a VPN — on BOTH sides. One side alone does not help with the second point.',
@@ -208,7 +208,7 @@ export const STR = {
     ru: 'Серверы, которые сообщают браузеру его собственный публичный адрес, ответили по-разному. Это бывает честно — при двух провайдерах или крупном операторском NAT адресов действительно несколько. А бывает, что один из них говорит неправду, и это важно: проверка маршрута опирается на этот адрес. Файлы зашифрованы в любом случае.',
   },
   /** Shown while the authenticated connection is in ICE `disconnected` — the progress on screen is
-   *  not live then, and a bar that claims otherwise is exactly what TESTPLAN F2 forbids. */
+   *  not live then, and a bar that claims otherwise is exactly what README § F2 forbids. */
   interrupted: { en: 'Connection interrupted — waiting for it to come back' },
   pathMismatch: { en: 'route did not match', ru: 'маршрут не совпал' },
   pathMismatchHint: {
@@ -226,7 +226,7 @@ export const STR = {
   sendingTitle: { en: 'Sending' },
   receivingTitle: { en: 'Receiving' },
   /** Every declared byte has crossed but the transfer is not over: in Max privacy the sender is still
-   *  pushing the volume padding (up to 12.5% of the file, minutes on a slow link — TESTPLAN B10,
+   *  pushing the volume padding (up to 12.5% of the file, minutes on a slow link — README § B10,
    *  2026-10-02), in any mode the receiver is still closing its sink and the sender is waiting for
    *  the `received` confirmation. The bar sits at 100% by design; these lines say why. */
   finishingTitle: { en: 'Finishing' },

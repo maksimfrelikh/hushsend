@@ -57,7 +57,7 @@ export interface ConnectionState {
    *  - `ok`       — we verified the address we connected to is one the peer named.
    *  - `unknown`  — we could not check (one of the two browsers reported too little).
    *  - `mismatch` — we checked and it DISAGREED. Both causes are named to the user, and no byte is
-   *                 gated on it: this is still advisory, which is what BACKLOG tracks.
+   *                 gated on it: this is still advisory, which is what README § Security — open tracks.
    *
    * `null` until the attestation settles (or off the authenticated paths).
    */
@@ -79,7 +79,7 @@ export interface ConnectionState {
    * The authenticated connection is in ICE `disconnected`: nothing is arriving from the other device
    * right now. Transient — it either comes back (false again) or the core ends the session as lost
    * (`connected → failed`). A projection for the transfer screen, NOT an FSM state: while it is true
-   * the progress on screen is not live, and saying so is the whole point (TESTPLAN F2). Only ever set
+   * the progress on screen is not live, and saying so is the whole point (README § F2). Only ever set
    * while `connected`.
    */
   interrupted: boolean;

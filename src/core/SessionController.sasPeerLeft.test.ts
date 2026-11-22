@@ -208,7 +208,7 @@ describe('SessionController — SAS peer-left channelOpen gate (Part A) + room p
   });
 
   it('Max privacy with a PeerConnection in flight: the same pre-transport peer-left ends as a DIRECT failure (the Reliable hint), not "peer left"', () => {
-    // TESTPLAN C3, 2026-10-02: in a Max ↔ Reliable pair across two NATs the peer's ICE gave up ~2 s
+    // README § C3, 2026-10-02: in a Max ↔ Reliable pair across two NATs the peer's ICE gave up ~2 s
     // before ours, its socket closed, and the `peer-left` reached the Max side first — which then read
     // "peer left during pairing" instead of "Couldn't connect directly — switch to Reliable". Same
     // outcome, wrong copy; the race decided which. Now a pre-transport peer-left while OUR direct

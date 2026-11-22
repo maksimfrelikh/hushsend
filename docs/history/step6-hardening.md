@@ -25,7 +25,7 @@ was true on its date; the current state is in the living documents (see [README.
   offer + SAS commit-reveal stall): the WebRTC offer direction, CPace init, SAS nonce/commit order,
   and key-confirmation/enrollment `lv(role)` all follow it. Reconnect's protocol role stays
   create/join (the verifier-first side must be fixed). 1:1 outcome unchanged. (See CLAUDE.md
-  [methods.md](../architecture/methods.md) § Per-pairing role.)
+  [methods.md](../../README.md#connection-methods-4) § Per-pairing role.)
 - ✅ **Room lobby UI (core) — DONE (6c)**. The room method no longer auto-pairs: creator + joiners
   land in `awaitingPeer` (`joining → awaitingPeer`, no new state) and see a `LobbyScreen` — the 4-digit
   code + a roster (`connection.roster` = `{id, device, joinedAt}` maintained from welcome/peer-joined/
@@ -35,7 +35,7 @@ was true on its date; the current state is in the living documents (see [README.
   now carry `{id, device, joinedAt}` (coarse client device label, server-capped ≤32 + server-stamped
   joinedAt; the `device` label was removed again 2026-09-27 — see [ux-fixes.md](ux-fixes.md) § UX bugs). words/link/qr stay 1:1 auto-pair; reconnect is its own codeless method (since 2026-09-25).
   `tests/e2e/lobby.spec.ts` (joiner↔joiner + busy) + `connectionSlice.test.ts` + `room-server.test.ts`.
-  (See [methods.md](../architecture/methods.md) § Room lobby.) **Deferred follow-ups below.**
+  (See [methods.md](../../README.md#connection-methods-4) § Room lobby.) **Deferred follow-ups below.**
   - ✅ **reconnect-in-lobby — SUPERSEDED 2026-09-25 by the codeless reconnect** ([reconnect.md](reconnect.md) § Reconnect UX below).
     The goal was to reach a pinned peer without the separate by-code path; the by-code path no longer
     exists — a tap on the recent-devices row meets the other device at a rendezvous derived from the
@@ -61,7 +61,7 @@ was true on its date; the current state is in the living documents (see [README.
     cross-channel race — a peer's post-connect `peer-left` racing its DataChannel `sas-confirm` — can no
     longer tear down a pair where both humans already confirmed. Unit:
     `SessionController.sasPeerLeft.test.ts`; e2e green (`room-sas.spec.ts` / `lobby.spec.ts` /
-    `ws-close.spec.ts`). See [connection.md](../architecture/connection.md) § Signaling WS lifecycle.
+    `ws-close.spec.ts`). See [connection.md](../../README.md#connection--the-state-machine-the-signaling-socket-early-frames) § Signaling WS lifecycle.
     - **Residuals (do NOT block per-pair close):**
       - ✅ **(a) reconnect now closes its socket too — DONE 2026-09-12.** This was deferred until
         reconnect-in-lobby landed, but the audit showed waiting had a cost: reconnect was the ONE
@@ -83,7 +83,7 @@ was true on its date; the current state is in the living documents (see [README.
     via their own high-entropy **token** (`codeType=token`, 128-bit, strictly 1:1 `ONE_TO_ONE_MAX_PEERS
     = 2`). A stray peer can't reach the room (token is unguessable) and a forwarded link still reaches a
     SINGLE receiver (a 2nd joiner is bounced 4002) — interloper-resistance is now STRUCTURAL, not a
-    `peers[0]` heuristic. See [methods.md](../architecture/methods.md) § link/qr method + [claude-md-retired-sections.md](claude-md-retired-sections.md) § Signaling server.
+    `peers[0]` heuristic. See [methods.md](../../README.md#connection-methods-4) § link/qr method + [claude-md-retired-sections.md](claude-md-retired-sections.md) § Signaling server.
 - ✅ **TURN relay + Reliable / Max-privacy (STRICT) mode (6d)** — *DONE*.
   - ✅ **Server side — DONE (this pass).** The signaling server answers a **`turn-request`** frame with
     short-lived HMAC coturn credentials (`use-auth-secret` / REST scheme): `username` = a future
@@ -107,7 +107,7 @@ was true on its date; the current state is in the living documents (see [README.
     urls (relay undeployed) ⇒ stay direct-only** (username/credential ignored — keyed off `urls.length`).
     Unit: `iceServers.test.ts`; e2e: `tests/e2e/privacy.spec.ts` (toggle renders/flips/default-max,
     Max-privacy connects directly with no TURN, Reliable assembles the TURN iceServer from fetched
-    creds — relay itself not run). See [privacy-and-ice.md](../architecture/privacy-and-ice.md) § Privacy mode + ICE.
+    creds — relay itself not run). See [privacy-and-ice.md](../../README.md#privacy-modes-ice-and-path-attestation) § Privacy mode + ICE.
   - ✅ **Max-privacy STRICT model — DONE (this pass; supersedes the earlier relax-retry).** Max-privacy
     NEVER relays — there is NO consent escalation. The PeerConnection ALWAYS drops the peer's `typ relay`
     ICE candidates in Max-privacy (`src/core/relax.ts` `isRelayCandidate`/`shouldDropCandidate`, filtered
@@ -122,7 +122,7 @@ was true on its date; the current state is in the living documents (see [README.
     that can't go direct now fails fast. `relax.ts` is reduced to the relay-candidate filter. Reliable is
     unchanged (STUN + TURN, auto-relay on a direct failure). `?forceIceFail=1` DEV knob drives the e2e.
     `relax.test.ts` (filter only) + `tests/e2e/relax.spec.ts` (Max-privacy ICE failure → `failed` + hint,
-    no offer, no hang). See [privacy-and-ice.md](../architecture/privacy-and-ice.md) § Privacy mode + ICE / Max-privacy strict model.
+    no offer, no hang). See [privacy-and-ice.md](../../README.md#privacy-modes-ice-and-path-attestation) § Privacy mode + ICE / Max-privacy strict model.
 - ✅ **Cross-browser pass (6e) — DONE.** The no-device parts landed first (below); the real-device pass ran
   2026-10-02 (Pixel 5, Android 14 Chrome) and 2026-10-03 (iPhone 15, iOS 26.6 Safari over WebDriver) — TESTPLAN
   47/47 ticked or closed with a reason ([the run log](../test-runs/README.md)). Android Firefox was dropped by the owner.

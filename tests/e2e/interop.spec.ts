@@ -24,7 +24,7 @@ import { BASE, CHROME_CHANNEL, CHROME_PATH, createLink, fragmentOf } from './hel
  * the DataChannel and hashes it. `?forceBlob=1` forces the RAM-bound receive path on both sides,
  * which is also the path Safari and Firefox take for real (no `showSaveFilePicker`).
  *
- * NOT a substitute for the real-device pass (TESTPLAN § B/C): Playwright's WebKit is WebKitGTK on
+ * NOT a substitute for the real-device pass (README § Phase B/C): Playwright's WebKit is WebKitGTK on
  * Linux, not Safari on iOS, and there is no camera, no cellular NAT and no cross-network path here.
  * It is the cheap 80% that should fail on this box rather than in someone's hands.
  *

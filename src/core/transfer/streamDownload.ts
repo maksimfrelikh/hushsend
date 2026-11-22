@@ -19,7 +19,7 @@
  *     whole. So Firefox keeps site storage, which it runs flat and cleans up on failure.
  *   - Safari 26.6 cannot transfer a stream (DataCloneError), and fed chunk by chunk it creates the
  *     download and writes 0 bytes — WebKit (Safari, every iOS browser) keeps site storage.
- *   - mobile Chromium: unproven until a handset runs it (TESTPLAN B2/B10), so it keeps site storage.
+ *   - mobile Chromium: unproven until a handset runs it (README § B2/B10), so it keeps site storage.
  */
 
 const SCOPE = '/dl/';

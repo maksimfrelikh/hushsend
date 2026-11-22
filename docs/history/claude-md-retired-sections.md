@@ -4,8 +4,8 @@ Moved out of CLAUDE.md on 2026-10-11, when it became a short guide pointing at o
 Dated records, not maintained — the current state is in the living documents (see [README.md](README.md)).
 They duplicated documents that own the subject: the signaling server's internals are hush-signaling-server's
 (its README, `.env.example` and the header comments of `signaling-server.js`); the deployment knobs are
-[deploy/DEPLOY.md](../../deploy/DEPLOY.md); the known limits are [COMPATIBILITY.md](../../COMPATIBILITY.md)
-and [THREATMODEL.md](../../THREATMODEL.md) § 6.
+[deploy/DEPLOY.md](../../README.md#deploy--the-frontend-and-nginx); the known limits are [COMPATIBILITY.md](../../README.md#compatibility--browsers-devices-platform-limits)
+and [THREATMODEL.md](../../README.md#threat-model--and-whether-it-is-ready-for-at-risk-users) § 6.
 
 ## The old "Keep this file in sync" rules
 This file + the repo are the ONLY context a fresh session has — sessions do not remember prior
@@ -181,7 +181,7 @@ DNS/TLS on real hosts) is ops — these are what it consumes. Config lives in th
   `disconnected` in ~7 s and `failed` ~10 s later, and both sides showed "Connection lost" — the loss
   path works, but a receive on an iPhone survives only while the screen stays on (the Pixel 5 ran on
   under its lock). Mitigated for the idle-timer case by the Screen Wake Lock requested inside the
-  Accept / Send tap ([transfer.md](../architecture/transfer.md) § File transfer, live `bf485ae`, verified: 3 GiB with Auto-Lock 30 s). **Not mitigable:
+  Accept / Send tap ([transfer.md](../../README.md#file-transfer) § File transfer, live `bf485ae`, verified: 3 GiB with Auto-Lock 30 s). **Not mitigable:
   a deliberate lock, or switching apps — measured 2026-10-03, Home for 30 s ended the connection within
   ~15 s** — so the transfer screen says to keep the screen on and stay on the page. Recorded here so it does
   not quietly disappear (owner, 2026-10-03).

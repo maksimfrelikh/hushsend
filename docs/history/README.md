@@ -1,8 +1,11 @@
 # History — what landed, and when
 
 Append-only, dated records of finished work. They are not maintained: an entry says what was true on
-its date, and later changes get new entries rather than edits. For the CURRENT state read the living
-documents — [CLAUDE.md](../../CLAUDE.md) lists them and says where each kind of fact belongs.
+its date, and later changes get new entries rather than edits. For the CURRENT state read
+[README.md](../../README.md), the one living document. Until 2026-11-22 the living state was split
+over several files (TESTPLAN.md, THREATMODEL.md, BACKLOG.md, COMPATIBILITY.md, deploy/DEPLOY.md,
+docs/architecture/, docs/decisions.md, docs/test-setup.md); the entries below still name them, and
+their links now open the README section each was merged into.
 
 | File | What it records |
 |---|---|

@@ -236,7 +236,7 @@ function LandingView({
       </Collapsible>
       {/*
         What the NETWORK can see — the two exposures cryptography inside the app cannot remove
-        (THREATMODEL.md § 3b and § 4), stated where someone decides whether to use this at all. A
+        (README § Risk 3b and § Risk 4), stated where someone decides whether to use this at all. A
         collapsed item on purpose: both facts are PERMANENT properties, not events, and an always-open
         warning would train people to dismiss the rows that DO signal events (the transfer path rows).
       */}

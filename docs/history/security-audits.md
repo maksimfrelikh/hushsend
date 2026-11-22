@@ -42,7 +42,7 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   rendezvous from it. The key-changed-before-settle ordering was re-checked under the new roles:
   both branches still run the two-check verify BEFORE any settle, and the initiator now settles only
   on the responder's `reconnect-ok`, which is stronger than before (no half-connected pair).
-  (→ [reconnect.md](reconnect.md) § Reconnect UX + CLAUDE.md [methods.md](../architecture/methods.md) § Per-pairing role + [crypto.md](../architecture/crypto.md) § Crypto / Reconnect.)
+  (→ [reconnect.md](reconnect.md) § Reconnect UX + CLAUDE.md [methods.md](../../README.md#connection-methods-4) § Per-pairing role + [crypto.md](../../README.md#crypto) § Crypto / Reconnect.)
 - [x] **(b) Guess-narrowing of `peerLeftAbortsPairing` (WS-close) — REVIEWED 2026-09-12: CONFIRMED, the
   bound is intact.** The docs' argument (the authoritative counters are confirmation-mismatch and
   channel-close, both untouched) is correct but not the load-bearing one. The bound actually rests on
@@ -56,12 +56,12 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   → 4010 → `onSignalingClose` fails the client, so wall-clock bounds the attempt count too. Every
   *informative* guess needs the DataChannel (the confirmation tag rides it), and both of its outcomes —
   tag mismatch, or channel close before `established` — are counted regardless of signaling presence.
-  (→ [connection.md](../architecture/connection.md) § Signaling WS lifecycle.)
+  (→ [connection.md](../../README.md#connection--the-state-machine-the-signaling-socket-early-frames) § Signaling WS lifecycle.)
 - [x] **(c) Strict relay filter — REVIEWED 2026-09-12: did NOT hold as claimed → FIXED the same day.**
   The filter is correct for what it does — it drops every SIGNALLED `typ relay` candidate and never
   requests TURN — but that is not the same as "no relay path can complete on our side", because ICE
   also learns candidates it was never told about. Closed by verifying the path we actually got (see
-  the finding below, now DONE). (→ [privacy-and-ice.md](../architecture/privacy-and-ice.md) § Privacy mode + ICE / Max-privacy strict model.)
+  the finding below, now DONE). (→ [privacy-and-ice.md](../../README.md#privacy-modes-ice-and-path-attestation) § Privacy mode + ICE / Max-privacy strict model.)
 
 - [x] **SAS refusals carry the same weight as the confirms — decided 2026-09-12, RESTORED 2026-09-26.**
   The refusal used to be a faint text link, which made the safe action the quietest element on the
@@ -71,7 +71,7 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   both refusals ("Stop — they don't have this phrase", "None of these match — stop") are quiet pills
   with the confirm's geometry (the kit's `.pill`, 52px, full width) directly under it. Rationale: a
   small "stop" biases the human toward confirming, and the confirm is the only gate on the reader
-  side. This is the one place the boards are overruled ([ui.md](../architecture/ui.md) § UI / styling; TESTPLAN A4a).
+  side. This is the one place the boards are overruled ([ui.md](../../README.md#ui--styling--stark-ui-kit-required) § UI / styling; TESTPLAN A4a).
 
 ### Findings from the 2026-09-12 pass (actionable)
 
@@ -208,7 +208,7 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
 - ✅ **(F4) Code comments asserting controls that do not exist — FIXED 2026-09-13.** Two call sites
   read `startPathAttestation(); // verify WHO is on the path — gates file bytes`, and `verifyPath`'s
   docstring opened with "`mismatch` is a HARD STOP on the same terminal path as a SAS mismatch". The
-  body has never done either. [privacy-and-ice.md](../architecture/privacy-and-ice.md) § Path attestation carried the same claim
+  body has never done either. [privacy-and-ice.md](../../README.md#privacy-modes-ice-and-path-attestation) § Path attestation carried the same claim
   ("`mismatch` → terminal, same teardown as an authenticity failure"). This is the repo's own
   documented failure mode — confident prose read as specification — having moved from the docs into
   the code, where two audits passed over it. All four corrected, and the advisory status is now stated
@@ -341,7 +341,7 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   ambiguity that cost three debugging sessions. Now 140 s, with the per-test budget at 300 s to fit.
   Deliberately not done while the stall was unexplained; safe once the cause was found.
 
-- **Path attestation, and separating STUN from signaling** — still open: their current state is in [[BACKLOG.md](../../BACKLOG.md) § Security — open](../../BACKLOG.md#security--open).
+- **Path attestation, and separating STUN from signaling** — still open: their current state is in [[BACKLOG.md](../../README.md#backlog--open-work-only) § Security — open](../../BACKLOG.md#security--open).
 
 - ✅ **Cross-check several independent STUN servers in the client — BUILT 2026-09-17.**
   `core/stunCheck.ts`: one throwaway `RTCPeerConnection` per configured STUN URL, each with only that
@@ -438,4 +438,4 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   one pair that *kept its socket open for the whole session*. That handed the untrusted server both
   "this pair is a reconnect (they have paired before)" AND the session duration the close was designed
   to hide. ✅ **FIXED the same day** — reconnect was folded into the per-pair close together with the
-  `peerLeftAbortsPairing` gate it required (see residual (a) under [connection.md](../architecture/connection.md) § Signaling WS lifecycle).
+  `peerLeftAbortsPairing` gate it required (see residual (a) under [connection.md](../../README.md#connection--the-state-machine-the-signaling-socket-early-frames) § Signaling WS lifecycle).

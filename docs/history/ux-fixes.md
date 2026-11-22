@@ -8,7 +8,7 @@ was true on its date; the current state is in the living documents (see [README.
   Wake Lock while a transfer is in flight — requested INSIDE the Accept / Send tap, because iOS grants it only
   with user activation (the first build asked from the phase-change effect and was refused silently) — and the
   transfer screen says to keep the screen on. Verified on the phone: a 3 GiB receive with Auto-Lock at 30 s ran
-  to Delivered untouched ([transfer.md](../architecture/transfer.md) § File transfer). An app switch still ends the connection (measured).**
+  to Delivered untouched ([transfer.md](../../README.md#file-transfer) § File transfer). An app switch still ends the connection (measured).**
 - ✅(code) **Controls "blink" on a tap on the phone — found 2026-10-03 by the owner (screen recording).** Two
   things stacked: iOS's own tap highlight (the kit sets `-webkit-tap-highlight-color` to fg 10 % on `:root`)
   flashed across the whole path-disclosure row and the details summaries the moment a finger landed, and the
@@ -20,7 +20,7 @@ was true on its date; the current state is in the living documents (see [README.
   (option (b) of the three put to the owner). **Folded into the kit the same day — stark-ui-kit 0.3.2
   (`f9d9250`): `theme-mono.css` sets `--brand-tap-highlight: transparent`, `controls.css` gives `.pill` / `.btn` the
   quiet press under `(hover: none)`; hushsend pins it and dropped its own copy. frelikh still pins 0.3.0 —
-  bump it to get the same (kit [ui.md](../architecture/ui.md) § How a change travels).
+  bump it to get the same (kit [ui.md](../../README.md#ui--styling--stark-ui-kit-required) § How a change travels).
 - ✅(code) **The column was 144 px narrower than the boards on a desktop — found 2026-10-03 by the owner ("looks
   like a small tablet version on my MacBook").** `.hs-main` set `--maxw: 520px` on the kit's `.wrap`, a
   border-box whose `padding-inline: var(--gut)` sits INSIDE that max-width — so the content column was 376 px
@@ -53,7 +53,7 @@ was true on its date; the current state is in the living documents (see [README.
   imports). Every detect call died in `WebAssembly.instantiate` with `LinkError: Import #78 "a" "ya":
   function import requires a callable`, caught by ScanScreen's per-frame `catch {}` — the viewfinder
   looked alive and nothing was ever decoded; only the paste fallback worked. This is exactly the coupling
-  [qr.md](../architecture/qr.md) § QR warns about, and the warning was all there was: `tsc`, `vite build`, the e2e (paste
+  [qr.md](../../README.md#qr-built--step-5b-wasm-self-hosted--step-6e) § QR warns about, and the warning was all there was: `tsc`, `vite build`, the e2e (paste
   fallback) and the 2026-10-01 dep refresh's own checks were green. **Fixed in the tree 2026-10-02
   (commit + deploy pending):** pin moved to 3.1.3 (deduped with barcode-detector's copy) and a vitest
   gate (`zxingWasm.test.ts`) that instantiates the ponyfill's glue with the vendored `.wasm` and decodes a
@@ -70,7 +70,7 @@ was true on its date; the current state is in the living documents (see [README.
   networks (TESTPLAN C3).** Done as proposed: `peerLeftWhileDirectAttempt()` (Max + PeerConnection in
   flight + no transport) sends the link/qr, room/SAS and reconnect `onPeerLeft` branches through
   `failDirect(DIRECT_FAIL_REASON)`; words untouched. Unit-tested in `SessionController.sasPeerLeft.test.ts`
-  ([privacy-and-ice.md](../architecture/privacy-and-ice.md) § Max-privacy strict model). Original note:
+  ([privacy-and-ice.md](../../README.md#privacy-modes-ice-and-path-attestation) § Max-privacy strict model). Original note:
   Whose ICE gives up first decides the copy: when the Max side's own ICE reached `failed` first it read
   "Couldn't connect directly — Switch to Reliable" (the phone as Max on the link method; both room runs);
   when the Reliable peer's ICE failed ~2 s earlier its socket closed, the `peer-left` arrived first and
@@ -88,7 +88,7 @@ was true on its date; the current state is in the living documents (see [README.
   `TransferScreen` derives `finishing` (transferring + every declared byte crossed), titles the panel
   "Finishing" and adds a `role=status` line — "Hiding the file's size — a little extra data goes out /
   arrives after the file" in Max privacy, "Waiting for the other side to confirm…" / "Saving the file."
-  otherwise ([transfer.md](../architecture/transfer.md) § File transfer). No core or protocol change; the ladder is untouched. Visual/a11y
+  otherwise ([transfer.md](../../README.md#file-transfer) § File transfer). No core or protocol change; the ladder is untouched. Visual/a11y
   scene `transfer-finishing`. Original note: At 2^32 + 1 B the Max-privacy bucket is 4.5 GiB, so after the last
   real byte the sender pushes 512 MiB of filler; progress is deliberately not emitted for it (the UI
   would read > 100 %), so at this LAN's 3.9 MB/s both screens showed "Sending/Receiving … 100 %" for
@@ -104,7 +104,7 @@ was true on its date; the current state is in the living documents (see [README.
   with no channel ever opened, tears the half-pairing down, returns to the wait screen (`pairing →
   awaitingPeer`) and re-takes the rendezvous, against the ORIGINAL wait cap (`waitUntil`) and the
   re-join cap; a peer that raised a channel and then stalled still fails. Unit-tested in
-  `SessionController.reconnectRendezvous.test.ts` ([crypto.md](../architecture/crypto.md) § Reconnect → Rendezvous). Original note: Wi-Fi off for 12 s under the wait: the
+  `SessionController.reconnectRendezvous.test.ts` ([crypto.md](../../README.md#crypto) § Reconnect → Rendezvous). Original note: Wi-Fi off for 12 s under the wait: the
   phone's socket died (1006), the new retry loop re-took the rendezvous every 3 s while offline (each
   attempt failing to open), and when the network came back the first socket that opened found a PEER in
   the token room — the phone's OWN previous socket, which the server had not yet noticed was dead (it
@@ -198,7 +198,7 @@ was true on its date; the current state is in the living documents (see [README.
   closes / sender closes / receiver's renderer crashed: interruption shown at 6.4 s, session ended at
   16.3 s), Playwright Firefox and WebKit (the two closed-tab cases). Live since 19:58 UTC; on the live build F3
   passed (the sender said "Connection lost · not delivered" 25 ms after the receiver's tab closed —
-  TESTPLAN, fourth 2026-09-27 entry). Still to do: re-run F2 on a real phone. Details: [transfer.md](../architecture/transfer.md) § File transfer →
+  TESTPLAN, fourth 2026-09-27 entry). Still to do: re-run F2 on a real phone. Details: [transfer.md](../../README.md#file-transfer) § File transfer →
   *Liveness after connect*. The original report, for the record:
   **Peer gone after `connected` is never surfaced (found 2026-09-26, Brave↔Brave T1).** Once
   `established`, `SessionController.onChannelClose` has no branch: the peer navigates away, its
@@ -232,7 +232,7 @@ was true on its date; the current state is in the living documents (see [README.
 - ✅ **Android save dialog killing the transfer — SUPERSEDED 2026-09-28, LIVE the same day (`90fdc15`; owner's
   rule: "disk wherever possible, a dialog only if disk needs one").** Receives now go to site storage
   (OPFS) with NO dialog while the connection is live; the save dialog is used only when OPFS cannot
-  hold the file (quota) — [transfer.md](../architecture/transfer.md) § File transfer. Needs the real Android phone to confirm (OPFS on
+  hold the file (quota) — [transfer.md](../../README.md#file-transfer) § File transfer. Needs the real Android phone to confirm (OPFS on
   Chrome 149 for Android was not probed on a device). The report, for the record:
   **Android Chrome: the transfer dies if the system save dialog stays open for more than ~10–20 s
   (found 2026-09-27, emulator, [the 2026-09-27 run log](../test-runs/2026-09-27.md) third entry).** Chrome 149 on Android HAS
@@ -308,7 +308,7 @@ was true on its date; the current state is in the living documents (see [README.
   wired to `confirmSas(false)`.
 - ✅ **Same-LAN Max privacy needs the macOS "Local Network" permission — DOCUMENTED 2026-09-29, LIVE
   the same day (`8c9ea59`; the hint itself is covered by unit tests, not yet seen on a real direct
-  failure on a Mac).** README [privacy-and-ice.md](../architecture/privacy-and-ice.md) § Privacy modes says it, and the direct-fail screen adds `localNetworkHint`
+  failure on a Mac).** README [privacy-and-ice.md](../../README.md#privacy-modes-ice-and-path-attestation) § Privacy modes says it, and the direct-fail screen adds `localNetworkHint`
   (`local-network-hint`) on a desktop Mac (`ui/platform.ts` `isMacDesktop`: a Macintosh UA with no
   multi-touch — an iPad asking for the desktop site is not a Mac; unit-tested). NOT done: the optional
   detection of "only an mDNS host + a private srflx". The report (found 2026-09-27): On one LAN every browser gathers only an mDNS host candidate plus an srflx that is the
@@ -370,12 +370,12 @@ was true on its date; the current state is in the living documents (see [README.
   exclude relay candidates from the attested set, or give a relayed path its own verdict/label.
 - ✅ **Multi-file sends are one `hushsend-files.zip` (stored) — DOCUMENTED 2026-09-27.** Owner's decision:
   keep the behaviour (design since `1082b7d`), describe it. TESTPLAN A7 was reworded and re-ticked (three
-  members unzip byte-identical), [transfer.md](../architecture/transfer.md) § File transfer and README now say so.
+  members unzip byte-identical), [transfer.md](../../README.md#file-transfer) § File transfer and README now say so.
 - ✅(code) **The Safari SENDER's memory grows during a very large send (found 2026-09-27, TESTPLAN B10) — ROOT
   CAUSE FOUND AND FIXED 2026-10-03: WebKit's `File.stream()` yields the WHOLE file as ONE chunk** (a 1 GiB
   File → a single 1 GiB read, measured on Safari 26.6), so the "stream" was the file in memory; Chrome and
   Firefox chunk finely. The sender now reads in 4 MiB windows via `slice().arrayBuffer()` (`readInWindows`,
-  also fed to client-zip per entry) and re-chunks without copying ([transfer.md](../architecture/transfer.md) § File transfer). Before /
+  also fed to client-zip per entry) and re-chunks without copying ([transfer.md](../../README.md#file-transfer) § File transfer). Before /
   after numbers on real Safari below.
   **Before** (live `a4bc62a`, Safari 26.6 → Chrome on the Mac, 2 GiB from a Blob of shared parts, `ps` every
   3 s): WebContent 250 → **394 MiB peak** (+144) at 28.8 MB/s. **After** (live `816046f`): the same synthetic
@@ -410,7 +410,7 @@ was true on its date; the current state is in the living documents (see [README.
 - ✅(code) **QR decoding never uses the native `BarcodeDetector` (found 2026-09-27, TESTPLAN B3) — DECIDED
   2026-10-03 (owner: "where we can, do not download the extra megabyte"): the native detector where it exists
   and lists `qr_code` (Chrome desktop / Android), the self-hosted zxing ponyfill elsewhere, and a runtime
-  fallback native → zxing on the first native `detect()` that throws (`withZxingFallback`, [qr.md](../architecture/qr.md) § QR).
+  fallback native → zxing on the first native `detect()` that throws (`withZxingFallback`, [qr.md](../../README.md#qr-built--step-5b-wasm-self-hosted--step-6e) § QR).
   The original note follows.**
   Verified before deploy in real Chrome 154 with the harness's fake camera against the local build: the DEV log
   said "QR: native BarcodeDetector", the QR was decoded and the page went to `joining` (its token-room socket
@@ -424,7 +424,7 @@ was true on its date; the current state is in the living documents (see [README.
   (no cable); a broken native one would have fallen back to zxing. The app
   imports `barcode-detector/ponyfill`, which is always zxing-wasm; desktop Chrome, which has a native
   detector, still fetched the 1 MB WASM. The docs claimed "native where available" (corrected in
-  [qr.md](../architecture/qr.md) § QR and TESTPLAN). Decide: keep one decoder everywhere (simpler, current) or prefer the
+  [qr.md](../../README.md#qr-built--step-5b-wasm-self-hosted--step-6e) § QR and TESTPLAN). Decide: keep one decoder everywhere (simpler, current) or prefer the
   native one when present (no WASM fetch on Chromium/Android). Not a bug either way.
 - ✅ **iPad — SUPERSEDED 2026-09-28 by the disk path:** every device, iPad included, now receives to
   site storage (OPFS), and the RAM-only fallback is ONE 200 MiB cap for all (owner's rule for RAM), so
@@ -453,7 +453,7 @@ was true on its date; the current state is in the living documents (see [README.
   race; the relay filter / strict-privacy / `ensureTurnReady` / `turn-request` are untouched, and the
   "TURN in `iceServers` from the first candidate" invariant holds (`setRemoteDescription` is
   iceServers-independent). Deterministic regression: `SessionController.pendingPeerSignals.test.ts`
-  (controllable `ensureTurnReady` + mock PeerConnection). (→ [privacy-and-ice.md](../architecture/privacy-and-ice.md) § Privacy mode + ICE.)
+  (controllable `ensureTurnReady` + mock PeerConnection). (→ [privacy-and-ice.md](../../README.md#privacy-modes-ice-and-path-attestation) § Privacy mode + ICE.)
 
 - ✅ **Recent-devices / reconnect list accumulates duplicate rows for the same peer — DONE
   (display-dedup).** The list (read from the keystore via `listPins()`) was keyed by `pairingId`, but

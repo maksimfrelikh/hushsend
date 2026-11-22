@@ -17,7 +17,7 @@ concurrency:
 
 env:
   NODE_VERSION: '26' # the LTS line (26 is LTS from 2026-10-28); the deploy host follows it via
-  # NodeSource, see deploy/DEPLOY.md. The bundle does not depend on the Node major — the two-build
+  # NodeSource, see README § Live instance. The bundle does not depend on the Node major — the two-build
   # guard in build-attest is what proves that per commit.
 
 jobs:
@@ -43,7 +43,7 @@ jobs:
 
   # ---------------------------------------------------------------------------------------------
   # The build whose hashes are PUBLISHED. This is the cheapest available reduction of the largest
-  # risk in THREATMODEL.md § 1: the server that the threat model declares untrusted is the same
+  # risk in README § Risk 1: the server that the threat model declares untrusted is the same
   # server that delivers the JavaScript, so a compromised or compelled operator can serve a modified
   # bundle and every other guarantee becomes theatre. CSP does not help (same server emits it), SRI
   # does not help (same server publishes the hash).

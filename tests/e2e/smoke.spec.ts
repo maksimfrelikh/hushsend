@@ -142,7 +142,7 @@ test('smoke · reconnect: enrolled peers re-auth via the pinned key with NO SAS 
 });
 
 /**
- * The landing states what the NETWORK can still see (THREATMODEL § 3b SNI, § 4 the direct
+ * The landing states what the NETWORK can still see (README § Risk 3b SNI, § Risk 4 the direct
  * connection). Asserted because it is a safety property, not decoration: this audience calibrates
  * its behaviour to what it is told, and both facts are observable from ONE side with no cooperation
  * from anyone — while nothing else in the UI mentions either. The privacy toggle says only that the
@@ -173,7 +173,7 @@ test('smoke · landing states what the network can still see, collapsed by defau
   await expect(box).toContainText('needs data from ONE of the two networks only');
   await expect(box).toContainText('cannot be denied');
   // ...and something to do about it, on BOTH sides (one is not enough for § 4). A VPN, not Tor: Tor
-  // users are not the audience (owner, 2026-10-11 — docs/decisions.md).
+  // users are not the audience (owner, 2026-10-11 — README § Decisions).
   await expect(box).toContainText('use a VPN');
   await expect(box).not.toContainText('Tor');
   await expect(box).toContainText('BOTH sides');

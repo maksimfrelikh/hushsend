@@ -22,7 +22,7 @@
  * Send: the file is read in WINDOWS of READ_WINDOW bytes (`file.slice(a, b).arrayBuffer()`, see
  * readInWindows) — NEVER `file.stream()`: WebKit's Blob stream hands the WHOLE file over as ONE
  * chunk (measured 2026-10-03 on Safari 26.6: a 1 GiB File → a single 1 GiB read; a 5 GiB send grew the
- * WebContent process from ~300 to ~940 MiB, TESTPLAN B10 — a tab kill on a phone), while Chrome and
+ * WebContent process from ~300 to ~940 MiB, README § B10 — a tab kill on a phone), while Chrome and
  * Firefox chunk it finely. Many files → a single store (no compression) zip built on the fly with
  * client-zip, each entry fed from the same windowed reader. Windows are re-chunked to CHUNK_SIZE
  * without copying (Rechunker returns views) and pushed through the backpressure-aware wire.send().

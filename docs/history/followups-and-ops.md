@@ -43,7 +43,7 @@ was true on its date; the current state is in the living documents (see [README.
   + room per-pair close + reconnect, included since 2026-09-12). e2e: `tests/e2e/ws-close.spec.ts`
   (link + words + reconnect —
   supersedes the old `words-ttl.spec.ts`), with `room-sas.spec.ts` / `lobby.spec.ts` confirming room/SAS
-  + lobby behaviour under the per-pair close. See [connection.md](../architecture/connection.md) § Signaling WS lifecycle.
+  + lobby behaviour under the per-pair close. See [connection.md](../../README.md#connection--the-state-machine-the-signaling-socket-early-frames) § Signaling WS lifecycle.
 - ✅ **SAS fail-closed on unset role — DONE** (folded into the mesh-lobby fix). The SAS role is no
   longer a UI default — it is computed PER PAIRING from the two readable ids (`src/core/sasRole.ts`
   `sasRoleFor`: lexicographically smaller id reads), projected as `connection.sasRole`. When the role
@@ -60,12 +60,12 @@ was true on its date; the current state is in the living documents (see [README.
   4-digit squatting/enumeration for link/QR — resistance is now structural. room stays 4-digit, words
   stays `word`. Tests: `room-server.test.ts` (token alloc / validator / 1:1 cap), `link.test.ts` +
   `qr.test.ts` (token round-trip), `link.spec.ts` (link/qr e2e over token rendezvous). This is the
-  SAME fix as "link/qr lobby-race resistance" above. (See [methods.md](../architecture/methods.md) § link/qr method + [claude-md-retired-sections.md](claude-md-retired-sections.md) § Signaling server.)
+  SAME fix as "link/qr lobby-race resistance" above. (See [methods.md](../../README.md#connection-methods-4) § link/qr method + [claude-md-retired-sections.md](claude-md-retired-sections.md) § Signaling server.)
 
 (✅ **Pre-SAS pairing deadline firing-direction — now tested** (pre-deploy cleanup): `?stallSasNonce=1`
 makes a peer reach the SAS but withhold its nonce reveal, `?preSasTimeoutMs=N` shrinks the pre-SAS
 deadline (both DEV-only / tree-shaken), and `tests/e2e/room-sas.spec.ts` asserts the other side fails
-at the deadline rather than hanging. See [methods.md](../architecture/methods.md) § room/SAS Timeouts.)
+at the deadline rather than hanging. See [methods.md](../../README.md#connection-methods-4) § room/SAS Timeouts.)
 
 ## Ops / housekeeping
 
@@ -157,7 +157,7 @@ at the deadline rather than hanging. See [methods.md](../architecture/methods.md
 ## Nice-to-have / future — the ones that landed
 
 - ✅ **Claude Design redesign of the screen set — DONE (2026-09-26).** Every screen rebuilt from the canvas
-  https://claude.ai/artifact/XRjdVX5U8SC8m2cDSgzDSP on kit 0.3.0 ([ui.md](../architecture/ui.md) § UI / styling has the
+  https://claude.ai/artifact/XRjdVX5U8SC8m2cDSgzDSP on kit 0.3.0 ([ui.md](../../README.md#ui--styling--stark-ui-kit-required) § UI / styling has the
   reference, the decisions and the rules). Adopted from the kit: `controls.css` (`.pill`),
   `theme-toggle.css`, `layout.css` (`.wrap` — its `--gut` IS the design's 20 / 34 / 72 gutter); the two
   webfonts the palette names are bundled through fontsource. Link and QR became ONE screen; the lobby
@@ -172,7 +172,7 @@ at the deadline rather than hanging. See [methods.md](../architecture/methods.md
   radios (`privacy-toggle` = Max, `privacy-reliable`), `path-state` is a disclosure row carrying
   `data-path-verdict` (the `ok` verdict is an sr-only span, no visible row), the network-exposure
   summary is inside "About privacy and security". Conscious deviations from the boards, all documented
-  in [ui.md](../architecture/ui.md) § UI / styling: the type sizes are the kit's fluid roles with the h1 / h2 capped at 48 /
+  in [ui.md](../../README.md#ui--styling--stark-ui-kit-required) § UI / styling: the type sizes are the kit's fluid roles with the h1 / h2 capped at 48 /
   32px from 1200px up (follow-up, same day — the uncapped `--t-h1` reached 73.6px at 1440); the
   attempts line reads "N / MAX failed attempts" (the counter the e2e asserts); and the SAS refusals are
   quiet pills of the confirm's geometry, NOT the boards' tertiary label — the 2026-09-12 audit decision
@@ -192,7 +192,7 @@ at the deadline rather than hanging. See [methods.md](../architecture/methods.md
   `copyToClipboard` stays on the root entry. Unit 290/290, e2e 129 passed / 6 skipped (the opt-in size
   ladder + engine-gated cases) on ports 8191/5291. The 0.3.0 component stylesheets (`controls.css`,
   `links.css`, `layout.css`, …) are NOT adopted — that is the componentization item above, after the
-  Claude Design redesign of the screen set. [ui.md](../architecture/ui.md) § UI / styling rewritten for the new pin.
+  Claude Design redesign of the screen set. [ui.md](../../README.md#ui--styling--stark-ui-kit-required) § UI / styling rewritten for the new pin.
 - ✅ **Transfer-history privacy — DONE** (pre-deploy). Transfer history is no longer persisted: it
   moved from a localStorage record (`persistence.ts`, now deleted) to a SESSION-ONLY in-memory Redux
   slice (`src/store/historySlice.ts`), so file names leave no local trail — the history is gone on
@@ -235,7 +235,7 @@ separate compare-only run the same day, in a `/tmp` copy of `6cc4ec9` on the dep
 
 ## Frontend redeploys checked live (2026-09-28 … 2026-10-03)
 
-Until 2026-10-13 the "Frontend redeployed" tick of [test-setup.md](../test-setup.md) § 0.1 kept every
+Until 2026-10-13 the "Frontend redeployed" tick of [test-setup.md](../../README.md#before-you-start) § 0.1 kept every
 redeploy and what it was checked with, newest first; the tick now names the current deploy only, and the
 list moved here as it stood.
 
@@ -270,7 +270,7 @@ list moved here as it stood.
 - **2026-09-29 18:47 UTC — `273e9e7`** (`index-CwM5wm6M.js`): the screen pacing — a screen the FSM
   leaves for a pre-connection stage is held 400 ms with its controls quiet, the Connecting screen
   appears only when a stage outlasts that, each of its titles stays ≥ 500 ms
-  ([ui.md](../architecture/ui.md), Screen pacing). Byte-identical (42 files, equal sha256 manifests).
+  ([ui.md](../../README.md#ui--styling--stark-ui-kit-required), Screen pacing). Byte-identical (42 files, equal sha256 manifests).
   Checked live the same evening with real Chrome on both sides (link method, 5 direct + 3 relayed runs,
   on a LAN that was slow that night — 59 ms average ping to the server): no screen flashed; a run under
   400 ms went straight from the held Share screen / an empty column to Transfer, a longer one showed

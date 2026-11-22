@@ -179,7 +179,7 @@ describe('SessionController — codeless reconnect rendezvous (derive, refresh, 
   });
 
   it('the network going away under the wait (1006, then the new socket cannot open) is retried, not fatal', async () => {
-    // TESTPLAN E7, 2026-10-02: the phone switched Wi-Fi while waiting; its socket died with a 1006,
+    // README § E7, 2026-10-02: the phone switched Wi-Fi while waiting; its socket died with a 1006,
     // the immediate re-take could not open a socket on a network that was still coming up, and the wait
     // ended at once with "signaling connection failed". Now: retry after RECONNECT_RETRY_MS, counted
     // against the same cap.
@@ -229,7 +229,7 @@ describe('SessionController — codeless reconnect rendezvous (derive, refresh, 
   });
 
   it('an engaged peer that leaves BEFORE any transport (a ghost) returns the wait — not failed — and re-takes the rendezvous', async () => {
-    // TESTPLAN 2026-10-03 (Pixel 5): after a 12 s Wi-Fi drop the first socket that opened met the
+    // test run 2026-10-03 (Pixel 5): after a 12 s Wi-Fi drop the first socket that opened met the
     // phone's OWN previous socket in the token room; pairing began, nothing answered, and the server's
     // eventual peer-left ended the wait as "peer left during re-auth".
     const { dispatch, internals } = await newReconnecting();

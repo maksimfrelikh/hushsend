@@ -16,7 +16,7 @@ import type { Stage } from './pacing';
  * line never flickers through three titles in a second.
  *
  * One exception has a control: the SAS READER who confirmed before the picker answered waits here
- * ("Verifying…") — and must still be able to stop (TESTPLAN A4b). The core accepts a reject after our
+ * ("Verifying…") — and must still be able to stop (README § A4b). The core accepts a reject after our
  * own approval right up to settle; this is the pill that sends it, with the reader screen's copy.
  * Once the FSM has moved past `confirming` the screen is held (inert), so the pill cannot send a
  * reject into a settled session.

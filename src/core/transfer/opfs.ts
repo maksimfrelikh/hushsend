@@ -92,7 +92,7 @@ export function opfsUsable(): Promise<boolean> {
  * Can site storage REALLY take `size` more bytes? A reservation, not an estimate. In incognito Chrome
  * `estimate()` reports the normal profile's quota (10 GiB on this Mac — a site must not be able to tell
  * incognito apart by it) while the storage holds ~430 MiB, so a plan made from the estimate accepted a
- * 600 MiB file that then died at 74 % (TESTPLAN, 2026-09-28). `truncate(size)` on a fresh writable is
+ * 600 MiB file that then died at 74 % (test run 2026-09-28). `truncate(size)` on a fresh writable is
  * checked against the real limit and writes nothing — measured 2026-09-28: 1–2 ms for 5 GiB on Chrome,
  * Firefox and Safari, counted in the quota at once, a fast QuotaExceededError in incognito — and the
  * probe file is aborted and removed right after. Never throws.
@@ -128,7 +128,7 @@ export async function opfsCanHold(size: number): Promise<boolean> {
 /**
  * Bytes the incoming folder holds right now: delivered copies still in their hold (OPFS_HOLD_MS) and
  * receives in flight in other tabs. A plan that cannot fit a file uses it to say WHY — the copy of the
- * last file, not a full disk (TESTPLAN 2026-09-28: 6 GiB then 5 GiB on Firefox's 10 GiB quota). 0 when
+ * last file, not a full disk (test run 2026-09-28: 6 GiB then 5 GiB on Firefox's 10 GiB quota). 0 when
  * it cannot tell. Never throws.
  */
 export async function opfsHeldBytes(): Promise<number> {

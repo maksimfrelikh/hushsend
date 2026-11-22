@@ -2,7 +2,7 @@
  * Screen Wake Lock for the duration of a transfer — the ONE thing it does is keep the display from
  * dimming and locking by the idle timer while bytes are in flight.
  *
- * Why: iOS Safari tears the WebRTC connection down the moment the screen locks (TESTPLAN F1 on the
+ * Why: iOS Safari tears the WebRTC connection down the moment the screen locks (README § F1 on the
  * iPhone 15, 2026-10-03: an 800 MB receive died at 14 %, both sides read "Connection lost" within
  * 17 s). A phone left on the table while a file arrives locks by its own timeout — the most common
  * way to lose a transfer on an iPhone, and the only one the app can prevent. A deliberate press of

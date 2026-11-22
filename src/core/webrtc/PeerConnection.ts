@@ -59,7 +59,7 @@ export interface PeerConnectionHandlers {
   /**
    * ICE could NOT establish connectivity in the Max-privacy STRICT model (we drop the peer's SIGNALLED
    * relay candidates and never request local TURN, so no relay path was offered — a peer-reflexive one
-   * can still be LEARNED; known gap, see core/relax.ts + BACKLOG.md § Security — open). The owner treats
+   * can still be LEARNED; known gap, see core/relax.ts + README § Security — open). The owner treats
    * this as a terminal failure with a hint to switch to Reliable. Only fired while `filterRelay` is on
    * (Max-privacy); in Reliable an ICE failure goes through `onClose` (a genuine close — relay was
    * available and still couldn't save it).
@@ -494,7 +494,7 @@ export class PeerConnection {
    * Resolve once the send buffer drains below the low-water mark — or REJECT if the channel closes
    * first. A channel that dies with bytes still queued never reports `bufferedamountlow`, and this
    * used to wait for it forever: the sender's pump hung inside the await, so its row sat on
-   * "Sending 46 %" to a peer whose tab was long closed (TESTPLAN F3). Rejecting ends the pump through
+   * "Sending 46 %" to a peer whose tab was long closed (README § F3). Rejecting ends the pump through
    * its own error path, which also cancels the file reader.
    */
   private waitForDrain(ch: RTCDataChannel): Promise<void> {

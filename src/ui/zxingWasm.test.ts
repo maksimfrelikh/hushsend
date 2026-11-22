@@ -6,7 +6,7 @@ import { locateZxingWasm, nativeQrDetector, withZxingFallback, ZXING_READER_WASM
 
 /**
  * ABI gate — the glue `barcode-detector` inlines and the `.wasm` WE vendor must be the same zxing-wasm
- * build. Found broken on the live site 2026-10-02 (TESTPLAN A2/B3): a dependency refresh moved
+ * build. Found broken on the live site 2026-10-02 (README § A2/B3): a dependency refresh moved
  * `barcode-detector` to 3.2.2, whose inlined glue is zxing-wasm 3.1.3 (78 imports), while our direct
  * pin still vendored the 3.1.0 reader (80 imports) — every frame died in `WebAssembly.instantiate`
  * with `LinkError: Import #78 "a" "ya": function import requires a callable`, on desktop Chrome and on a

@@ -4,7 +4,7 @@
 # nginx web root. Does NOT touch the signaling server (separate repo, systemd
 # hushsend-signaling) or nginx — a frontend-only change needs no service restart.
 #
-# Run it from anywhere on the web host (the home server — see deploy/DEPLOY.md § 0), e.g.:
+# Run it from anywhere on the web host (README § Live instance), e.g.:
 #   bash ~/projects/hushsend/deploy/deploy-frontend.sh
 #
 # Overridable via env (defaults match the live hushsend.frelikh.dev deploy):
@@ -54,7 +54,7 @@ VITE_STUN_URLS="$VITE_STUN_URLS" \
 #
 # These should equal the manifest the CI `build-attest` job published for the SAME commit — that
 # equality is what lets a third party verify the site without trusting this host (see
-# deploy/verify-bundle.sh and THREATMODEL.md § 1). They are not compared automatically here: this
+# deploy/verify-bundle.sh and README § Risk 1). They are not compared automatically here: this
 # script runs ON the host it would be checking, so a self-check would be circular. Compare them from
 # somewhere else.
 # NOTE the manifest is written OUTSIDE dist/ on purpose. Dropping it inside would add a file the CI
