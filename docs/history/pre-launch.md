@@ -29,3 +29,22 @@ left both sides on "Agreeing on keys…" for ~165 s, then both read "Room not fo
   ([transfer.md](../../README.md#file-transfer)). Owner's decision: Safari only, other browsers unchanged.
 - **The network-exposure advice names a VPN, not Tor** (owner: Tor users are not the audience —
   [decisions.md](../../README.md#decisions)). The same in THREATMODEL.md.
+
+## 2026-11-22 — Max privacy across networks: the carrier NAT measured
+
+The open question of the review — why Max ↔ Max never connected across networks — is answered for the
+owner's networks ([2026-11-22 run](../test-runs/2026-11-22.md)). The two earlier explanations are gone:
+on 2026-10-03 the desktop sat on the server's LAN and advertised the router's LAN address as its
+`srflx` (a STUN request to the TURN listener, hairpinned), and since 2026-10-10 the bundle asks the
+STUN-only server, which returned the public mapping from the same LAN (2026-10-11); the servers left
+that LAN for a VPS on 2026-10-17.
+
+- **The carrier's NAT is symmetric.** One local socket reached the server's two ports from two
+  different source ports on both phones; the home router used one. A phone there cannot be reached on
+  the port STUN reports.
+- **No IPv6 on that carrier**, so the IPv6 listener the STUN server got that day changes nothing for
+  these pairs.
+- **Port prediction was tried and rejected** — it connected once in a prototype; the owner's decision
+  is in [Decisions](../../README.md#decisions).
+- Left open in [Backlog](../../README.md#backlog--open-work-only): the pairs not tried, and the
+  "retry with relay" on the failure screen.

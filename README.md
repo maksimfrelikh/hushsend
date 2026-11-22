@@ -434,9 +434,9 @@ LTE. What it did NOT settle: what that section lists as not tested, and the atte
 is thin.
 On one LAN the desktop pairs read `unknown` (mDNS hides the addresses), Chrome ↔ Android Chrome read
 `ok` / `unknown`, and Chrome ↔ iOS Safari read a FALSE `mismatch` (WebKit attests only its mDNS
-names); no cross-network pair connected directly in Max privacy — and those runs prove little, because
-the desktop sat on the server's own LAN, where the STUN reply was the router's LAN address (test plan
-C1, the caveat). So road item 4 still lacks its data.
+names); no cross-network pair connected directly in Max privacy — in the pass because the desktop sat
+on the server's own LAN and advertised the router's LAN address, and since 2026-11-22 for a measured
+reason: the phone's carrier NAT is symmetric (§ Platform limits). So road item 4 still lacks its data.
 
 #### Risk 6. Smaller, tracked
 
@@ -554,8 +554,9 @@ with a reason.
 
 **Not tested:** Windows (no Windows machine — [Decisions](#decisions)), Android Firefox
 (dropped by the owner as too rare a combination), a real iPad (simulator rehearsals only), Linux
-desktop browsers outside Playwright. **Direct connectivity across networks** has not been shown from a
-desktop that is NOT on the server's own LAN — open in [Backlog](#backlog--open-work-only).
+desktop browsers outside Playwright. **Max privacy across networks** has connected nowhere yet: the
+only pairs tried had a phone on a carrier with a symmetric NAT (§ Platform limits); two ordinary Wi-Fi
+networks in different places, another carrier, and a pair with IPv6 on both sides were not tried.
 
 ### Where a received file goes
 
@@ -601,10 +602,13 @@ Chosen per offer, before it reaches the screen — the order and the reasons are
   settings do that). Since 2026-10-11 hushsend says so up front instead of starting; before, a joiner
   in such a browser left both sides waiting until the server expired the room
   ([2026-10-11 run](docs/test-runs/2026-10-11.md)). Whether Tor Browser runs hushsend was not checked.
-- **From the server's own LAN, only the TURN relay's STUN answer is useless:** coturn on 3478 names the
-  router's LAN address to a hairpinned request, while the live bundle's STUN on 3479 returns the public
-  mapping (re-measured 2026-10-11). A test that asks 3478 from home says nothing about other networks
-  (§ Pre-launch review).
+- **Max privacy does not connect from a network behind a symmetric NAT** — one that maps each
+  destination to a new port, as mobile carriers and many VPNs do: the peer learns one port from STUN
+  and is then reached from another. Measured 2026-11-22 on a mobile carrier (Epic, Cyprus): a phone
+  there connected neither to another such phone nor to a computer behind an ordinary home router, and
+  the carrier gives no IPv6 to fall back on ([2026-11-22 run](docs/test-runs/2026-11-22.md)). STUN
+  answers over IPv6 since that day, for a pair that has IPv6 on both sides — not yet seen in use.
+  Reliable connects such pairs through the relay.
 
 ## Architecture
 
@@ -2507,8 +2511,8 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
 
 - [x] **C1 · Max-privacy direct across networks** *(PASS 2026-10-02, outcome (b): Mac Chrome ↔ Pixel 5 on a VPN Wi-Fi, both sides terminal `failed` with the hint in 18–48 s — [the 2026-10-02 run log](docs/test-runs/2026-10-02.md))* — both sides default Max-privacy, link method.
       **⚠️ The outcome does not generalise** (found 2026-10-03): in every C1 run (and on the Max side
-      of C3) the desktop sat on the server's own LAN. The finding, its 2026-10-11 re-measurement and
-      the open carrier-NAT question are § Pre-launch review.
+      of C3) the desktop sat on the server's own LAN and advertised the router's LAN address. What
+      was measured after that is § Platform limits (a symmetric carrier NAT, 2026-11-22).
       Expected either (a) `connected` via a `srflx` candidate pair — confirm in webrtc-internals that
       the selected pair is **not `relay`** — or (b) if the NATs won't traverse, a **terminal `failed`
       screen with the "switch to Reliable" hint**. Both are correct; a **hang is not**. Record which.
@@ -2666,33 +2670,10 @@ A review made after the device pass closed: what to check, fix or polish before 
 the owner decided on each. Not repeated here: the independent audit, other languages and verifiable
 delivery (§ The road to "yes"); path attestation and the STUN operator (§ Security — open).
 
-**Finding that changes Phase C (measured 2026-10-03).** Every cross-network Max-privacy run (C1, the
-Max side of C3) had the desktop on the server's own LAN, and there the STUN reply is the ROUTER's LAN
-address: Chrome on the Mac at 192.168.1.38 gathered `srflx 192.168.1.1` from
-`stun:turn.hushsend.frelikh.dev:3478`. The home side never advertised its public mapping, so those
-failures say nothing about users elsewhere — **direct connectivity across networks is untested.**
-To test it, put the desktop on any OTHER network (café, office, a friend's Wi-Fi) and pair it
-with the phone on LTE, both in Max privacy.
-
-**Re-measured 2026-10-11 against the LIVE bundle's STUN** (`stun:stun.hushsend.frelikh.dev:3479`, in the
-bundle since `bf15fd6`, 2026-10-10). From 192.168.1.19 on the same Wi-Fi, ONE UDP socket, a STUN binding
-request to four destinations: `:3479`, `stun.cloudflare.com:3478` and `stun.l.google.com:19302` all
-mapped **94.46.199.61:55497** — the public IP, the local port preserved, the mapping endpoint-independent.
-Only the TURN listener `:3478` (what the 2026-10-03 measurement used) answers `192.168.1.1`; both coturn
-templates set `external-ip`, so why the two listeners differ is unexplained. So since 2026-10-10 the home
-LAN DOES advertise a usable public mapping and the caveat above no longer explains a failure. The owner's
-run that day — phone on cellular ↔ laptop on the home Wi-Fi, Max ↔ Max — still did not connect; no
-candidate pairs were captured ([the 2026-10-11 run log](docs/test-runs/2026-10-11.md)). What is left is
-the phone side: a symmetric carrier NAT is reachable through STUN alone only if the other side filters
-by address at most, and the probe measured the home router's MAPPING, not its filtering. No IPv6 at home
-(the STUN host has no AAAA either), so there is no NAT-free path to fall back on.
-
 **Agreed — to do:**
-- Settle Max privacy across networks: the home side's srflx is public since 2026-10-10 (above), so
-  capture the candidate pairs of a phone-on-cellular ↔ home-Wi-Fi pair (chrome://webrtc-internals on
-  the laptop, the phone's STUN mapping) — the open question is the carrier NAT. The STUN host answers
-  over IPv6 since 2026-11-22 (AAAA + coturn on `::`), so re-run phone ↔ phone on cellular too: IPv6 is
-  the only NAT-free path, and whether the browsers publish a usable IPv6 `srflx` is unmeasured. Then decide on
+- Max privacy across networks, what is left after 2026-11-22 (§ Platform limits has what was
+  measured; the history is in [pre-launch.md](docs/history/pre-launch.md)): try two ordinary Wi-Fi
+  networks in different places, another carrier, and a pair with IPv6 on both sides. Then decide on
   a one-tap "retry with relay" on the direct-fail screen and copy for the Reliable side of a mixed pair
   ("ask your peer to switch to Reliable too"); today it reads "channel closed during pairing".
 - Relay capacity: coturn's 49160–49200 range is ~41 allocations (a fully relayed pair takes two).
@@ -2830,6 +2811,9 @@ elsewhere. Open questions waiting for a decision are in [Backlog](#backlog--open
 - Product ideas rejected: a relay-only "hide my IP" mode (everything through the server), any
   store-and-forward (the server never stores files), metadata stripping, a file fingerprint, an offline
   mode via QR signaling, blocking resistance / a self-host kit, text messages, one-to-many sends.
+- No port prediction for symmetric NATs (2026-11-22): adding the neighbours of a peer's announced port
+  connected a phone on the owner's carrier in a prototype ([2026-11-22 run](docs/test-runs/2026-11-22.md)),
+  but it rests on how one carrier numbers its ports and can break with the next one.
 
 ## License
 

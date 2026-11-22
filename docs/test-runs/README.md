@@ -23,6 +23,7 @@ output, and whether it reproduced on the other engine.
 | [2026-10-02](2026-10-02.md) | the FIRST real handset · Chrome 154 (the Mac, Playwright) ↔ **Pixel 5** (Android 14, Chrome 152) over USB — Phase A on the LAN, Phase C over a VPN Wi-Fi |
 | [2026-10-03](2026-10-03.md) | the FIRST real iPhone · Chrome 154 (the Mac) ↔ **iPhone 15** (iOS 26.6, Safari 26.6) over USB — Phase A/B/E on the LAN, Phase C on LTE |
 | [2026-10-11](2026-10-11.md) | the owner, by hand · a phone on cellular ↔ a laptop on the home Wi-Fi, Max ↔ Max — did not connect, nothing captured<br>a STUN probe from the server's LAN against the live `:3479` — the public mapping, port preserved; only the TURN `:3478` answers the router's LAN address |
+| [2026-11-22](2026-11-22.md) | Max ↔ Max across networks on the owner's carrier, by hand: two attempts, neither connected · the carrier NAT measured from the STUN host — symmetric, neighbouring ports · STUN over IPv6 enabled, unused there · a port-prediction prototype connected once, not adopted |
 
 ## How the pass progressed
 
