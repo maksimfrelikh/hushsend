@@ -214,6 +214,37 @@ client config) and what each must be for a real deploy: § Build the SPA.
   baselines are the deploy host's renders: compare there, and re-record (`npm run visual:update`) only
   with a reviewed reason (§ UI).
 
+### The NAT suite
+
+The e2e pairs two tabs on loopback, so it never meets a NAT. `tests/nat/` does: two Chromiums run the
+BUILT app, each in its own Linux network namespace behind its own NAT router (nftables), with the
+signaling server, the app and coturn — STUN and TURN, the image and config template the relay runs in
+production, taken from the hush-signaling-server commit pinned in `package.json` — on the lab's public
+side. The map is in `tests/nat/net/lib.sh`. Before pairing, each case measures what its two routers
+really do (`tests/nat/tools/probe.ts`: mapping and filtering), then pairs by one-time link and reads
+the candidate pair ICE selected. Four cases, `tests/nat/nat.spec.ts`:
+
+- **Max ↔ Max, both NATs endpoint-independent** → connects, the selected pair is not a relay, a file
+  arrives intact;
+- **Max ↔ Max, symmetric ↔ port-restricted** → both sides end on the failure screen with
+  `direct-fail-hint` within 60 s (about 15 s on the CI runner, 2026-11-22) — a session that neither
+  connects nor fails is a failure of the test;
+- **Reliable ↔ Reliable, the same two NATs** → connects, the selected pair is a relay, the client
+  shows "relayed through the server", a file arrives intact;
+- **control** — that lab with the one rule switched from symmetric back to endpoint-independent →
+  connects. Without it a lab where nothing can connect would pass the second case.
+
+It needs Linux, root, docker, nftables and conntrack, so it is not part of the list above:
+
+```bash
+sudo env "PATH=$PATH" bash tests/nat/run.sh   # builds dist/ FOR THE LAB, raises it, runs, removes it
+```
+
+CI runs it nightly and on demand ([`.github/workflows/nat.yml`](.github/workflows/nat.yml)), not per
+push. Run it after a change to ICE, the privacy modes or the relay credentials, and after a bump of the
+hush-signaling-server pin. Its limits: Chromium only, IPv4 only, TURN over UDP only, and the NAT is
+Linux netfilter — port-restricted filtering in both rules, no hairpinning, no second NAT layer.
+
 ## About this document
 
 **One fact lives in one place; every other place links to it.** A fact stated twice drifts — the next
