@@ -3,6 +3,7 @@ import { useSession } from '../SessionProvider';
 import { useAppSelector } from '../../store/hooks';
 import { useT } from '../prefs';
 import { Screen, Space, Grow, BackLink, AlertLine } from '../ui';
+import { NatWarning } from '../components/NatWarning';
 
 /**
  * Host view for the words method while `awaitingPeer`: the five words to read aloud, numbered, as
@@ -23,6 +24,7 @@ export function WordsCreateScreen(): ReactElement {
   return (
     <Screen>
       <h2 className="hs-h2">{t('wcrTitle')}</h2>
+      <NatWarning />
       {attempts > 0 && (
         <>
           <Space h={12} />

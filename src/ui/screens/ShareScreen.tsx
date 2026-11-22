@@ -4,6 +4,7 @@ import { useAppSelector } from '../../store/hooks';
 import { useT } from '../prefs';
 import { Screen, Space, Grow, BackLink, CopyPill, SharePill } from '../ui';
 import { linkToQrSvg } from '../qr';
+import { NatWarning } from '../components/NatWarning';
 
 /**
  * Host view for the link / qr method while `awaitingPeer` — ONE screen: the QR, the link under it,
@@ -37,6 +38,7 @@ export function ShareScreen(): ReactElement {
   return (
     <Screen>
       <h2 className="hs-h2">{t('shareTitle')}</h2>
+      <NatWarning />
       <Space h={24} />
       {svg ? (
         // The SVG is generated locally from our own link (only [A-Za-z0-9_-./#:] characters reach

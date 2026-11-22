@@ -12,6 +12,7 @@ import { useAppSelector } from '../../store/hooks';
  */
 export function Diagnostics(): ReactElement | null {
   const dev = useAppSelector((s) => s.dev);
+  const nat = useAppSelector((s) => s.connection.nat);
   if (!import.meta.env.DEV) return null;
 
   return (
@@ -45,6 +46,10 @@ export function Diagnostics(): ReactElement | null {
       <p>
         stun: <span data-testid="stun-verdict">{dev.stunVerdict ?? '—'}</span> ·{' '}
         <span data-testid="stun-addresses">{dev.stunAddresses.join(',') || '—'}</span>
+      </p>
+      <p>
+        nat: <span data-testid="nat-verdict">{nat?.verdict ?? '—'}</span> · ipv6:{' '}
+        <span data-testid="nat-ipv6">{nat ? String(nat.ipv6) : '—'}</span>
       </p>
       <p>
         ice mode: <span data-testid="ice-mode">{dev.iceConfig?.mode ?? '—'}</span> · relay:{' '}

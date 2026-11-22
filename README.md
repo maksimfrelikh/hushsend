@@ -67,6 +67,10 @@ Downloads on desktop Chromium, through the site's private storage elsewhere
 On a Mac (macOS 15 and later), Max privacy between two devices on the SAME network needs the
 browser's Local Network permission — § Platform limits.
 
+Some networks — mobile data, many VPNs — cannot take a direct connection at all. When a pairing starts
+in Max privacy, hushsend checks its own side and says so before the wait instead of after it
+(§ Network check).
+
 > **Honest caveat — what Max privacy does and does not promise.** Nothing on the path can read your
 > files, and a relay is refused — but a hostile signaling server can put itself on the path and learn
 > who is talking to whom, and the check that would expose it is advisory, not enforced. Why, and what
@@ -196,8 +200,8 @@ The signaling server is a devDependency pinned by commit, so `npm ci` installs i
 runs exactly that version; for local work start it with `node node_modules/hush-signaling-server/signaling-server.js`
 (127.0.0.1:8080; `NODE_ENV≠production` allows `http://localhost:5173`).
 
-The two build-time values (`VITE_SIGNALING_URL`, `VITE_STUN_URLS` — Vite bakes them in, there is no runtime
-client config) and what each must be for a real deploy: § Build the SPA.
+The build-time values (`VITE_SIGNALING_URL`, `VITE_STUN_URLS`, `VITE_NAT_CHECK_STUN_URL` — Vite bakes them
+in, there is no runtime client config) and what each must be for a real deploy: § Build the SPA.
 
 ### Before a change is done
 
@@ -410,6 +414,22 @@ operator (§ Live instance), and one operator on one machine buys nothing. The s
 **several independent STUN servers cross-checked by the client**, because it requires trusting no
 single operator: `VITE_STUN_URLS` is a list and the comparison is built (`core/stunCheck.ts`,
 2026-09-17), but it says nothing until two different operators answer.
+
+**New 2026-11-22: a Max-privacy pairing asks STUN at its start, and asks the relay's host too.** The
+network check (§ Network check) sends a STUN Binding request to the STUN server and one to the STUN
+port of the TURN relay's coturn when a pairing STARTS — an invite made, a code entered, a link opened —
+and one more to each when the first two answers agree. Before, a Max-privacy client reached STUN only
+once a peer had joined, and never sent the relay's host a packet. The request carries no room, no
+token and no identity; no credential is requested, nothing is allocated, nothing is relayed. What the
+operator learns is the client's address and the moment, also for an invitation nobody answered —
+which signaling sees at that same moment anyway, and today all three are one operator on one address
+(§ Risk 3b). It starts to matter with STUN under a different party: that party then hears of every
+Max-privacy pairing attempt, not only of the pairs that met. Reliable does not run the check.
+
+The check also TRUSTS the two answers. Whoever runs both servers can make an honest network read
+"direct connections will fail here" and so point the user at its own relay — the lever a hostile
+signaling server already has by dropping candidates, and with the same bound: the mode never changes
+by itself, and a relay carries only what it cannot read (§ Risk 2 for what it does see).
 
 #### Risk 3b. That you used hushsend at all is visible to your network (new, 2026-09-13)
 
@@ -641,7 +661,14 @@ Chosen per offer, before it reaches the screen — the order and the reasons are
   phones were iPhones; that their Safari asks every server from one socket, which the measurement
   rests on, was checked the next day ([2026-11-23 run](docs/test-runs/2026-11-23.md)). STUN
   answers over IPv6 since that day, for a pair that has IPv6 on both sides — not yet seen in use.
-  Reliable connects such pairs through the relay.
+  Reliable connects such pairs through the relay. Since 2026-11-22 the app checks its own side when a
+  Max-privacy pairing starts and warns before the wait (§ Network check) — built and run against a
+  simulated NAT, not yet seen on the carrier.
+- **Playwright's WebKit does not resolve a STUN host name**: against
+  `stun:stun.hushsend.frelikh.dev:3479` it gathered no `srflx` candidate, against the same server by
+  IP address it did (measured 2026-11-22, WebKit 27.2). Safari does resolve it (the iOS Simulator's
+  Safari 26.5 got its answers from the live servers by name that day). So nothing about the live STUN
+  can be read off that build by name.
 
 ## Architecture
 
@@ -675,6 +702,7 @@ src/
 │   ├── words/  link/           # the words credential · the link token + secret
 │   ├── transfer/               # chunking, flow control, volume padding, the receive paths
 │   ├── iceServers.ts relax.ts stunCheck.ts pathAttest.ts   # privacy mode → ICE; relay filter; STUN cross-check; path check
+│   ├── natCheck.ts             # can Max privacy work from this network (advisory)
 │   └── pairingRole.ts sasRole.ts livenessGate.ts           # pure per-pairing decisions
 ├── store/                      # serializable projections only — the FSM lives here
 ├── types/protocol.ts           # zod schemas for the UNTRUSTED inbound signaling frames
@@ -1461,7 +1489,8 @@ see **Max-privacy strict model** below.
 - **Builder** (`src/core/iceServers.ts`, pure + unit-tested in `iceServers.test.ts`):
   `buildIceServers({mode, stunUrls, turn})`.
   - **Max-privacy (`max`, default)**: `iceServers = [{urls: <STUN>}]` (or `[]` if no STUN) — **STUN
-    only, NO TURN, and creds are NEVER requested** (the relay is never contacted; the peer sees your IP).
+    only, NO TURN, and creds are NEVER requested** (nothing is allocated on the relay; its STUN port gets
+    the network check's one Binding request — § Network check; the peer sees your IP).
   - **Reliable (`reliable`)**: `[{urls: <STUN>}, {urls: <TURN urls>, username, credential}]` — STUN +
     TURN, so a pair that can't connect directly relays through coturn (the relay carries only
     E2E-encrypted bytes). It does NOT hide your IP from the PEER — we signal our srflx candidate in
@@ -1601,6 +1630,74 @@ enforce it in Max-privacy, then a direct failure is **terminal**:
   a relay with authentication switched off. CI installs coturn on every push and sets
   `REQUIRE_RELAY_TEST=1`, which turns "coturn missing" from a skip into a hard failure.
   The measured relay throughput, the live relay limits and its capacity are in § Reference numbers.
+
+#### Network check (`src/core/natCheck.ts`) — can Max privacy work from this network
+Max privacy needs each side to be reachable on the address STUN reports for it. A symmetric NAT gives
+every destination a new port, so the peer is told one port and reached from another, and the pairing
+ends on the direct-failure screen 18–48 s later (§ Platform limits). The mapping is visible from inside
+the browser, so since 2026-11-22 the user is told when the pairing STARTS. Advisory, like path
+attestation: it refuses nothing and never changes the mode.
+
+- **Mechanism.** One throwaway `RTCPeerConnection` is configured with two STUN destinations — the first
+  of `VITE_STUN_URLS` and `VITE_NAT_CHECK_STUN_URL` — so ONE socket asks both for its address. Equal
+  answers are pruned by ICE into a single `srflx` candidate; different answers are both reported, on
+  one foundation. Nothing is offered to anyone and the connection is closed when gathering ends.
+- **Measured before it was built on, 2026-11-22.** A symmetric NAT cannot be had on demand, so two
+  local STUN servers answered one socket with two different ports — to the browser that is the same
+  thing. Chromium 158, WebKit 27.2 and Firefox 159 each reported two `srflx` on one foundation with two
+  ports; one `srflx` when the answers agreed, and one when a server stayed silent. Chromium and WebKit
+  name the answering server on the candidate (`url`), Firefox does not; every engine hides the base
+  (`raddr 0.0.0.0`). All three also report an IPv6 `srflx` when STUN answers over IPv6.
+  The numbers are in the [2026-11-22 run](docs/test-runs/2026-11-22.md).
+- **"Two `srflx` on one foundation" alone is NOT the rule** — it was the first one, and WebKit broke
+  it: when several connections start in one page it gathers again on fresh sockets, and one connection
+  then showed three host candidates and three `srflx` on one foundation with both servers honest. A
+  foundation names the base address, not the socket. So mappings are counted against sockets
+  (`judgeNat`): the UDP host candidates of the connection, from its candidate events and from
+  `getStats()`, give the number of sockets per base address; **more IPv4 mappings on one base than
+  the connection has sockets on any base ⇒ `symmetric`**. One socket, one mapping, and both servers
+  answering a connection of their own (`stunCheck.probeOne`, asked only then) ⇒ **`direct`**.
+  Everything else — a silent server, re-gathered sockets, no host candidate to count against, no
+  WebRTC — is **`unknown`**, which is benign and shown nowhere.
+- **When.** `SessionController.startNatCheck`, called from `openSignaling`: once per session, on the
+  user's action that starts a pairing (an invite, a code, Reconnect, a link opened), in Max privacy
+  only, in parallel with the rendezvous. Never on page load. Measured from the home network against
+  the live servers: `direct` after 0.4–0.5 s in Chromium and Firefox. A result that arrives after its
+  session ended is dropped. Reliable does not ask: its relay covers the case.
+- **Projection.** `connection.nat` (`{ verdict, ipv6 }`). Only `symmetric` reaches the screen:
+  `NatWarning` (testid `nat-warning`) under the title of the Share, code-words, lobby and reconnect-wait
+  screens and on the Connecting screen's key-agreement stage — the joiner's only screen before the
+  failure; and `FailedScreen`'s direct variant then names this network as the reason
+  (`directFailSymmetric`) and drops the Mac Local Network hint, which is about another cause. `ipv6`
+  adds one sentence to the warning: a pair with IPv6 on both sides can connect whatever the IPv4 NAT does.
+- **The second destination** is a build-time value from [`build-env.sh`](deploy/build-env.sh), today the
+  STUN port of the TURN relay's coturn (`stun:turn.hushsend.frelikh.dev:3478`) — the only other STUN
+  listener the deployment has. An empty value, or no STUN at all (dev, tests), switches the check off.
+  What asking it means for a mode that promises no relay: § Risk 3.
+- **Limits.** It reads THIS side: `direct` says nothing about the peer's network, and a pair fails when
+  either side is symmetric. The two destinations share one address and differ in port, so a NAT whose
+  mapping depends on the destination ADDRESS only would read `direct`; that needs a second server on
+  another address. WebKit can read `unknown` where it should warn, when the pairing's own connection
+  starts while it gathers (a joiner). The verdict rests on what two servers answer (§ Risk 3). And the
+  warning is about a peer on ANOTHER network: two devices on one network connect on their local
+  addresses whatever the NAT does, which the copy says and the check cannot know.
+- **⚠️ Safari on iOS is the open question.** In the iOS Simulator (Safari 26.5) the check reads
+  `symmetric` on the home network, where Chromium and Firefox read `direct`: that Safari sends to each
+  destination from its own local port (two local STUN servers, no NAT between: source ports 57257 and
+  59641, host candidate 65473). Safari on macOS (26.5.2) uses one port for both. If a real iPhone
+  behaves like the Simulator, it warns on every network — and is then right about a peer behind an
+  ordinary router, which is told one port and reached from another, but wrong on one network — and a
+  phone in Safari cannot be used to measure a NAT, which touches how the 2026-11-22 carrier figures
+  were taken (the phones' browsers were not recorded). Step 3 of test plan case C7 decides it.
+- **Not verified:** a real symmetric NAT, and a real iPhone. The decision is unit-tested on the
+  candidate lines the engines produced, and the e2e runs the whole check in each engine against the
+  two-port servers; the carrier and the iPhone are test plan case C7.
+- **Tests**: `natCheck.test.ts` (the parser and the verdict, including WebKit's re-gathered sockets in
+  both directions); `tests/e2e/nat-check.spec.ts` (two STUN servers run by the spec, pointed at with
+  the DEV-only `?natCheck=<url>,<url>`: nothing asked on page load; a symmetric answer warns on the
+  invite screen and is named on the failure screen of both sides; equal answers read `direct` and
+  show nothing; a silent server reads `unknown`; Reliable asks nothing). Visual scenes `share-nat`,
+  `connecting-nat`, `failed-direct-nat`.
 
 #### Path attestation (`src/core/pathAttest.ts`) — who is actually on the wire
 Authentication answers "is this my peer?"; attestation answers **"is the traffic going to them?"**.
@@ -1822,7 +1919,8 @@ travels live in the kit's own `CLAUDE.md`; its `README.md` is the consumer contr
   the `method-held` / `share-held` / `sas-picker-held` scenes (DEV knob `__HUSHSEND_SCREEN_HOLD_MS__`).
 - **Screen set (the decisions taken with the owner — do not relitigate):** base width 375, breakpoints
   680 (top bar 56 → 64, gutter 20 → 34) and 1440 (gutter 72). Link and QR are ONE screen (Share: QR +
-  link + Copy + Share); no "Waiting for your peer…" copy anywhere, waiting is implied. Home: h1, the
+  link + Copy + Share); no "Waiting for your peer…" copy anywhere, waiting is implied — the one line a
+  waiting screen can gain is the network check's warning (§ Network check). Home: h1, the
   Max privacy / Reliable two-word radio group with a one-line description, Invite someone, the room
   code form, Enter code words / Scan a QR code, a Reconnect section (paired devices, per-device
   Reconnect + a per-device × that forgets every pin of that peer — `recentDevices.forgetDevice` — and
@@ -1843,7 +1941,8 @@ travels live in the kit's own `CLAUDE.md`; its `README.md` is the consumer contr
   download question (`download-prompt-hint`, since 2026-10-11 — transfer.md). Failed is ONE screen with
   variants (compromised, room not found — or, since 2026-10-11, "this link expired or was already used" /
   "these words don't work any more" for those methods, which have no digits to check — nobody came,
-  verification interrupted with "Restart verification", direct failed ± relay hint, this browser can't
+  verification interrupted with "Restart verification", direct failed (± this network named as the
+  reason — § Network check) ± relay hint, this browser can't
   send files (no WebRTC), generic, words with "New words"); no "Try again". A browser without WebRTC
   never reaches the app: App.tsx shows the same "This browser can't send files" page instead
   (`NoWebRtcScreen`) and a link opened there is scrubbed but not followed. Header: the existing Wordmark + the kit toggle.
@@ -1890,9 +1989,9 @@ network, firewall, other services, secrets, deploy history — is described in t
 | nginx vhost | `/etc/nginx/sites-available/hushsend` from [`nginx.conf.example`](deploy/nginx.conf.example): static `dist/`, SPA fallback, `/ws` + `/health` → `127.0.0.1:8080` with `X-Real-IP`; security headers repeated in every location (verified 6/6 on HTML, JS and `.wasm`, 2026-09-17); `access_log off` everywhere; HTTP/2 on |
 | What the box records about a visitor (audited 2026-11-22) | nginx: no access line for this vhost, port 80 included (the redirect block logged until that day); a FAILED request lands in the shared `error.log` with the client address, kept 14 days. The signaling service prints its start-up line only (journald, one month). Both coturn containers run with Docker's log driver `none`. ufw logs BLOCKED packets with their source address (four weeks) — nothing a client sends to an open port. fail2ban reads nginx's access log, where this vhost writes nothing. |
 | TLS | the box's wildcard `*.frelikh.dev` (certbot DNS-01, Cloudflare plugin; issued on netcup 2026-10-17) |
-| Build-time env | [`build-env.sh`](deploy/build-env.sh): `VITE_SIGNALING_URL=wss://hushsend.frelikh.dev/ws`, `VITE_STUN_URLS=stun:stun.hushsend.frelikh.dev:3479` |
+| Build-time env | [`build-env.sh`](deploy/build-env.sh): `VITE_SIGNALING_URL=wss://hushsend.frelikh.dev/ws`, `VITE_STUN_URLS=stun:stun.hushsend.frelikh.dev:3479`, `VITE_NAT_CHECK_STUN_URL=stun:turn.hushsend.frelikh.dev:3478` (§ Network check) |
 | Signaling + TURN | `hushsend-signaling.service` + `coturn.service` — see section 0 of hush-signaling-server's `deploy/DEPLOY.md` |
-| STUN | hushsend-stun-server since 2026-10-10 (on netcup since 2026-10-17): `stun.hushsend.frelikh.dev:3479` on this same box (`hushsend-stun.service`, STUN only, no relay, no logs) — section 0 of its `DEPLOY.md`. The TURN relay's coturn still answers STUN on 3478 (a TURN server cannot switch that off), but the client no longer asks it |
+| STUN | hushsend-stun-server since 2026-10-10 (on netcup since 2026-10-17): `stun.hushsend.frelikh.dev:3479` on this same box (`hushsend-stun.service`, STUN only, no relay, no logs) — section 0 of its `DEPLOY.md`. The TURN relay's coturn still answers STUN on 3478 (a TURN server cannot switch that off); the client asks it one thing only, as the second destination of the network check (§ Network check) |
 | ufw | 80/443 tcp (nginx), 3478 tcp+udp and 49160–49200 udp (TURN), 3479 udp (STUN); no router — the public address is on the interface. DNS (Cloudflare, DNS only): explicit records, A+AAAA for `hushsend` and `stun.hushsend`, **A only** for `turn.hushsend` — the TURN relay listens on IPv4 only |
 
 **Repeat frontend redeploys** (signaling/nginx unchanged): `bash /opt/hushsend/deploy/deploy-frontend.sh`
@@ -1909,7 +2008,7 @@ previous one stays as `dist.old` until the smoke check passes, so a rollback is
 Vite bakes `VITE_*` in at **build time** — there is no runtime client config.
 
 ```sh
-# In the repo root. The two values live in deploy/build-env.sh — the SAME file the CI build job
+# In the repo root. The values live in deploy/build-env.sh — the SAME file the CI build job
 # sources, so the hashes CI publishes describe the bytes you produce. Override from the environment
 # for a fork or a staging host; do not fork the file.
 . ./deploy/build-env.sh
@@ -1926,13 +2025,17 @@ The build is **byte-for-byte reproducible**, and that is load-bearing rather tha
 prints the hashes it deployed.
 
 > **GOTCHA — STUN is not optional cross-network.** Default privacy mode is **Max-privacy**, which is
-> **STUN-only** (never contacts TURN). With `VITE_STUN_URLS` empty, Max-privacy has *no* ICE server
+> **STUN-only** (no TURN). With `VITE_STUN_URLS` empty, Max-privacy has *no* ICE server
 > at all → two peers on different networks can't discover routable candidates and **never connect**
 > (loopback tabs work on host candidates, masking this in dev). Always set `VITE_STUN_URLS` to your
 > coturn STUN for a real deploy.
 >
 > **GOTCHA — rebuild on host change.** `VITE_SIGNALING_URL` is compiled in; if you move hosts you
 > must rebuild, not just edit nginx. It must match the nginx server_name in the CSP `connect-src`.
+>
+> **`VITE_NAT_CHECK_STUN_URL` is the network check's second STUN destination** (§ Network check): any
+> STUN listener other than the first of `VITE_STUN_URLS`. Empty switches the check off; nothing else
+> depends on it.
 
 Deploy the resulting `dist/` to the nginx `root` (e.g. `/var/www/hushsend/dist`).
 
@@ -2301,7 +2404,7 @@ evidence to exist**:
 |---|---|---|
 | **T1** — Claude alone, closes the case outright | A4a, A4b, A6, A7 · B7, B9 · D1–D5 · E1–E5 · F3, F5, F6, F7 | 20 |
 | **T1 + T2** — T1 closes the DESKTOP half on real engines; the handset half is a separate tick | A1, A3, A4, A5, A6a · B2, B8, B10 · E6, E7 · F2, F8 | 12 |
-| **T2** — needs one physical act from you | A2 · B1, B3, B4 · C1–C6 · F1, F4, F9 | 13 |
+| **T2** — needs one physical act from you | A2 · B1, B3, B4 · C1–C7 · F1, F4, F9 | 14 |
 | **T1 + T3** — T1 closes the desktop half; the rest is your eyes | B5 (native share sheet) · B6 (phone ergonomics) | 2 |
 
 **Two ticks, not one, for every case in the split rows.** A1 says "MBP-A Chrome → IPH Safari". With
@@ -2586,6 +2689,22 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       the wall-clock and the byte counts for both sizes, padded vs the file. If the small-file case
       feels slow on LTE, `PAD_FLOOR` / `BUCKETS_PER_OCTAVE` are the two constants to reconsider — that
       is a product decision the numbers should inform.
+- [ ] **C7 · the network check on a symmetric NAT — NEW 2026-11-22.** The check
+      (§ Network check) was built against two local STUN servers that imitate a symmetric NAT; a real
+      one is the carrier measured that day. On the live build, phone on **cellular with Wi-Fi off**,
+      **Max privacy**: (1) Invite someone → Link or QR code. Expected within a second or two, under
+      "Share this link": **"Max privacy will very likely not connect from this network…"**. (2) Open
+      that link on the Mac (home Wi-Fi, Max privacy): the Mac shows NO warning while it connects; both
+      sides end on "Couldn't connect directly", and the phone's screen names its network as the reason
+      ("…a different address for every destination…"), the Mac's does not. (3) **The control, and on an
+      iPhone the step that matters most:** the same phone on the **home Wi-Fi** shows NO warning on the
+      Share screen. A warning there means Safari on iOS itself uses a port per destination, as the
+      Simulator's does (§ Network check) — then run steps 1–3 on the Android phone in Chrome as well,
+      and do not read a NAT off an iPhone. (4) Phone on cellular as the
+      JOINER (scan the Mac's QR): the warning appears under "Agreeing on keys…" — on iOS Safari it may
+      be missing there (§ Network check, Limits); record which. (5) Switch the phone to Reliable and
+      make a link: no warning. Record phone, browser and carrier, and for any step that disagrees a
+      screenshot. A network with IPv6 adds "It can still work if your peer's network has IPv6…".
 - [x] **C5 · mobile-to-mobile** *(DROPPED by the owner 2026-10-03: both handsets have each been paired with the Mac across networks — Max fails closed, Reliable relays — and a phone↔phone pair would add only a second carrier NAT on the same relay)* — IPH (LTE) ↔ AND-1 (different LTE / other Wi-Fi), Reliable. The
       carrier-NAT-to-carrier-NAT case the desktop pair never exercises.
 
@@ -2709,7 +2828,8 @@ delivery (§ The road to "yes"); path attestation and the STUN operator (§ Secu
 **Agreed — to do:**
 - Max privacy across networks, what is left after 2026-11-22 (§ Platform limits has what was
   measured; the history is in [pre-launch.md](docs/history/pre-launch.md)): try two ordinary Wi-Fi
-  networks in different places, another carrier, and a pair with IPv6 on both sides. Then decide on
+  networks in different places, another carrier, and a pair with IPv6 on both sides; and the network
+  check on the carrier itself — test plan case C7 (§ Network check: built against a simulated NAT). Then decide on
   a one-tap "retry with relay" on the direct-fail screen and copy for the Reliable side of a mixed pair
   ("ask your peer to switch to Reliable too"); today it reads "channel closed during pairing".
 - Relay capacity: coturn's 49160–49200 range is ~41 allocations (a fully relayed pair takes two).

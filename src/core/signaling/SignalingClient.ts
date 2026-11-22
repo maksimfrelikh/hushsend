@@ -129,7 +129,7 @@ export class SignalingClient {
    * never leaves the server; only the derived per-session credential comes back. Resolves to NO_TURN
    * (empty urls → direct-only) if the socket is closed, the server doesn't answer within `timeoutMs`,
    * or the request is superseded — so the caller never hangs and treats "no relay" as the safe default.
-   * Max-privacy mode never calls this (it stays direct-only and never contacts the relay).
+   * Max-privacy mode never calls this (it stays direct-only and never asks for a relay).
    */
   requestTurnCredentials(timeoutMs = 5000): Promise<TurnCredentials> {
     if (this.ws?.readyState !== WebSocket.OPEN) return Promise.resolve(NO_TURN);

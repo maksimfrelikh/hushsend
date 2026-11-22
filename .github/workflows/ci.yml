@@ -81,6 +81,7 @@ jobs:
           . ./deploy/build-env.sh
           echo "VITE_SIGNALING_URL=$VITE_SIGNALING_URL"
           echo "VITE_STUN_URLS=$VITE_STUN_URLS"
+          echo "VITE_NAT_CHECK_STUN_URL=$VITE_NAT_CHECK_STUN_URL"
           npm run build
           bash deploy/bundle-manifest.sh dist > "$RUNNER_TEMP/manifest.txt"
 

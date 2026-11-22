@@ -96,6 +96,12 @@ export const STR = {
   mRoom: { en: 'Room', ru: 'Комната' },
   mRoomDesc: { en: 'Create a room and share its code', ru: 'Создайте комнату и поделитесь кодом' },
 
+  // --- network check (core/natCheck.ts): shown on the waiting screens only for a symmetric NAT ---
+  natWarning: {
+    en: 'Max privacy will very likely not reach a device on another network from here: this network gives your device a different address for every destination, as mobile data and many VPNs do. Reliable would connect — both sides have to choose it.',
+  },
+  natWarningIpv6: { en: 'It can still work if your peer’s network has IPv6, as yours does.' },
+
   // --- shared actions ---
   copy: { en: 'Copy', ru: 'Копировать' },
   copyLink: { en: 'Copy link' },
@@ -316,6 +322,10 @@ export const STR = {
   // Max-privacy STRICT model: never relays — a direct failure is terminal (step 6d).
   directFailTitle: { en: 'Couldn’t connect directly', ru: 'Не удалось соединиться напрямую' },
   directFailHint: { en: 'Switch to Reliable to allow relaying through a server.' },
+  // The network check found the reason on THIS side (connectionSlice.nat === symmetric).
+  directFailSymmetric: {
+    en: 'This network gives your device a different address for every destination — mobile data and many VPNs do — so the other device could not reach it.',
+  },
   // macOS 15+ gates a browser's access to the local network: without the permission it can neither
   // publish nor resolve `.local` candidates, so two devices on ONE network cannot find each other and
   // Max privacy fails here — where "switch to Reliable" alone points at the wrong fix.

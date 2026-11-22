@@ -49,6 +49,27 @@ that LAN for a VPS on 2026-10-17.
 - Left open in [Backlog](../../README.md#backlog--open-work-only): the pairs not tried, and the
   "retry with relay" on the failure screen.
 
+## 2026-11-22 — the network check: Max privacy says up front when this network cannot do it
+
+A phone on the carrier measured above waited 18–48 s for a failure the browser could have predicted.
+Since this day a Max-privacy pairing asks, as it starts, whether its own network keeps one mapping
+for two destinations ([README § Network check](../../README.md#network-check-srccorenatcheckts--can-max-privacy-work-from-this-network)).
+
+- **Checked in three engines before it was built on** — against two local STUN servers that answer one
+  socket with two ports, since a symmetric NAT cannot be had on demand. Chromium 158, WebKit 27.2 and
+  Firefox 159 all report two `srflx` candidates on one foundation then, and one when the answers agree.
+- **The first rule was wrong, and WebKit showed it.** "Two `srflx` on one foundation ⇒ symmetric" read
+  an honest pair of servers as symmetric: WebKit gathers again on fresh sockets when several
+  connections start in one page (three sockets, three mappings, one foundation). The rule that
+  shipped counts mappings against the connection's UDP sockets.
+- **Shown only when it has something to say:** a warning on the invite / waiting screens, and the
+  reason on the direct-failure screen. `direct` and `unknown` are silent.
+- **What it costs in privacy:** a Max-privacy client now sends STUN at the START of a pairing, and one
+  Binding request to the relay host's STUN port — [README § Risk 3](../../README.md#risk-3-stun-is-the-same-operator).
+- **Safari in the iOS Simulator reads `symmetric` on an honest network**: it sends to each STUN
+  destination from its own local port. Safari on macOS does not. A real iPhone was not at hand.
+- **Not verified:** the carrier itself, and a real iPhone. Test plan case C7 is the owner's to run.
+
 ## 2026-11-22 — "no logs" checked end to end
 
 The review asked what the box writes about a visitor and for how long. Checked on the live host:

@@ -10,12 +10,13 @@
 # Overridable via env (defaults match the live hushsend.frelikh.dev deploy):
 #   VITE_SIGNALING_URL  wss:// the client opens          (baked into the bundle)
 #   VITE_STUN_URLS      coturn STUN endpoint(s)           (baked into the bundle)
+#   VITE_NAT_CHECK_STUN_URL  the network check's second STUN destination  (baked into the bundle)
 #   DEPLOY_DIR          nginx root to publish dist/ into
 #   SKIP_PULL=1         skip `git pull` (deploy the working tree as-is)
 #
 set -euo pipefail
 
-# The two VITE_* values live in deploy/build-env.sh — the SAME file the CI build-and-attest job
+# The VITE_* values live in deploy/build-env.sh — the SAME file the CI build-and-attest job
 # sources — so the hashes CI publishes describe the bytes this script produces. Do not inline them
 # here again: two copies that agree today are a silent break tomorrow.
 # shellcheck source=deploy/build-env.sh
@@ -42,9 +43,10 @@ log "npm ci"
 npm ci
 
 # 3. Build. VITE_* are compiled INTO the bundle here — not read at runtime.
-log "vite build  (VITE_SIGNALING_URL=$VITE_SIGNALING_URL  VITE_STUN_URLS=$VITE_STUN_URLS)"
+log "vite build  (VITE_SIGNALING_URL=$VITE_SIGNALING_URL  VITE_STUN_URLS=$VITE_STUN_URLS  VITE_NAT_CHECK_STUN_URL=$VITE_NAT_CHECK_STUN_URL)"
 VITE_SIGNALING_URL="$VITE_SIGNALING_URL" \
 VITE_STUN_URLS="$VITE_STUN_URLS" \
+VITE_NAT_CHECK_STUN_URL="$VITE_NAT_CHECK_STUN_URL" \
   npm run build
 
 [ -f dist/index.html ] || { echo "✗ dist/index.html missing — build produced nothing, aborting"; exit 1; }

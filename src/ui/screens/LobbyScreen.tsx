@@ -3,6 +3,7 @@ import { useSession } from '../SessionProvider';
 import { useAppSelector } from '../../store/hooks';
 import { useT } from '../prefs';
 import { Screen, Space, Grow, BackLink, CopyPill, AlertLine, Glyph } from '../ui';
+import { NatWarning } from '../components/NatWarning';
 
 /**
  * Mesh-LOBBY view for the room method while `awaitingPeer`. The 4-digit code is the hero (mono,
@@ -27,6 +28,7 @@ export function LobbyScreen(): ReactElement {
   return (
     <Screen>
       <h2 className="hs-h2">{t('lobbyRoomTitle')}</h2>
+      <NatWarning />
       <Space h={28} />
       <span
         className="hs-code"

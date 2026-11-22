@@ -19,4 +19,7 @@
 
 VITE_SIGNALING_URL="${VITE_SIGNALING_URL:-wss://hushsend.frelikh.dev/ws}"
 VITE_STUN_URLS="${VITE_STUN_URLS:-stun:stun.hushsend.frelikh.dev:3479}"
-export VITE_SIGNALING_URL VITE_STUN_URLS
+# The network check's second STUN destination (src/core/natCheck.ts): the TURN relay's coturn, which
+# answers a plain STUN Binding request on its own port. Empty switches the check off.
+VITE_NAT_CHECK_STUN_URL="${VITE_NAT_CHECK_STUN_URL-stun:turn.hushsend.frelikh.dev:3478}"
+export VITE_SIGNALING_URL VITE_STUN_URLS VITE_NAT_CHECK_STUN_URL

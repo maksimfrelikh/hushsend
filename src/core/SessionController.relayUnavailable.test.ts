@@ -92,7 +92,7 @@ describe('SessionController — Reliable mode must SAY when the relay is missing
 
   it('NEGATIVE CONTROL — Max privacy never asks for creds, so it can never claim a relay went missing', async () => {
     const { requestTurnCredentials, dispatched } = await startPairing('max', NO_TURN);
-    // Max-privacy is strict: the relay is never contacted at all (see ensureTurnReady's early return).
+    // Max-privacy is strict: no relay credentials are ever requested (see ensureTurnReady's early return).
     expect(requestTurnCredentials).not.toHaveBeenCalled();
     expect(dispatched).not.toContain(RELAY_UNAVAILABLE);
   });

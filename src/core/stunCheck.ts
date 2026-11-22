@@ -97,7 +97,7 @@ const PROBE_TIMEOUT_MS = 12_000;
  * The connection is never used for anything: no offer is exchanged, no peer exists, it is closed as
  * soon as gathering finishes. It contacts ONLY the URL passed in, so this adds no third party.
  */
-async function probeOne(url: string): Promise<StunView> {
+export async function probeOne(url: string): Promise<StunView> {
   let pc: RTCPeerConnection | null = null;
   try {
     pc = new RTCPeerConnection({ iceServers: [{ urls: [url] }] });

@@ -22,11 +22,14 @@ import { generateLinkSecret, generateRendezvousToken, buildLinkUrl } from './lin
 import { sasRoleFrom } from './sasRole';
 import { pathVerdict } from './pathAttest';
 import { probeStunViews } from './stunCheck';
+import { checkNat } from './natCheck';
 import { pairingRoleFor } from './pairingRole';
 import { peerLeftAbortsPairing } from './livenessGate';
 import {
   buildIceServers,
   configuredStunUrls,
+  natCheckUrls,
+  parseStunUrls,
   DEFAULT_PRIVACY_MODE,
   NO_TURN,
   type PrivacyMode,
@@ -495,6 +498,24 @@ function gateDelayMs(): number {
   }
 }
 
+/**
+ * The two STUN destinations of the network check. Production reads the build-time pair
+ * (`natCheckUrls`). DEV-only: `?natCheck=<url>,<url>` names them in the page URL, so the e2e can run
+ * the real check against two local servers that answer one socket with two different ports — a
+ * symmetric NAT cannot be had on demand (tests/e2e/nat-check.spec.ts).
+ */
+function natCheckUrlsForSession(): string[] {
+  if (import.meta.env.DEV) {
+    try {
+      const q = new URLSearchParams(window.location.search).get('natCheck');
+      if (q) return parseStunUrls(q);
+    } catch {
+      /* no window (non-browser) — the build-time pair */
+    }
+  }
+  return natCheckUrls();
+}
+
 function forceIceFailEnabled(): boolean {
   if (!import.meta.env.DEV) return false;
   try {
@@ -864,6 +885,10 @@ export class SessionController {
   private turnCreds: TurnCredentials | null = null;
   /** Memoizes the one-shot TURN fetch per session so concurrent startPeer calls never double-request. */
   private turnFetch: Promise<void> | null = null;
+  /** The network check (startNatCheck) ran for this session; cleared by dispose. */
+  private natCheckStarted = false;
+  /** Bumped by dispose, so a check that answers after its session ended is dropped. */
+  private natCheckRun = 0;
 
   // --- file transfer (step 2) — one transfer at a time over the live DataChannel ---
   /** Active outbound transfer, awaiting accept or streaming bytes. */
@@ -923,6 +948,7 @@ export class SessionController {
     // Drop them so Reliable mode re-fetches against THIS session's socket at pairing start.
     this.turnCreds = null;
     this.turnFetch = null;
+    this.startNatCheck();
     this.signaling = new SignalingClient(this.signalingUrl, {
       onWelcome: (selfId, room, peers) => this.onWelcome(selfId, room, peers),
       onPeerJoined: (peer) => this.onPeerJoined(peer),
@@ -930,6 +956,27 @@ export class SessionController {
       onSignal: (from, data) => this.onSignal(from, data),
       onRoomClosed: (reason) => this.onRoomClosed(reason),
       onClose: (code, reason) => this.onSignalingClose(code, reason),
+    });
+  }
+
+  /**
+   * Max privacy only, once per session: ask whether a direct connection can work from this network
+   * (core/natCheck.ts). Started with the session's first signaling socket — the user's own action
+   * that starts a pairing, never the page load — so it runs beside the rendezvous and has usually
+   * answered before the invite is on screen. Fire-and-forget and advisory: the result is projected
+   * for the waiting screens and the direct-failure screen, and gates nothing. Reliable does not ask —
+   * its relay covers the case the check is about.
+   */
+  private startNatCheck(): void {
+    if (this.natCheckStarted || this.privacyMode !== 'max') return;
+    const urls = natCheckUrlsForSession();
+    if (urls.length < 2) return;
+    this.natCheckStarted = true;
+    const run = this.natCheckRun;
+    void checkNat(urls).then((result) => {
+      if (run !== this.natCheckRun) return;
+      this.dispatch(devActions.appendLog(`nat: ${result.verdict}${result.ipv6 ? ' (ipv6)' : ''}`));
+      this.dispatch(connectionActions.natChecked(result));
     });
   }
 
@@ -1301,7 +1348,7 @@ export class SessionController {
   /**
    * Bring up the PeerConnection for this pairing. Reliable mode fetches coturn creds FIRST (so the
    * TURN relay is in `iceServers` from the very start of ICE gathering — never added mid-negotiation);
-   * Max-privacy resolves instantly and never contacts the relay. The privacy mode is read here, at
+   * Max-privacy resolves instantly and requests no relay credentials. The privacy mode is read here, at
    * pairing start, which is why a mid-session toggle only affects the NEXT connection. async + voided
    * at the call sites; each call site is the last statement of its branch, so the one-microtask defer
    * (and the Reliable round-trip) reorders nothing.
@@ -1347,7 +1394,7 @@ export class SessionController {
    * is created (so TURN is present from the first ICE candidate, not bolted on later). Memoized per
    * session (one request even if several startPeer calls race), and never throws — a failed/absent
    * relay resolves to NO_TURN (empty urls), which iceServers() treats as direct-only. Max-privacy is a
-   * no-op: it NEVER requests creds, so the relay is never even contacted.
+   * no-op: it NEVER requests creds, so nothing is ever allocated on the relay.
    */
   private ensureTurnReady(): Promise<void> {
     // Max-privacy never requests creds (strict — stay direct-only, never relay).
@@ -3665,6 +3712,8 @@ export class SessionController {
     this.established = false;
     this.channelOpen = false;
     this.clearInterruptTimer();
+    this.natCheckStarted = false;
+    this.natCheckRun += 1;
     // words-method state
     this.method = null;
     if (this.sas?.timer != null) clearTimeout(this.sas.timer); // disarm a pending SAS timeout

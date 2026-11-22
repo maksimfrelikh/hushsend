@@ -1,5 +1,6 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import type { PathVerdict } from '../core/pathAttest';
+import type { NatCheckResult } from '../core/natCheck';
 import type { SasUiRole } from '../core/sasRole';
 import type { PeerInfo } from '../types/protocol';
 
@@ -76,6 +77,13 @@ export interface ConnectionState {
    */
   relayUnavailable: boolean;
   /**
+   * Max privacy only: what the network check found about THIS side's network when the session
+   * started (`core/natCheck.ts`). Only `symmetric` is shown — on the waiting screens, and as the
+   * reason on the direct-failure screen; `direct` and `unknown` say nothing a user can act on.
+   * Advisory: nothing is gated on it. `null` until the check answers, and in Reliable.
+   */
+  nat: NatCheckResult | null;
+  /**
    * The authenticated connection is in ICE `disconnected`: nothing is arriving from the other device
    * right now. Transient — it either comes back (false again) or the core ends the session as lost
    * (`connected → failed`). A projection for the transfer screen, NOT an FSM state: while it is true
@@ -106,6 +114,7 @@ const initialState: ConnectionState = {
   pathCheck: null,
   stunDisagreed: false,
   relayUnavailable: false,
+  nat: null,
   interrupted: false,
   roster: [],
   notice: null,
@@ -204,6 +213,10 @@ const slice = createSlice({
     /** Reliable mode asked for a relay and got none — see the field's note. */
     relayUnavailable(state) {
       state.relayUnavailable = true;
+    },
+    /** The network check answered — see the field's note. */
+    natChecked(state, action: PayloadAction<NatCheckResult>) {
+      state.nat = action.payload;
     },
     /** The connected channel went quiet (true) or came back (false) — see the field's note. */
     interrupted(state, action: PayloadAction<boolean>) {

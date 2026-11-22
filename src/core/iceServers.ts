@@ -4,7 +4,7 @@
  *
  * Two modes (the home "Max privacy" toggle):
  *   - `max` (DEFAULT): direct, peer-to-peer only. iceServers = our STUN (or none). We NEVER request
- *     TURN credentials, so the relay is never even contacted — the peer learns our IP, nothing relays.
+ *     TURN credentials, so nothing is ever allocated on the relay — the peer learns our IP, nothing relays.
  *   - `reliable`: our STUN + a TURN relay, so a pair that can't connect directly can fall back through
  *     coturn. The TURN credential is fetched from the signaling server (`turn-request`) and fed here.
  *
@@ -55,6 +55,17 @@ export function parseStunUrls(raw: string | undefined | null): string[] {
 /** The configured STUN URLs (from `VITE_STUN_URLS`). Empty in dev/test. */
 export function configuredStunUrls(): string[] {
   return parseStunUrls(import.meta.env.VITE_STUN_URLS);
+}
+
+/**
+ * The two STUN destinations of the network check (`core/natCheck.ts`): the first configured STUN URL
+ * and `VITE_NAT_CHECK_STUN_URL`. `[]` when either is missing — dev/test, or a build without the
+ * second destination — and the check then does not run.
+ */
+export function natCheckUrls(): string[] {
+  const first = configuredStunUrls()[0];
+  const second = (import.meta.env.VITE_NAT_CHECK_STUN_URL ?? '').trim();
+  return first && second ? [first, second] : [];
 }
 
 /**

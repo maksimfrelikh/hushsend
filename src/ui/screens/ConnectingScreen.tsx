@@ -4,6 +4,7 @@ import { useAppSelector } from '../../store/hooks';
 import { useT } from '../prefs';
 import { Screen, Space, MeetDots, Pill } from '../ui';
 import type { Stage } from './pacing';
+import { NatWarning } from '../components/NatWarning';
 
 /**
  * The transient pre-connection states: `creating`, `joining`, `pairing` (key agreement / DTLS) and
@@ -45,6 +46,7 @@ export function ConnectingScreen({ stage }: { stage: Stage }): ReactElement {
       <MeetDots />
       <Space h={28} />
       <h2 className="hs-h3">{title}</h2>
+      {stage === 'pairing' && <NatWarning center />}
       {readerWaiting && (
         <>
           <Space h={36} />

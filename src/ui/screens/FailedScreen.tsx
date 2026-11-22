@@ -34,6 +34,9 @@ export function FailedScreen(): ReactElement {
   // Reliable only (Max privacy never requests creds, so this is always false there): the relay this
   // mode exists to provide was not available, which is WHY the attempt behaved like Max privacy.
   const relayUnavailable = useAppSelector((s) => s.connection.relayUnavailable);
+  // Max privacy only: the network check found THIS side behind a symmetric NAT (core/natCheck.ts) —
+  // the direct variant then names that as the reason.
+  const symmetricNat = useAppSelector((s) => s.connection.nat?.verdict === 'symmetric');
   // Whether this session ever had a file on the wire (the connection-lost variant then shows it).
   const hadTransfer = useAppSelector((s) => s.transfer.phase !== 'idle' && !!s.transfer.fileName);
 
@@ -126,7 +129,10 @@ export function FailedScreen(): ReactElement {
     noWebrtc: { title: t('noWebrtcTitle'), desc: t('noWebrtcDesc') },
     expired: expiredCopy,
     server: { title: t('serverLostTitle'), desc: t('serverLostDesc') },
-    direct: { title: t('directFailTitle'), desc: t('directFailHint') },
+    direct: {
+      title: t('directFailTitle'),
+      desc: symmetricNat ? `${t('directFailSymmetric')} ${t('directFailHint')}` : t('directFailHint'),
+    },
     // Title, the file, the signal. A description could not honestly say WHOSE side dropped.
     lost: { title: t('lostTitle'), desc: '' },
     generic: { title: t('erGenericTitle'), desc: '' },
@@ -157,7 +163,7 @@ export function FailedScreen(): ReactElement {
           <p className="hs-p hs-p--muted hs-p--narrow" data-testid="relay-unavailable-hint">
             {t('relayUnavailableHint')}
           </p>
-        ) : variant === 'direct' && onMacDesktop() ? (
+        ) : variant === 'direct' && !symmetricNat && onMacDesktop() ? (
           <p className="hs-p hs-p--muted hs-p--narrow" data-testid="local-network-hint">
             {t('localNetworkHint')}
           </p>

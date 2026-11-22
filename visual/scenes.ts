@@ -178,6 +178,17 @@ export const SCENES: Scene[] = [
     setup: (page) => dispatch(page, ...awaiting('link', 'k7Qm2vXa9LpR4nTdE0wYc3', [LINK])),
   },
   {
+    // The network check found a symmetric NAT (core/natCheck.ts): the warning under the title.
+    name: 'share-nat',
+    matrix: 'phone',
+    setup: (page) =>
+      dispatch(
+        page,
+        ...awaiting('link', 'k7Qm2vXa9LpR4nTdE0wYc3', [LINK]),
+        conn('natChecked', { verdict: 'symmetric', ipv6: false }),
+      ),
+  },
+  {
     // "Create link" tapped: `creating`, the method picker held with its rows quiet.
     name: 'method-held',
     matrix: 'phone',
@@ -312,6 +323,20 @@ export const SCENES: Scene[] = [
       await dispatch(
         page,
         ...awaiting('words', 'bathrobe', WORDS),
+        conn('pairingStarted', { peerId: 'brave-otter' }),
+      );
+      await expect(page.getByTestId('connecting')).toBeVisible();
+    },
+  },
+  {
+    // The joiner's only screen before a direct failure: the same warning, with the IPv6 sentence.
+    name: 'connecting-nat',
+    matrix: 'phone',
+    setup: async (page) => {
+      await dispatch(
+        page,
+        ...awaiting('words', 'bathrobe', WORDS),
+        conn('natChecked', { verdict: 'symmetric', ipv6: true }),
         conn('pairingStarted', { peerId: 'brave-otter' }),
       );
       await expect(page.getByTestId('connecting')).toBeVisible();
@@ -479,6 +504,18 @@ export const SCENES: Scene[] = [
     name: 'failed-direct',
     matrix: 'full',
     setup: (page) => dispatch(page, ...failed('words', "couldn't connect directly (Max privacy)")),
+  },
+  {
+    // The same failure when the network check had named this side's NAT as the reason.
+    name: 'failed-direct-nat',
+    matrix: 'phone',
+    setup: (page) =>
+      dispatch(
+        page,
+        ...failed('link', "couldn't connect directly (Max privacy)", [
+          conn('natChecked', { verdict: 'symmetric', ipv6: false }),
+        ]),
+      ),
   },
   {
     // Reliable whose relay never came: its ICE failure is a plain close (filterRelay is off, so it is

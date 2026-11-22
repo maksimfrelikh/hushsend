@@ -2,6 +2,7 @@ import { type ReactElement } from 'react';
 import { useSession } from '../SessionProvider';
 import { useT } from '../prefs';
 import { Screen, Space, MeetDots, BackLink } from '../ui';
+import { NatWarning } from '../components/NatWarning';
 
 /**
  * The codeless reconnect while `awaitingPeer`: this device has taken the derived rendezvous and is
@@ -22,6 +23,7 @@ export function ReconnectWaitScreen(): ReactElement {
       </h2>
       <Space h={12} />
       <p className="hs-p hs-p--muted hs-p--narrow">{t('rwDesc')}</p>
+      <NatWarning center />
       <Space h={28} />
       <BackLink onClick={() => session.dispose()} />
     </Screen>
