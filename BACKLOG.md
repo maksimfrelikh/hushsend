@@ -34,7 +34,9 @@ by address at most, and the probe measured the home router's MAPPING, not its fi
 **Agreed — to do:**
 - Settle Max privacy across networks: the home side's srflx is public since 2026-10-10 (above), so
   capture the candidate pairs of a phone-on-cellular ↔ home-Wi-Fi pair (chrome://webrtc-internals on
-  the laptop, the phone's STUN mapping) — the open question is the carrier NAT. Then decide on
+  the laptop, the phone's STUN mapping) — the open question is the carrier NAT. The STUN host answers
+  over IPv6 since 2026-11-22 (AAAA + coturn on `::`), so re-run phone ↔ phone on cellular too: IPv6 is
+  the only NAT-free path, and whether the browsers publish a usable IPv6 `srflx` is unmeasured. Then decide on
   a one-tap "retry with relay" on the direct-fail screen and copy for the Reliable side of a mixed pair
   ("ask your peer to switch to Reliable too"); today it reads "channel closed during pairing".
 - Relay capacity: coturn's 49160–49200 range is ~41 allocations (a fully relayed pair takes two).

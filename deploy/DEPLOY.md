@@ -32,7 +32,7 @@ network, firewall, other services, secrets, deploy history — is described in t
 | Build-time env | [`build-env.sh`](build-env.sh): `VITE_SIGNALING_URL=wss://hushsend.frelikh.dev/ws`, `VITE_STUN_URLS=stun:stun.hushsend.frelikh.dev:3479` |
 | Signaling + TURN | `hushsend-signaling.service` + `coturn.service` — see hush-signaling-server `deploy/DEPLOY.md` § 0 |
 | STUN | hushsend-stun-server since 2026-10-10 (on netcup since 2026-10-17): `stun.hushsend.frelikh.dev:3479` on this same box (`hushsend-stun.service`, STUN only, no relay, no logs) — its `DEPLOY.md` § 0. The TURN relay's coturn still answers STUN on 3478 (a TURN server cannot switch that off), but the client no longer asks it |
-| ufw | 80/443 tcp (nginx), 3478 tcp+udp and 49160–49200 udp (TURN), 3479 udp (STUN); no router — the public address is on the interface. DNS (Cloudflare, DNS only): explicit records, A+AAAA for `hushsend`, **A only** for `turn.hushsend` and `stun.hushsend` — both coturn instances listen on IPv4 only |
+| ufw | 80/443 tcp (nginx), 3478 tcp+udp and 49160–49200 udp (TURN), 3479 udp (STUN); no router — the public address is on the interface. DNS (Cloudflare, DNS only): explicit records, A+AAAA for `hushsend` and `stun.hushsend`, **A only** for `turn.hushsend` — the TURN relay listens on IPv4 only |
 
 **Repeat frontend redeploys** (signaling/nginx unchanged): `bash /opt/hushsend/deploy/deploy-frontend.sh`
 (as root) pulls, `npm ci`, builds with the live `VITE_*` baked in, and publishes `dist/` to
