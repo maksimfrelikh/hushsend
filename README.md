@@ -140,17 +140,19 @@ be verified without a reference hash.
 
 **Feature-complete and deployed.** All four methods, the codeless reconnect, the mesh lobby, TURN,
 light/dark, the Claude Design screen set (English only for now; the RU table is kept, the switch
-hidden), and the deployment are built and live. **378 vitest tests** (the client; the signaling
+hidden), and the deployment are built and live. **406 vitest tests** (the client; the signaling
 server's 28 run in its own repository) and a
-Playwright e2e suite — **54 cases per engine: 53 run on chromium, 49 on firefox, 48 on webkit** (2026-10-11) (the
+Playwright e2e suite — **60 cases per engine: 59 run on chromium, 55 on firefox, 54 on webkit** (2026-11-22) (the
 silent-peer case needs CDP, and the two straight-into-Downloads cases apply only where the stream path
 does — desktop Chromium; the two site-storage cases skip on Playwright's WebKit, whose storage cannot
 write; plus 2 opt-in cases everywhere, the size ladder and the two-STUN cross-check), plus a 4-case
 phone profile and 5 cross-engine pairs — cover the protocol paths; the axe
-gate (`npm run test:a11y`, 132 checks) and the screenshot gate (`npm run visual`, 187 checks — on the
-deploy host, whose renders the baselines are) cover the screens. Every count here was re-run
-2026-10-11 on the deploy host, on the Vite 8 / Vitest 5 / Playwright 1.64 toolchain, with the
-pre-launch fixes of that day in (vitest 378 of 378; e2e 159 passed, 12 skipped, none failed).
+gate (`npm run test:a11y`, 140 checks) and the screenshot gate (`npm run visual`, 195 checks — on the
+deploy host, whose renders the baselines are) cover the screens. The counts were re-run 2026-11-22
+on the owner's Mac, on the Vite 8 / Vitest 5 / Playwright 1.65 toolchain, with the network check and
+"Retry with relay" in (vitest 406 of 406; e2e 177 passed, 12 skipped, none failed; axe 140 of 140) —
+all but the screenshot gate, which was last run 2026-10-11 on the deploy host at 187 checks and
+waits for new baselines (§ Backlog).
 Refresh them here whenever the suite grows.
 
 A second internal audit on **2026-09-12**, modelling a fully malicious signaling server rather than a
@@ -2873,6 +2875,10 @@ delivery (§ The road to "yes"); path attestation and the STUN operator (§ Secu
   networks in different places, another carrier, and a pair with IPv6 on both sides; and the network
   check and "Retry with relay" on the carrier itself — test plan cases C7 and C8 (both built against
   simulated failures, § Network check and § Max-privacy strict model).
+- Screenshot baselines for the 2026-11-22 screens, on the deploy host (they were built on a Mac, where
+  the gate cannot be judged): new scenes `share-nat`, `connecting-nat`, `failed-direct-nat`,
+  `failed-no-relay-path`; `failed-direct` changed (new copy, "Retry with relay"). Until then
+  `npm run visual` fails on those 14 images.
 - Relay capacity: coturn's 49160–49200 range is ~41 allocations (a fully relayed pair takes two).
   A total cap (`bps-capacity`, 20 MB/s = ten allocations at 2 MB/s), two allocations per credential and
   a per-IP mint limit landed 2026-11-22 (the Capacity section of hush-signaling-server's runbook). Left: widen the
