@@ -4,8 +4,6 @@ name: NAT
 # routers (tests/nat/). It needs root, docker and a few minutes, and a commit rarely changes what
 # it measures — so it runs nightly and on demand, like the engine matrix in ci.yml, not per push.
 on:
-  push:
-    branches: [claude/nat-tests-a3e4aa]
   schedule:
     - cron: '47 3 * * *' # nightly, off-peak UTC, clear of ci.yml's 03:17
   workflow_dispatch:
