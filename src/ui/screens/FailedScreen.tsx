@@ -2,7 +2,7 @@ import { type ReactElement, type ReactNode } from 'react';
 import { useSession } from '../SessionProvider';
 import { useAppSelector } from '../../store/hooks';
 import { formatBytes } from '../../core/transfer/fileTransfer';
-import { useT } from '../prefs';
+import { usePrefs, useT } from '../prefs';
 import { Screen, Space, Pill, TextLink, Glyph } from '../ui';
 import { onMacDesktop } from '../platform';
 
@@ -11,9 +11,11 @@ import { onMacDesktop } from '../platform';
  * compromised (SAS / key-confirmation mismatch — the description names the cause THIS side saw),
  * our own code expired while we waited in its room, room not found or code expired, lost the connection
  * to the server (a signaling drop that is not a room answer), nobody came (reconnect), direct path
- * failed (Max privacy, ± the missing-relay hint in Reliable), connection lost (an AUTHENTICATED channel
+ * failed (Max privacy — with "Retry with relay"), no path even through the relay (Reliable, most often
+ * a peer in Max privacy), the missing-relay hint in Reliable, connection lost (an AUTHENTICATED channel
  * died — with the last file's outcome), generic, and the words method, which additionally offers fresh
- * words. There is no "Try again".
+ * words. There is no "Try again": "Retry with relay" is the one action that starts over, because it
+ * changes what failed — the mode.
  *
  * NOTHING IS SAID TWICE (owner's rule, 2026-09-27): a title, and a description only where it tells the
  * user something the title does not. The mono eyebrows that paraphrased every title are gone, and the
@@ -27,7 +29,7 @@ import { onMacDesktop } from '../platform';
  */
 export function FailedScreen(): ReactElement {
   const session = useSession();
-  const t = useT();
+  const { t, setPrivacyMode } = usePrefs();
   const error = useAppSelector((s) => s.connection.error) ?? '';
   const method = useAppSelector((s) => s.connection.method);
   const reconnectOutcome = useAppSelector((s) => s.dev.reconnect.outcome);
@@ -74,6 +76,9 @@ export function FailedScreen(): ReactElement {
   // Max-privacy STRICT model: a direct ICE failure is terminal (Max-privacy never relays). Surface a
   // hint to switch to Reliable. Keyed off the stable reason DIRECT_FAIL_REASON sets in the core.
   const isDirectFail = /connect directly|max privacy/.test(lower);
+  // Reliable held a relay and ICE still found no path — the Reliable side of a mixed pair, above all.
+  // Keyed off NO_RELAY_PATH_REASON.
+  const isNoRelayPath = /even through the relay/.test(lower);
   // Codeless reconnect: the wait cap fired with nobody at the rendezvous. Keyed off the stable
   // RECONNECT_NO_SHOW_REASON marker the core sets.
   const isNoShow = /did not show up/.test(lower);
@@ -100,7 +105,9 @@ export function FailedScreen(): ReactElement {
                 ? 'server'
                 : isDirectFail
                   ? 'direct'
-                  : 'generic';
+                  : isNoRelayPath
+                    ? 'noRelayPath'
+                    : 'generic';
   // The same hard-stop title for every mismatch; the description says what THIS side actually saw.
   const mismatchDesc = /peer reported a sas mismatch/.test(lower)
     ? t('erSasPeerDesc')
@@ -133,6 +140,7 @@ export function FailedScreen(): ReactElement {
       title: t('directFailTitle'),
       desc: symmetricNat ? `${t('directFailSymmetric')} ${t('directFailHint')}` : t('directFailHint'),
     },
+    noRelayPath: { title: t('erGenericTitle'), desc: t('noRelayPathHint') },
     // Title, the file, the signal. A description could not honestly say WHOSE side dropped.
     lost: { title: t('lostTitle'), desc: '' },
     generic: { title: t('erGenericTitle'), desc: '' },
@@ -152,7 +160,9 @@ export function FailedScreen(): ReactElement {
       rawReason={error}
       title={copy.title}
       desc={copy.desc}
-      descTestId={variant === 'direct' ? 'direct-fail-hint' : undefined}
+      descTestId={
+        variant === 'direct' ? 'direct-fail-hint' : variant === 'noRelayPath' ? 'no-relay-path-hint' : undefined
+      }
       extra={
         variant === 'lost' ? (
           // The session was authenticated and is over; what the user still needs is the file.
@@ -171,9 +181,28 @@ export function FailedScreen(): ReactElement {
       }
       reason={reason}
       actions={
-        // Fresh words fix a CODE problem (wrong, spent, expired). A lost connection is not one — the
+        variant === 'direct' ? (
+          // Max privacy could not connect directly: start over in Reliable, for this visit — the
+          // stored mode stays the user's own choice (README § Max-privacy strict model).
+          <>
+            <Pill
+              variant="primary"
+              block
+              testId="retry-relay-btn"
+              onClick={() => {
+                setPrivacyMode('reliable', false);
+                void session.retryWithRelay();
+              }}
+            >
+              {t('retryRelay')}
+            </Pill>
+            <TextLink testId="reset-btn" onClick={() => session.dispose()}>
+              {t('backHome')}
+            </TextLink>
+          </>
+        ) : // Fresh words fix a CODE problem (wrong, spent, expired). A lost connection is not one — the
         // words did their job — and neither is a browser without WebRTC, so both get the plain exit.
-        method === 'words' && variant !== 'lost' && variant !== 'noWebrtc' ? (
+        method === 'words' && variant !== 'lost' && variant !== 'noWebrtc' && variant !== 'noRelayPath' ? (
           <>
             <Pill
               variant="primary"

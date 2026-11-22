@@ -70,6 +70,24 @@ for two destinations ([README § Network check](../../README.md#network-check-sr
   destination from its own local port. Safari on macOS does not. A real iPhone was not at hand.
 - **Not verified:** the carrier itself, and a real iPhone. Test plan case C7 is the owner's to run.
 
+## 2026-11-22 — "Retry with relay", and what the Reliable side of a mixed pair is told
+
+The second half of the backlog item on Max privacy across networks
+([README § Max-privacy strict model](../../README.md#max-privacy-strict-model-done--completes-6d)).
+
+- **The direct-failure screen has "Retry with relay".** One tap ends the failed Max-privacy session
+  and starts over in Reliable: the side that made the invite gets a new one, a reconnect is tried
+  again, a joiner lands on the home screen with Reliable selected. Nothing of the failed session is
+  reused, so Max privacy still never relays.
+- **The tap stores nothing.** Reliable holds for the visit; a reload is back on the stored mode. Max
+  privacy is the default, and one bad network is not a decision to relay everywhere.
+- **The copy names the half one tap cannot do:** the peer has to be in Reliable too — a mixed pair
+  does not relay.
+- **The Reliable side of a mixed pair** no longer reads "channel closed during pairing": with a relay
+  in hand and ICE failing before any channel it reads "No path worked, not even through the relay … if
+  your peer is in Max privacy, ask them to switch to Reliable too."
+- **Not verified on real networks** — both were driven by simulated ICE failures; test plan case C8.
+
 ## 2026-11-22 — "no logs" checked end to end
 
 The review asked what the box writes about a visitor and for how long. Checked on the live host:

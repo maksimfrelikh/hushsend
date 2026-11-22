@@ -57,8 +57,9 @@ Downloads on desktop Chromium, through the site's private storage elsewhere
 ## Privacy modes
 
 - **Max privacy (default)** — direct only. Your own STUN, never a relay; the peer learns your IP,
-  nothing else carries your traffic. If a direct path cannot come up, the connection **fails** with a
-  hint rather than quietly relaying. Transfers are **padded** so the byte count on the wire shows a
+  nothing else carries your traffic. If a direct path cannot come up, the connection **fails** rather
+  than quietly relaying; the failure screen offers "Retry with relay", which starts over in Reliable
+  for that visit. Transfers are **padded** so the byte count on the wire shows a
   range rather than the exact file (≤12.5% extra above 1 MiB; see `core/transfer/padding.ts` for what
   that does and does not hide — duration and the fact of a transfer are still visible).
 - **Reliable** — adds a TURN relay (short-lived HMAC credentials minted per session; the shared
@@ -733,7 +734,9 @@ Each is enforced in code and covered by tests; the linked section has the mechan
 - Once `connected`, every method closes its own signaling socket, so the untrusted server never learns
   how long the session runs; liveness is the DataChannel and ICE, never room presence
   (§ Signaling WS lifecycle).
-- Max privacy never relays — no fallback, no consent prompt (§ Max-privacy strict model).
+- Max privacy never relays — no fallback, no consent prompt (§ Max-privacy strict model). The failure
+  screen's "Retry with relay" ends that session and starts a new pairing in Reliable; it carries
+  nothing over.
 
 ### Connection — the state machine, the signaling socket, early frames
 
@@ -1480,7 +1483,8 @@ signaling socket on `connected`. See **§ Signaling WS lifecycle**. The toggle b
 only governs `iceServers`.)*
 
 The home **"Max privacy" toggle is FUNCTIONAL** and drives the WebRTC `iceServers` (the only transport
-behaviour behind it). It is a persisted UI pref (`prefs.tsx`, `hushsend.privacy`, **default `max`**),
+behaviour behind it). It is a persisted UI pref (`prefs.tsx`, `hushsend.privacy`, **default `max`**;
+"Retry with relay" switches it for the visit without storing it — § Max-privacy strict model),
 pushed into the core via `<PrivacyModeSync>` (App) → `SessionController.setPrivacyMode`. The mode is
 **read at pairing start** (when `iceServers` are assembled), so flipping it mid-session affects the
 **NEXT** connection, NOT the live one. **Max-privacy is STRICT — it NEVER relays** (no consent
@@ -1550,7 +1554,7 @@ see **Max-privacy strict model** below.
   over loopback). Server `turn-credentials` minting is **done (6d server side)** — see Signaling server §.
 
 ##### Max-privacy strict model (done — completes 6d)
-**Max-privacy NEVER relays. Period — no consent escalation, no relay-retry.** Two always-on mechanisms
+**Max-privacy NEVER relays. Period — no consent escalation, no relay-retry of a session.** Two always-on mechanisms
 enforce it in Max-privacy, then a direct failure is **terminal**:
 - **No local TURN** — Max-privacy never requests coturn creds, so we never offer a relay candidate
   (`ensureTurnReady` is a no-op off Reliable).
@@ -1596,8 +1600,8 @@ enforce it in Max-privacy, then a direct failure is **terminal**:
   `connectionstatechange` → `failed`) while filtering routes to `onIceFailed` (one-shot), which calls
   `failDirect(DIRECT_FAIL_REASON)` → close + `fail()` → the **existing `failed` state** (no new FSM
   state). The `FailedScreen` classifies the reason from its text (like the MITM / room-not-found cases)
-  and renders the hint **"Couldn't connect directly. Switch to Reliable to allow relaying through a
-  server."** (i18n `directFailHint`, EN/RU; testid `direct-fail-hint`). In Reliable an ICE failure is a
+  and renders **"Couldn't connect directly"** with the hint that Reliable relays and that the peer has
+  to choose it too (i18n `directFailHint`; testid `direct-fail-hint`), and "Retry with relay" (below). In Reliable an ICE failure is a
   genuine `onClose` → `failed` (relay was available and still couldn't save it — no hint).
   `DIRECT_FAIL_REASON` (`"couldn't connect directly (Max privacy)"`) is the stable marker the screen
   keys off (`/connect directly|max privacy/`).
@@ -1610,6 +1614,29 @@ enforce it in Max-privacy, then a direct failure is **terminal**:
   in flight + channel not open + not established) routes the link/qr, room/SAS and reconnect
   `onPeerLeft` branches through `failDirect(DIRECT_FAIL_REASON)`; **words is excluded** (its peer-left
   is a counted guess with its own retry copy). Unit: `SessionController.sasPeerLeft.test.ts`.
+- **"Retry with relay" (since 2026-11-22) — a new pairing, not an escalation.** The direct-failure
+  screen's primary action (testid `retry-relay-btn`; "Back home" stays under it) calls
+  `SessionController.retryWithRelay()`: the failed session is disposed — its PeerConnection, its
+  socket, its link or words or room — and what this side can start ALONE starts again in Reliable.
+  Whoever made the invite gets a fresh one (a new link, new words, a new room); a reconnect is tried
+  again with the same device; a joiner lands on the home screen with Reliable selected and waits for
+  the peer's new invite. The strict model is untouched: the Max session never relays, nothing is
+  renegotiated, and the peer is asked nothing — which is also the limit, and the copy says it: **the
+  peer has to be in Reliable too**, because a mixed pair does not relay (the Max side drops relay
+  candidates and refuses a relayed path).
+  - **What the tap stores: nothing.** The mode changes for the visit (`setPrivacyMode('reliable',
+    false)` in `prefs.tsx`): the home screen shows Reliable selected, a reload is back on the stored
+    choice. Max privacy is the default (§ Privacy modes), and a retry on one bad network is not the
+    user deciding to relay everywhere from now on; choosing Reliable on the home screen still stores it.
+  - **The Reliable side of a mixed pair** used to end on "channel closed during pairing". Its ICE
+    fails although it holds a relay, so `onChannelClose('ICE failed')` before any channel, with relay
+    URLs in hand, now fails every method with `NO_RELAY_PATH_REASON`, and `FailedScreen` (variant
+    `noRelayPath`, testid `no-relay-path-hint`) says: "No path worked, not even through the relay … if
+    your peer is in Max privacy, ask them to switch to Reliable too." It does not claim to know the
+    peer's mode — the same reason fits a network that blocks UDP altogether. Without relay URLs the
+    reason stays as it was and the missing-relay hint explains it. One edge keeps the old copy: a Max
+    peer that leaves its failure screen before the Reliable side's own ICE gives up reaches it as
+    "peer left during pairing".
 - **No relax-offer / bilateral / relax signal**: there is NO consent-gated relay escalation. The
   `connection.relax` projection, the `relax` signaling frame, `relaxConnection`/`declineRelax`, and the
   `pc.setConfiguration`/`restartIce` ICE-restart-over-relay were all **removed**. This also removes the
@@ -1620,7 +1647,10 @@ enforce it in Max-privacy, then a direct failure is **terminal**:
   e2e without a real network failure.
 - **Tests**: `relax.test.ts` (the relay-candidate filter: drops `typ relay` only while filtering, off
   in Reliable, safe on null/empty); `tests/e2e/relax.spec.ts` (`forceIceFail` Max-privacy → both sides
-  reach `failed` with the `direct-fail-hint`, no relay offer, no hang). Reliable's relay actually
+  reach `failed` with the `direct-fail-hint`, no relay offer, no hang; "Retry with relay" on both
+  sides → a new link, the pair connects in Reliable, nothing stored, Max again after a reload; a mixed
+  pair → the Reliable side reads `no-relay-path-hint`); `SessionController.retryWithRelay.test.ts`
+  (what each role restarts, and the Reliable-side reason with its three negative controls). Reliable's relay actually
   carrying bytes is hush-signaling-server's **`tests/turn-relay.test.ts`** (2026-09-19): it spawns a real coturn
   in the production `use-auth-secret` mode, spawns the signaling server with the SAME secret, mints
   over the WebSocket exactly as the client does and drives `turnutils_uclient` with the reply, so the
@@ -1942,8 +1972,9 @@ travels live in the kit's own `CLAUDE.md`; its `README.md` is the consumer contr
   variants (compromised, room not found — or, since 2026-10-11, "this link expired or was already used" /
   "these words don't work any more" for those methods, which have no digits to check — nobody came,
   verification interrupted with "Restart verification", direct failed (± this network named as the
-  reason — § Network check) ± relay hint, this browser can't
-  send files (no WebRTC), generic, words with "New words"); no "Try again". A browser without WebRTC
+  reason — § Network check) with "Retry with relay", no path even through the relay, ± relay hint, this browser can't
+  send files (no WebRTC), generic, words with "New words"); no "Try again" — "Retry with relay" is
+  the one action that starts over, because it changes the mode that failed. A browser without WebRTC
   never reaches the app: App.tsx shows the same "This browser can't send files" page instead
   (`NoWebRtcScreen`) and a link opened there is scrubbed but not followed. Header: the existing Wordmark + the kit toggle.
   **SAS refusals — EQUAL WEIGHT (the 2026-09-12 audit decision, restored the same day the redesign
@@ -2404,7 +2435,7 @@ evidence to exist**:
 |---|---|---|
 | **T1** — Claude alone, closes the case outright | A4a, A4b, A6, A7 · B7, B9 · D1–D5 · E1–E5 · F3, F5, F6, F7 | 20 |
 | **T1 + T2** — T1 closes the DESKTOP half on real engines; the handset half is a separate tick | A1, A3, A4, A5, A6a · B2, B8, B10 · E6, E7 · F2, F8 | 12 |
-| **T2** — needs one physical act from you | A2 · B1, B3, B4 · C1–C7 · F1, F4, F9 | 14 |
+| **T2** — needs one physical act from you | A2 · B1, B3, B4 · C1–C8 · F1, F4, F9 | 15 |
 | **T1 + T3** — T1 closes the desktop half; the rest is your eyes | B5 (native share sheet) · B6 (phone ergonomics) | 2 |
 
 **Two ticks, not one, for every case in the split rows.** A1 says "MBP-A Chrome → IPH Safari". With
@@ -2705,6 +2736,17 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       be missing there (§ Network check, Limits); record which. (5) Switch the phone to Reliable and
       make a link: no warning. Record phone, browser and carrier, and for any step that disagrees a
       screenshot. A network with IPv6 adds "It can still work if your peer's network has IPv6…".
+- [ ] **C8 · "Retry with relay" across real networks — NEW 2026-11-22.** Phone on **cellular**, Mac on
+      the home Wi-Fi, both **Max privacy**. (1) Mac: Invite someone → Link or QR code; phone: scan it.
+      Both end on "Couldn't connect directly" with "Retry with relay". (2) Tap it on the Mac: a NEW QR
+      code. Tap it on the phone: the home screen, **Reliable** selected. (3) Scan the new code:
+      connected, and the transfer screen shows the row "relayed through the server"; send a file.
+      (4) Reload the page on both: Max privacy is selected again — the retry stored nothing. (5) The
+      mixed pair: Mac in **Reliable**, phone in Max privacy, a new link. Expected: the phone ends on
+      "Couldn't connect directly"; the Mac on "Couldn't connect" with "…if your peer is in Max
+      privacy, ask them to switch to Reliable too" — not "channel closed during pairing". If the Mac
+      reads "peer left during pairing", note whether the phone's screen was left before the Mac's
+      changed (§ Max-privacy strict model, the one edge).
 - [x] **C5 · mobile-to-mobile** *(DROPPED by the owner 2026-10-03: both handsets have each been paired with the Mac across networks — Max fails closed, Reliable relays — and a phone↔phone pair would add only a second carrier NAT on the same relay)* — IPH (LTE) ↔ AND-1 (different LTE / other Wi-Fi), Reliable. The
       carrier-NAT-to-carrier-NAT case the desktop pair never exercises.
 
@@ -2829,9 +2871,8 @@ delivery (§ The road to "yes"); path attestation and the STUN operator (§ Secu
 - Max privacy across networks, what is left after 2026-11-22 (§ Platform limits has what was
   measured; the history is in [pre-launch.md](docs/history/pre-launch.md)): try two ordinary Wi-Fi
   networks in different places, another carrier, and a pair with IPv6 on both sides; and the network
-  check on the carrier itself — test plan case C7 (§ Network check: built against a simulated NAT). Then decide on
-  a one-tap "retry with relay" on the direct-fail screen and copy for the Reliable side of a mixed pair
-  ("ask your peer to switch to Reliable too"); today it reads "channel closed during pairing".
+  check and "Retry with relay" on the carrier itself — test plan cases C7 and C8 (both built against
+  simulated failures, § Network check and § Max-privacy strict model).
 - Relay capacity: coturn's 49160–49200 range is ~41 allocations (a fully relayed pair takes two).
   A total cap (`bps-capacity`, 20 MB/s = ten allocations at 2 MB/s), two allocations per credential and
   a per-IP mint limit landed 2026-11-22 (the Capacity section of hush-signaling-server's runbook). Left: widen the

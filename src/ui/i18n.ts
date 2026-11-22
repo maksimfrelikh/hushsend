@@ -321,7 +321,15 @@ export const STR = {
   serverLostDesc: { en: 'Check your internet connection and start again.' },
   // Max-privacy STRICT model: never relays — a direct failure is terminal (step 6d).
   directFailTitle: { en: 'Couldn’t connect directly', ru: 'Не удалось соединиться напрямую' },
-  directFailHint: { en: 'Switch to Reliable to allow relaying through a server.' },
+  // The way out is one tap, and only half of it: a relay is used when BOTH sides allow it.
+  directFailHint: {
+    en: 'Retry with relay starts over in Reliable, which sends the encrypted traffic through a server when no direct path exists. Your peer has to switch to Reliable too — a relay is used only when both sides allow it.',
+  },
+  retryRelay: { en: 'Retry with relay' },
+  // Reliable held a relay and still found no path (NO_RELAY_PATH_REASON): most often a peer in Max privacy.
+  noRelayPathHint: {
+    en: 'No path worked, not even through the relay. A relay is used only when both sides allow it — if your peer is in Max privacy, ask them to switch to Reliable too.',
+  },
   // The network check found the reason on THIS side (connectionSlice.nat === symmetric).
   directFailSymmetric: {
     en: 'This network gives your device a different address for every destination — mobile data and many VPNs do — so the other device could not reach it.',

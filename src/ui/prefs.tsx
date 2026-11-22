@@ -19,7 +19,9 @@ interface Prefs {
   privacyMode: PrivacyMode;
   setLang(lang: Lang): void;
   toggleTheme(): void;
-  setPrivacyMode(mode: PrivacyMode): void;
+  /** `persist: false` switches the mode for this visit only — the stored choice stays as the user
+   *  left it on the home screen (the direct-failure screen's "Retry with relay"). */
+  setPrivacyMode(mode: PrivacyMode, persist?: boolean): void;
   /** translate a copy key into the active language. */
   t(key: StrKey): string;
 }
@@ -75,8 +77,9 @@ export function PrefsProvider({ children }: { children: ReactNode }) {
 
   const toggleTheme = useCallback(() => setTheme((cur) => (cur === 'light' ? 'dark' : 'light')), []);
 
-  const setPrivacyMode = useCallback((next: PrivacyMode) => {
+  const setPrivacyMode = useCallback((next: PrivacyMode, persist = true) => {
     setPrivacyModeState(next);
+    if (!persist) return;
     try {
       localStorage.setItem(PRIVACY_KEY, next);
     } catch {

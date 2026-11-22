@@ -518,6 +518,12 @@ export const SCENES: Scene[] = [
       ),
   },
   {
+    // Reliable with a relay in hand and still no path: the Reliable side of a mixed pair.
+    name: 'failed-no-relay-path',
+    matrix: 'phone',
+    setup: (page) => dispatch(page, ...failed('link', 'no path worked, even through the relay')),
+  },
+  {
     // Reliable whose relay never came: its ICE failure is a plain close (filterRelay is off, so it is
     // never the Max-privacy "connect directly" reason), and the relay hint is the one explanation.
     name: 'failed-relay',

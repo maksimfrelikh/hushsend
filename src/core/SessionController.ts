@@ -638,6 +638,15 @@ function errText(err: unknown): string {
 const DIRECT_FAIL_REASON = "couldn't connect directly (Max privacy)";
 
 /**
+ * Failure reason when RELIABLE found no path although it held a relay: ICE failed before the channel
+ * ever opened. A relayed pair needs BOTH sides to allow it — a Max-privacy peer drops our relay
+ * candidates and refuses a relayed path — so this is what the Reliable side of a mixed pair ends on,
+ * where it used to read "channel closed during pairing". A STABLE marker for FailedScreen (`even
+ * through the relay`), worded without "Max privacy" so the direct-failure match cannot take it.
+ */
+const NO_RELAY_PATH_REASON = 'no path worked, even through the relay';
+
+/**
  * Failure reason for a room that expired while THIS side sat in it with nobody engaged — our own
  * words, our own link, or a room lobby (creator or joiner). The server's TTL close (4010 `expired`)
  * reaches the waiting side exactly as it reaches a joiner of a dead code, and used to show the
@@ -2000,27 +2009,31 @@ export class SessionController {
       this.onConnectionLost(why);
       return;
     }
+    // `ICE failed` reaches here only from a PeerConnection built without the relay filter, i.e. in
+    // Reliable. With a relay in hand and no channel yet, that is NO_RELAY_PATH_REASON on every method —
+    // the teardown below is each method's own, only the reason differs.
+    const noRelayPath = why === 'ICE failed' && !this.channelOpen && (this.turnCreds?.urls.length ?? 0) > 0;
     // words method: the channel closing BEFORE we're connected means this pairing attempt
     // failed — typically the peer detected the key-confirmation mismatch and tore the channel
     // down before its tag reached us. Without this, a peer could hang in `confirming` forever
     // waiting for a tag that was never delivered. (Guarded, so it never double-counts.)
     if (this.method === 'words' && !this.established) {
-      this.onWordsPairingFailure('channel closed during pairing');
+      this.onWordsPairingFailure(noRelayPath ? NO_RELAY_PATH_REASON : 'channel closed during pairing');
     }
     // link/qr: the channel closing before connected means the peer hard-stopped its
     // key-confirmation (e.g. it detected the tag mismatch and tore down) — fail in step, no bytes.
     if ((this.method === 'link' || this.method === 'qr') && !this.established) {
-      this.failLink('channel closed during pairing');
+      this.failLink(noRelayPath ? NO_RELAY_PATH_REASON : 'channel closed during pairing');
     }
     // reconnect: the channel closing before connected means the peer hard-stopped its re-auth (it
     // detected OUR key changed, or refused our hello) — fail in step, no bytes.
     if (this.reconnect && !this.established) {
-      this.failReconnect('reconnect aborted — channel closed during re-auth');
+      this.failReconnect(noRelayPath ? NO_RELAY_PATH_REASON : 'reconnect aborted — channel closed during re-auth');
     }
     // room + SAS: the channel closing before connected means the peer rejected the SAS (or the
     // transport failed) — abort so we never hang in awaitingSas/confirming. (Guarded, one-shot.)
     if (this.sas && !this.established) {
-      this.failSas('channel closed during SAS pairing');
+      this.failSas(noRelayPath ? NO_RELAY_PATH_REASON : 'channel closed during SAS pairing');
     }
   }
 
@@ -3676,6 +3689,30 @@ export class SessionController {
   async regenerate(): Promise<void> {
     this.dispose();
     await this.createWordsSession();
+  }
+
+  /**
+   * The direct-failure screen's "Retry with relay": end the failed Max-privacy session and start over
+   * in Reliable. Nothing of the failed session is reused — Max privacy stays strict, that session never
+   * relays; this is a NEW pairing the user asked for by name. What "start over" means is what this
+   * side can do alone: whoever made the invite gets a fresh one (new link, new words, a new room); a
+   * reconnect is tried again with the same device; a joiner goes home and waits for the peer's new
+   * invite. The peer has to be in Reliable too (a mixed pair does not relay) — the screen says so.
+   *
+   * The core's own mode is set here so the new session starts in it at once; the stored preference is
+   * the UI's (prefs.tsx), which the caller switches for this visit.
+   */
+  async retryWithRelay(): Promise<void> {
+    const method = this.method;
+    const creator = this.isCreator;
+    const pairingIdHex = this.reconnect ? bytesToHex(this.reconnect.pairingId) : null;
+    this.dispose();
+    this.privacyMode = 'reliable';
+    if (pairingIdHex) await this.reconnectTo(pairingIdHex);
+    else if (!creator) return;
+    else if (method === 'words') await this.createWordsSession();
+    else if (method === 'link' || method === 'qr') await this.createLinkSession(method);
+    else if (method === 'room') await this.createRoomSession();
   }
 
   /**
