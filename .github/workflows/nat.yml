@@ -1,0 +1,79 @@
+name: NAT
+
+# Connectivity under real NAT behaviour: two Chromiums in two network namespaces behind two NAT
+# routers (tests/nat/). It needs root, docker and a few minutes, and a commit rarely changes what
+# it measures — so it runs nightly and on demand, like the engine matrix in ci.yml, not per push.
+on:
+  push:
+    branches: [claude/nat-tests-a3e4aa]
+  schedule:
+    - cron: '47 3 * * *' # nightly, off-peak UTC, clear of ci.yml's 03:17
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '26' # as ci.yml
+
+jobs:
+  nat:
+    name: NAT lab (chromium) · Max direct, Max refused by a symmetric NAT, Reliable relayed
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: nftables and conntrack for the routers
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq nftables conntrack
+
+      # The two addresses are compiled into the bundle (there is no runtime client config): the
+      # signaling server through each namespace's port-forward, STUN at coturn's lab address.
+      - name: Build the app for the lab
+        run: npm run build
+        env:
+          VITE_SIGNALING_URL: ws://127.0.0.1:8080
+          VITE_STUN_URLS: stun:192.0.2.10:3478
+
+      # Each of the next three steps fails with ::error:: annotations that say what is wrong: the
+      # job log of a public repository needs a sign-in, annotations and step results do not.
+      - name: Raise the lab — namespaces, NAT routers, coturn, signaling, the built app
+        run: sudo env "PATH=$PATH" GITHUB_ACTIONS=true bash tests/nat/net/up.sh
+
+      - name: Probe — the two NAT rules really give the two mappings
+        run: sudo env "PATH=$PATH" GITHUB_ACTIONS=true bash tests/nat/net/check.sh
+
+      - name: The four cases
+        run: |
+          status=0
+          sudo env "PATH=$PATH" CI=true GITHUB_ACTIONS=true \
+            "PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright" \
+            "NAT_ANNOTATIONS=$RUNNER_TEMP/nat-annotations.txt" \
+            npx playwright test -c tests/nat/playwright.config.ts || status=$?
+          # What each case measured (or, for a failed one, everything it saw), as annotations.
+          [ ! -f "$RUNNER_TEMP/nat-annotations.txt" ] || cat "$RUNNER_TEMP/nat-annotations.txt"
+          exit "$status"
+
+      - name: Collect the lab's logs
+        if: failure()
+        run: |
+          sudo docker logs nat-coturn > "$RUNNER_TEMP/coturn.log" 2>&1 || true
+          sudo cp -r /tmp/hushsend-nat "$RUNNER_TEMP/nat-state" 2>/dev/null || true
+          sudo chmod -R a+rX "$RUNNER_TEMP/nat-state" test-results 2>/dev/null || true
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: nat-lab
+          path: |
+            test-results/
+            ${{ runner.temp }}/coturn.log
+            ${{ runner.temp }}/nat-state/*.log
+          retention-days: 7

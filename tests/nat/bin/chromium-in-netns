@@ -1,0 +1,5 @@
+#!/bin/sh
+# Chromium inside a network namespace: the executable Playwright launches (tests/nat/lab.ts).
+# `ip netns exec` changes the network and execs, so the pipes Playwright drives the browser
+# through are inherited untouched. Needs root.
+exec ip netns exec "${NAT_NETNS:?NAT_NETNS is not set}" "${NAT_CHROMIUM:?NAT_CHROMIUM is not set}" "$@"

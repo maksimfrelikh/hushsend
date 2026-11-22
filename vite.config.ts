@@ -11,9 +11,10 @@ export default defineConfig({
     host: true,
   },
   test: {
-    // The Playwright suites (tests/e2e, the axe gate under tests/a11y, the screenshot gate under
-    // visual/) are driven by their own `npm run` scripts, not Vitest; excluding them keeps a bare
-    // `vitest run` from collecting *.spec.ts files that use Playwright's runner APIs.
-    exclude: [...configDefaults.exclude, 'tests/e2e/**', 'tests/a11y/**', 'visual/**'],
+    // The Playwright suites (tests/e2e, the axe gate under tests/a11y, the NAT lab under tests/nat,
+    // the screenshot gate under visual/) are driven by their own `npm run` scripts, not Vitest;
+    // excluding them keeps a bare `vitest run` from collecting *.spec.ts files that use Playwright's
+    // runner APIs.
+    exclude: [...configDefaults.exclude, 'tests/e2e/**', 'tests/a11y/**', 'tests/nat/**', 'visual/**'],
   },
 });
