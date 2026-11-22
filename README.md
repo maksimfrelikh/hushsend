@@ -1855,6 +1855,7 @@ network, firewall, other services, secrets, deploy history — is described in t
 | OS / nginx / Node | Ubuntu 26.04.1 · nginx 1.28.3 · Node 26 LTS from NodeSource's `node_26.x` apt repo (`/usr/bin/node`; unattended-upgrades applies its releases — v26.13.0 on 2026-10-28; 24 before, 22 at the move) |
 | Frontend | build clone `/opt/hushsend` (root), built on the server by `bash /opt/hushsend/deploy/deploy-frontend.sh` → `/var/www/hushsend/dist` |
 | nginx vhost | `/etc/nginx/sites-available/hushsend` from [`nginx.conf.example`](deploy/nginx.conf.example): static `dist/`, SPA fallback, `/ws` + `/health` → `127.0.0.1:8080` with `X-Real-IP`; security headers repeated in every location (verified 6/6 on HTML, JS and `.wasm`, 2026-09-17); `access_log off` everywhere; HTTP/2 on |
+| What the box records about a visitor (audited 2026-11-22) | nginx: no access line for this vhost, port 80 included (the redirect block logged until that day); a FAILED request lands in the shared `error.log` with the client address, kept 14 days. The signaling service prints its start-up line only (journald, one month). Both coturn containers run with Docker's log driver `none`. ufw logs BLOCKED packets with their source address (four weeks) — nothing a client sends to an open port. fail2ban reads nginx's access log, where this vhost writes nothing. |
 | TLS | the box's wildcard `*.frelikh.dev` (certbot DNS-01, Cloudflare plugin; issued on netcup 2026-10-17) |
 | Build-time env | [`build-env.sh`](deploy/build-env.sh): `VITE_SIGNALING_URL=wss://hushsend.frelikh.dev/ws`, `VITE_STUN_URLS=stun:stun.hushsend.frelikh.dev:3479` |
 | Signaling + TURN | `hushsend-signaling.service` + `coturn.service` — see section 0 of hush-signaling-server's `deploy/DEPLOY.md` |
@@ -2688,9 +2689,9 @@ delivery (§ The road to "yes"); path attestation and the STUN operator (§ Secu
   and hash with the original — the Photos picker may hand over a prepared copy of a video), and from
   Android. The windowed reader was measured on Safari on the Mac only.
 - Re-run C6 on real LTE with the Mac on `chrome-pubif` (the iPhone side by the owner).
-- "No logs" end to end: nginx's error.log (client IPs), journald of the signaling service, fail2ban,
-  the router — what is written and for how long. (coturn — the TURN relay and the STUN server — writes
-  none since 2026-10-10: both templates set `log-file=/dev/null`, both installers check it.)
+- "No logs", what is left after the 2026-11-22 audit (§ Live instance has what is written and for how
+  long): nginx's shared `error.log` names the client address when a request to this vhost fails —
+  decide whether the vhost gets its own `error_log` at `crit` or none.
 - Chromium: a closed SENDER tab is noticed by the receiver only after ~16 s (others < 1 s) — find why.
 - Path attestation: an honest Mac ↔ iPhone pair on one Wi-Fi reads "route did not match". Candidate
   rule: a PRIVATE selected remote address that the peer did not attest (WebKit hides its private

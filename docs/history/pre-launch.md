@@ -48,3 +48,21 @@ that LAN for a VPS on 2026-10-17.
   is in [Decisions](../../README.md#decisions).
 - Left open in [Backlog](../../README.md#backlog--open-work-only): the pairs not tried, and the
   "retry with relay" on the failure screen.
+
+## 2026-11-22 — "no logs" checked end to end
+
+The review asked what the box writes about a visitor and for how long. Checked on the live host:
+
+- **nginx.** Every location of the TLS vhost had `access_log off`; the port-80 redirect block did not,
+  so a first visit over plain HTTP left a line (address, time, user agent) in the shared access log for
+  14 days. `access_log off` is in that block now — on the host and in `deploy/nginx.conf.example` — and
+  a request there no longer appears while one to a neighbouring site does. The shared `error.log`
+  (14 days) still names the client address of a failed request; in the last 2000 lines none was this
+  vhost's. Left in [Backlog](../../README.md#backlog--open-work-only).
+- **The signaling service** logs its start-up configuration line and nothing per connection (three
+  `console` calls in the file; 21 journal lines in 7 days, all start / stop).
+- **coturn**, relay and STUN: Docker log driver `none`, `log-file=/dev/null`.
+- **ufw** logs blocked packets with the source address for four weeks; a client's packets go to open
+  ports and are not logged. **fail2ban** reads the nginx access log, where this vhost writes nothing,
+  and keeps its own log of bans for four weeks.
+- Not auditable from the box: what the hosting provider records about traffic to it.

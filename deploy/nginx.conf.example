@@ -19,6 +19,7 @@ server {
     listen 80;
     listen [::]:80;
     server_name hushsend.frelikh.dev;
+    access_log off;
 
     # Let certbot answer the HTTP-01 challenge without a redirect loop.
     location /.well-known/acme-challenge/ {
