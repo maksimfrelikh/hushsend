@@ -67,7 +67,8 @@ for two destinations ([README § Network check](../../README.md#network-check-sr
 - **What it costs in privacy:** a Max-privacy client now sends STUN at the START of a pairing, and one
   Binding request to the relay host's STUN port — [README § Risk 3](../../README.md#risk-3-stun-is-the-same-operator).
 - **Safari in the iOS Simulator reads `symmetric` on an honest network**: it sends to each STUN
-  destination from its own local port. Safari on macOS does not. A real iPhone was not at hand.
+  destination from its own local port. Safari on macOS does not. A real iPhone was not at hand that
+  day; the 2026-11-23 entry below has it — one socket, as on macOS.
 - **Not verified:** the carrier itself, and a real iPhone. Test plan case C7 is the owner's to run.
 
 ## 2026-11-22 — "Retry with relay", and what the Reliable side of a mixed pair is told

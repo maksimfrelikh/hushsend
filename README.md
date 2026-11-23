@@ -1713,17 +1713,14 @@ attestation: it refuses nothing and never changes the mode.
   starts while it gathers (a joiner). The verdict rests on what two servers answer (§ Risk 3). And the
   warning is about a peer on ANOTHER network: two devices on one network connect on their local
   addresses whatever the NAT does, which the copy says and the check cannot know.
-- **⚠️ Safari on iOS is the open question.** In the iOS Simulator (Safari 26.5) the check reads
-  `symmetric` on the home network, where Chromium and Firefox read `direct`: that Safari sends to each
-  destination from its own local port (two local STUN servers, no NAT between: source ports 57257 and
-  59641, host candidate 65473). Safari on macOS (26.5.2) uses one port for both. If a real iPhone
-  behaves like the Simulator, it warns on every network — and is then right about a peer behind an
-  ordinary router, which is told one port and reached from another, but wrong on one network — and a
-  phone in Safari cannot be used to measure a NAT, which touches how the 2026-11-22 carrier figures
-  were taken (the phones' browsers were not recorded). Step 3 of test plan case C7 decides it.
-- **Not verified:** a real symmetric NAT, and a real iPhone. The decision is unit-tested on the
-  candidate lines the engines produced, and the e2e runs the whole check in each engine against the
-  two-port servers; the carrier and the iPhone are test plan case C7.
+- **Safari.** On an iPhone (Safari 27.2) and on macOS (26.5.2) Safari asks every STUN server from one
+  socket, as Chromium and Firefox do — measured 2026-11-23 on a line whose NAT keeps the port
+  ([2026-11-23 run](docs/test-runs/2026-11-23.md)) — so the check reads the network there, not the
+  browser. The iOS Simulator is the exception: the check reads `symmetric` in it on every network
+  (the [test plan](#test-plan--the-real-device-pass-step-6e) says why), so it is not judged there.
+- **Not verified:** a real symmetric NAT. The decision is unit-tested on the candidate lines the
+  engines produced, and the e2e runs the whole check in each engine against the two-port servers; the
+  carrier, with a real phone on it, is test plan case C7.
 - **Tests**: `natCheck.test.ts` (the parser and the verdict, including WebKit's re-gathered sockets in
   both directions); `tests/e2e/nat-check.spec.ts` (two STUN servers run by the spec, pointed at with
   the DEV-only `?natCheck=<url>,<url>`: nothing asked on page load; a symmetric answer warns on the
@@ -2726,14 +2723,14 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       (§ Network check) was built against two local STUN servers that imitate a symmetric NAT; a real
       one is the carrier measured that day. On the live build, phone on **cellular with Wi-Fi off**,
       **Max privacy**: (1) Invite someone → Link or QR code. Expected within a second or two, under
-      "Share this link": **"Max privacy will very likely not connect from this network…"**. (2) Open
-      that link on the Mac (home Wi-Fi, Max privacy): the Mac shows NO warning while it connects; both
-      sides end on "Couldn't connect directly", and the phone's screen names its network as the reason
-      ("…a different address for every destination…"), the Mac's does not. (3) **The control, and on an
-      iPhone the step that matters most:** the same phone on the **home Wi-Fi** shows NO warning on the
-      Share screen. A warning there means Safari on iOS itself uses a port per destination, as the
-      Simulator's does (§ Network check) — then run steps 1–3 on the Android phone in Chrome as well,
-      and do not read a NAT off an iPhone. (4) Phone on cellular as the
+      "Share this link": **"Max privacy will very likely not reach a device on another network from
+      here…"**. (2) Open that link on the Mac (home Wi-Fi, Max privacy): the Mac shows NO warning while
+      it connects; both sides end on "Couldn't connect directly", and the phone's screen names its
+      network as the reason ("…a different address for every destination…"), the Mac's does not.
+      (3) **The control:** the same phone on the **home Wi-Fi** shows NO warning on the Share screen.
+      Safari on an iPhone asks every STUN server from one socket
+      ([2026-11-23 run](docs/test-runs/2026-11-23.md)), so a warning there is a fault of the check, not
+      of the phone: record it with a screenshot. (4) Phone on cellular as the
       JOINER (scan the Mac's QR): the warning appears under "Agreeing on keys…" — on iOS Safari it may
       be missing there (§ Network check, Limits); record which. (5) Switch the phone to Reliable and
       make a link: no warning. Record phone, browser and carrier, and for any step that disagrees a

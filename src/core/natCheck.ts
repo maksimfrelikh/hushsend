@@ -28,8 +28,8 @@
  *
  * AND ONE IT COULD NOT: Safari in the iOS Simulator (26.5) sends to each destination from its OWN local
  * port — two local servers with no NAT in between saw two source ports, neither the host candidate's
- * — so there this reads `symmetric` on every network. Safari on macOS (26.5.2) uses one port, as
- * Chromium and Firefox do. Which of the two a real iPhone does is not known (README § Network check).
+ * — so there this reads `symmetric` on every network. Safari on macOS (26.5.2) and on an iPhone
+ * (27.2, measured 2026-11-23) uses one port, as Chromium and Firefox do (README § Network check).
  *
  * DELIBERATE LIMITS, stated rather than discovered later:
  *  - **Advisory.** Nothing is refused and the mode never changes by itself — the same rule as
