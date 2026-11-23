@@ -153,8 +153,8 @@ deploy host, whose renders the baselines are) cover the screens. The counts were
 on the owner's Mac, on the Vite 8 / Vitest 5 / Playwright 1.65 toolchain, with the one-fingerprint
 rule, the in-place "Retry with relay" and the fixes of its two reviews in (vitest 507 of 507; e2e 204
 passed, 12 skipped, none failed; axe 152 of 152). The screenshot gate ran the same day on the deploy
-host, before those fixes and that rule, which change no screen (207 of 207, the 12 baselines of the
-retry's six scenes recorded there).
+host: 207 of 207 with the rule and the first review's fixes in, the 12 baselines of the retry's six
+scenes recorded there; the second review's fixes touch no screen.
 Refresh them here whenever the suite grows.
 
 A second internal audit on **2026-09-12**, modelling a fully malicious signaling server rather than a
