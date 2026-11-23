@@ -13,7 +13,7 @@ import { useAppSelector } from '../store/hooks';
 import { usePrefs, useT } from './prefs';
 
 /* ------------------------------------------------------------------------------------------------
- * Primitives shared by the screens. Composition, hierarchy and states come from the Claude Design
+ * Primitives shared by the screens. Composition, hierarchy and states come from the design
  * canvas (README § UI); every colour / font / radius / motion value comes from the kit
  * tokens through app.css. Behaviour (aria, keyboard, state) lives here, in the host, never in the kit.
  * ---------------------------------------------------------------------------------------------- */

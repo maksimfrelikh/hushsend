@@ -2,7 +2,7 @@
  * Copy table for the screens. ENGLISH ONLY for now: every key carries `en`; `ru` is optional and
  * the translator falls back to `en` when it is missing, so the EN|RU switch stays hidden until the
  * Russian half is complete (prefs.tsx keeps the language state, the header shows no switch). New
- * strings get `en` only. Copy is the owner's placeholder, taken from the Claude Design canvas
+ * strings get `en` only. Copy is the owner's placeholder, taken from the design canvas
  * boards (see README § UI) except the security sentences, which are the ones the
  * threat model needs said in exactly these words.
  *

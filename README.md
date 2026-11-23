@@ -140,7 +140,7 @@ be verified without a reference hash.
 ## Status
 
 **Feature-complete and deployed.** All four methods, the codeless reconnect, the mesh lobby, TURN,
-light/dark, the Claude Design screen set (English only for now; the RU table is kept, the switch
+light/dark, the designed screen set (English only for now; the RU table is kept, the switch
 hidden), and the deployment are built and live. **507 vitest tests** (the client; the signaling
 server's 28 run in its own repository) and a
 Playwright e2e suite — **69 cases per engine: 68 run on chromium, 64 on firefox, 63 on webkit** (2026-11-23) (the
@@ -948,7 +948,7 @@ auto-pairs. **Both the creator AND every joiner land in `awaitingPeer`** (a join
 4-digit code + a **roster** of everyone else in the room, each with a **Connect** button. The human
 PICKS whom to raise a 1:1 channel with.
 - **Roster projection**: `connection.roster: PeerInfo[]` (`{id, joinedAt}` — the coarse `device` label
-  was removed from the protocol 2026-09-27, see [claude-md-retired-sections.md](docs/history/claude-md-retired-sections.md) § Signaling server), maintained by the
+  was removed from the protocol 2026-09-27, see [the retired sections](docs/history/claude-md-retired-sections.md) § Signaling server), maintained by the
   core from signaling — `welcome` (set the existing peers) / `peer-joined` (add) / `peer-left` (remove,
   also clearing a stale busy notice). Serializable; the live objects stay in the core. (Seeded for all
   methods, but only the room `LobbyScreen` renders it.)
@@ -2083,12 +2083,12 @@ input (`src/ui/screens/ScanScreen.tsx`).
 Dependency: `"stark-ui-kit": "github:maksimfrelikh/stark-ui-kit#<sha>"` — a public GitHub repo, pinned by
 commit (NOT on the npm registry: `npm install stark-ui-kit` fetches an unrelated package). **Current pin:
 `f9d9250` = kit 0.3.2** (since 2026-10-03 — quiet touch feedback, § UI → *Touch press*); every consumer's
-pin is in the consumers table of the kit's own `CLAUDE.md`. Bumping the pin needs `npm install`
+pin is in the consumers table of the kit's own notes. Bumping the pin needs `npm install`
 with the TPM SSH agent (`SSH_AUTH_SOCK=/run/user/1000/ssh-tpm-agent.sock` in a non-interactive shell) —
 npm caches a git dep by sha, so the bump IS the install. The rules for changing the kit and how a change
-travels live in the kit's own `CLAUDE.md`; its `README.md` is the consumer contract.
-- **The reference is the Claude Design canvas** https://claude.ai/artifact/XRjdVX5U8SC8m2cDSgzDSP
-  (implemented 2026-09-26). Read it with the Artifact tool: `project/canvas.json` places the boards,
+travels live in the kit's own notes; its `README.md` is the consumer contract.
+- **The reference is the design canvas** (the owner's, not public; implemented 2026-09-26).
+  Its `project/canvas.json` places the boards,
   `project/<Name>.dc.html` is one board (Main, HomeEmpty, Method, Share, Scan*, WordsRead*, WordsEnter*,
   Lobby*, SasReader*, SasPicker, Connecting, ReconnectWait, Transfer*, Failed*, KeyChanged; Dark /
   Desktop / Tablet / Stress / Zoom suffixes are the same screens at other themes and widths),
@@ -2097,9 +2097,8 @@ travels live in the kit's own `CLAUDE.md`; its `README.md` is the consumer contr
   spacing rhythm, radius, motion) from the kit's tokens, never from the artboards** (kit rule 6).
   The old HTML prototype that used to live under `uploads/design-reference/` was DELETED on
   2026-09-26 (with its drifted `_ds/` token copy) — the canvas is the only reference.
-- **Design language = "Stark"**, published as a Claude Design system generated from the reference site
-  frelikh.com: https://claude.ai/artifact/Da7if9WhD7hxZjf5sL6m2F (brand book, tokens, kit + site
-  components). Values come from the kit, never from there either.
+- **Design language = "Stark"**, kept as a design system generated from the reference site
+  frelikh.com (the owner's, not public: brand book, tokens, kit + site components). Values come from the kit, never from there either.
 - **Imports, in this order, once, at the app root (`src/main.tsx`):** the two webfonts
   (`@fontsource-variable/archivo/wght.css`, `@fontsource/ibm-plex-mono/{400,500,600}.css` — the
   families `theme-mono.css` names, self-hosted through the bundle because the CSP allows `font-src
@@ -2614,25 +2613,25 @@ Last run 2026-10-13 against the bundle fetched over HTTPS from the live host (`i
 
 | Slot | Device | OS version | Browser + version | Engine | Driven by | Expected receive path | Expected QR decoder |
 |---|---|---|---|---|---|---|---|
-| MBP-A | MacBook | macOS 26 | Chrome 154 | Blink | Claude via **Playwright** driving the installed Chrome (`channel:'chrome'`, persistent profiles, since 2026-09-27) | straight into Downloads through the download worker (since 2026-09-28, live since `c5a51c4`); site storage only if the worker cannot come up | native `BarcodeDetector` since 2026-10-03 (`b73651d`), zxing ponyfill on its first throw — see B3 |
-| MBP-A | MacBook | | Brave 154 (shields up) | Blink | Claude (Claude-in-Chrome extension) | the stream path expected (desktop Chromium; not probed — shields may block the worker, then site storage) — Brave ships no `showSaveFilePicker`, so no dialog fallback | zxing ponyfill |
-| MBP-A | MacBook | macOS 26 | Safari 26.6 | **WebKit (the real one)** | Claude via **WebDriver** (`safaridriver`, since 2026-09-27 — see § How this pass is actually run) | OPFS (probed 2026-09-27: writes to disk, quota 76.8 GiB) | zxing ponyfill |
-| MBP-A | MacBook | macOS 26 | Firefox 156 | Gecko | Claude via **WebDriver** (`geckodriver`, since 2026-09-27) | OPFS (probed 2026-09-27: writes to disk, quota 10 GiB) — never the stream path: Firefox fails a streamed download unsafely (2026-09-28) | zxing ponyfill |
-| MBP-A | MacBook | macOS 26 | Claude's built-in Chromium 152 | Blink | Claude (built-in browser) — a SECOND profile next to Brave, so E-cases are honest | the stream path expected (desktop Chromium); before 2026-09-28 its FSA dialog could not be shown in the pane | zxing ponyfill |
-| MBP-B | MacBook | | Chrome | Blink | Claude (Playwright) | straight into Downloads (the stream path) | zxing ponyfill |
-| IPH | iPhone | | Safari (WebKit) | WebKit + phone limits | Claude via Safari Web Inspector (USB) | OPFS expected (not yet probed on a device); Save file if the screen was locked | zxing ponyfill |
-| AND-1 | **Google Pixel 5** (the owner's; attached 2026-10-02) | Android 14, patch 2023-11-05 (EOL) | Chrome 152 | Blink | Claude over CDP via USB (`adb forward … chrome_devtools_remote`, the `android-device` skill) + `adb` for native UI; no SIM — "LTE" is a second Wi-Fi with a VPN exit in France | OPFS expected (mobile Chromium does not stream until a handset proves it — B2/B10) — no dialog while the connection is live; the save dialog only past the quota (Chrome 149 HAS `showSaveFilePicker`, and a dialog left open ~20 s killed the connection — why disk-without-dialog is now first) | native `BarcodeDetector` since 2026-10-03, zxing ponyfill on its first throw (the 2026-10-02 scan ran zxing) |
-| SIM-iOS | iPhone 17 **simulator** (rehearsal only) | iOS 27.0 | Safari | WebKit, but the Mac's RAM and network | Claude via simulator taps + screenshots (safaridriver cannot reach it) | OPFS expected (not probed on the simulator) | zxing ponyfill |
+| MBP-A | MacBook | macOS 26 | Chrome 154 | Blink | **Playwright** driving the installed Chrome (`channel:'chrome'`, persistent profiles, since 2026-09-27) | straight into Downloads through the download worker (since 2026-09-28, live since `c5a51c4`); site storage only if the worker cannot come up | native `BarcodeDetector` since 2026-10-03 (`b73651d`), zxing ponyfill on its first throw — see B3 |
+| MBP-A | MacBook | | Brave 154 (shields up) | Blink | a browser extension that drives the page | the stream path expected (desktop Chromium; not probed — shields may block the worker, then site storage) — Brave ships no `showSaveFilePicker`, so no dialog fallback | zxing ponyfill |
+| MBP-A | MacBook | macOS 26 | Safari 26.6 | **WebKit (the real one)** | **WebDriver** (`safaridriver`, since 2026-09-27 — see § How this pass is actually run) | OPFS (probed 2026-09-27: writes to disk, quota 76.8 GiB) | zxing ponyfill |
+| MBP-A | MacBook | macOS 26 | Firefox 156 | Gecko | **WebDriver** (`geckodriver`, since 2026-09-27) | OPFS (probed 2026-09-27: writes to disk, quota 10 GiB) — never the stream path: Firefox fails a streamed download unsafely (2026-09-28) | zxing ponyfill |
+| MBP-A | MacBook | macOS 26 | the driver's own Chromium 152 | Blink | driven directly — a SECOND profile next to Brave, so E-cases are honest | the stream path expected (desktop Chromium); before 2026-09-28 its FSA dialog could not be shown in the pane | zxing ponyfill |
+| MBP-B | MacBook | | Chrome | Blink | Playwright | straight into Downloads (the stream path) | zxing ponyfill |
+| IPH | iPhone | | Safari (WebKit) | WebKit + phone limits | Safari Web Inspector (USB) | OPFS expected (not yet probed on a device); Save file if the screen was locked | zxing ponyfill |
+| AND-1 | **Google Pixel 5** (the owner's; attached 2026-10-02) | Android 14, patch 2023-11-05 (EOL) | Chrome 152 | Blink | CDP via USB (`adb forward … chrome_devtools_remote`) + `adb` for native UI; no SIM — "LTE" is a second Wi-Fi with a VPN exit in France | OPFS expected (mobile Chromium does not stream until a handset proves it — B2/B10) — no dialog while the connection is live; the save dialog only past the quota (Chrome 149 HAS `showSaveFilePicker`, and a dialog left open ~20 s killed the connection — why disk-without-dialog is now first) | native `BarcodeDetector` since 2026-10-03, zxing ponyfill on its first throw (the 2026-10-02 scan ran zxing) |
+| SIM-iOS | iPhone 17 **simulator** (rehearsal only) | iOS 27.0 | Safari | WebKit, but the Mac's RAM and network | simulator taps + screenshots (safaridriver cannot reach it) | OPFS expected (not probed on the simulator) | zxing ponyfill |
 | SIM-iPad | iPad (A16) **simulator** (rehearsal only) | iPadOS 27.0 | Safari | WebKit | as SIM-iOS | OPFS expected; the UA no longer matters (it sent a desktop UA, which picked the 1 GiB cap until 2026-09-27) | zxing ponyfill |
-| EMU-AND | Pixel 9 Pro **emulator** (rehearsal only) | Android 17 (user build) | Chrome 149 | Blink | Claude over CDP (`adb forward … localabstract:chrome_devtools_remote`) + `adb` for native UI | OPFS expected — no dialog any more (it was FSA through the system save dialog) | zxing ponyfill |
-| AND-2 | Android | | Firefox | Gecko | Claude via `about:debugging` (USB) | OPFS expected | zxing ponyfill |
+| EMU-AND | Pixel 9 Pro **emulator** (rehearsal only) | Android 17 (user build) | Chrome 149 | Blink | CDP (`adb forward … localabstract:chrome_devtools_remote`) + `adb` for native UI | OPFS expected — no dialog any more (it was FSA through the system save dialog) | zxing ponyfill |
+| AND-2 | Android | | Firefox | Gecko | `about:debugging` (USB) | OPFS expected | zxing ponyfill |
 
 Three engines, not four browsers: Blink (Chrome, Brave, Android Chrome), Gecko (Firefox ×2), WebKit
 (Safari ×2). Brave earns its row for hardening (B9), MBP-B for a second disk endpoint (F4).
 
 #### How this pass is actually run — three tracks
 
-This plan was written for a human holding the devices. It is now run mostly **through Claude Code**:
+This plan was written for a human holding the devices. It is now run mostly **by automation**:
 desktop browsers it drives directly, plus **real handsets attached over USB** — iPhone through Safari
 Web Inspector, Android through `chrome://inspect` (both already in § How to observe). A real handset is the point:
 an iOS Simulator would give real WebKit but the Mac's RAM, no camera and the Mac's network, which
@@ -2643,9 +2642,9 @@ port of its own, so on any network it looks like a host behind a symmetric NAT
 So the useful split is not "automated vs manual" but **who has to be physically present for the
 evidence to exist**:
 
-- **T1 — Claude Code alone, across ALL THREE desktop engines.** Chrome, Brave, Firefox and Safari
+- **T1 — automation alone, across ALL THREE desktop engines.** Chrome, Brave, Firefox and Safari
   are driven over MCP, so this track is not "a browser" — it is the real engine matrix:
-  **Blink** (Chrome, Brave), **Gecko** (Firefox), **WebKit** (Safari). Claude opens the pages, drives
+  **Blink** (Chrome, Brave), **Gecko** (Firefox), **WebKit** (Safari). The automation opens the pages, drives
   the flow, reads console / Network / `chrome://webrtc-internals` / `about:webrtc`.
   Two things follow, and they are the reason this track got much stronger:
   **(a) desktop Safari is REAL WebKit.** Everything headless has said about WebKit so far came from
@@ -2656,15 +2655,15 @@ evidence to exist**:
   no cellular NAT), but it is the difference between a proxy and the real thing.
   **(b) Brave is Blink — it adds no engine.** It is worth running for its HARDENING, not its renderer
   (see B9), and nobody should read four browsers as four engines.
-- **T2 — real device attached; Claude drives and observes, you perform ONE named physical act.**
+- **T2 — real device attached; the automation drives and observes, you perform ONE named physical act.**
   Point the camera, toggle a radio, lock the screen, tap an OS permission prompt, click a native save
-  dialog. Everything after that act is Claude's to drive and read.
+  dialog. Everything after that act is the automation's to drive and read.
 - **T3 — your eyes.** What Web Inspector cannot see or judge at all: OS-level UI (the native share
   sheet) and ergonomics (are tap targets truly reachable, is anything clipped on a real 390 px screen).
 
 | Track | Cases | Count |
 |---|---|---|
-| **T1** — Claude alone, closes the case outright | A4a, A4b, A6, A7 · B7, B9 · D1–D5 · E1–E5 · F3, F5, F6, F7 | 20 |
+| **T1** — automation alone, closes the case outright | A4a, A4b, A6, A7 · B7, B9 · D1–D5 · E1–E5 · F3, F5, F6, F7 | 20 |
 | **T1 + T2** — T1 closes the DESKTOP half on real engines; the handset half is a separate tick | A1, A3, A4, A5, A6a · B2, B8, B10 · E6, E7 · F2, F8 | 12 |
 | **T2** — needs one physical act from you | A2 · B1, B3, B4 · C1–C10 · F1, F4, F9 | 17 |
 | **T1 + T3** — T1 closes the desktop half; the rest is your eyes | B5 (native share sheet) · B6 (phone ergonomics) | 2 |
@@ -2678,7 +2677,7 @@ both: `A1 · T1 · Chrome↔Safari desktop · PASS` and later `A1 · T2 · MBP-A
 The case this reshapes most is **A6a (path attestation per engine pair)**. Its whole purpose is the
 table § Security — open needs to decide whether attestation can ever become a control, and the only real-engine
 datum so far is "firefox↔webkit on one LAN says `mismatch` with no attacker present". Three real
-desktop engines in six pairings, all drivable by Claude in one sitting, is most of that table.
+desktop engines in six pairings, all drivable by automation in one sitting, is most of that table.
 
 Your physical acts, in full — this is the entire manual surface of the pass:
 point the camera at a QR (A2, B3); tap **Deny**, then **Allow**, on the camera prompt (B4); click the
@@ -3229,7 +3228,7 @@ allows — the receiver already writes to site storage), a persistent QR / link 
   (`.hs-iconbtn`), the method / peer row (`.hs-row*`) and the `--fg`-at-4 %/9 % wash (`--hs-wash` —
   a kit `--wash` token would let hosts stop re-deriving it). Domain pieces (the hero code, the
   phrase, the phrase cards, the transfer container, the viewport inversion) stay app-local. **Not to
-  be done until the owner asks**; when it is, follow the kit's `CLAUDE.md` (additive, one stylesheet
+  be done until the owner asks**; when it is, follow the kit's own notes (additive, one stylesheet
   per component, bump both consumers, frelikh `verify` + `visual`, regenerate the Stark system).
 
 - **Scheduled CI expires on a quiet repo.** GitHub disables `schedule:` workflows after 60 days with
@@ -3245,7 +3244,7 @@ allows — the receiver already writes to site storage), a persistent QR / link 
   case to its procedure, its expectation and a one-line dated status that links the run file.
 - **Two documentation checks are not built yet** (part of the 2026-10-03 plan): status words only with a
   date, and documented numbers against the code's constants (§ Reference numbers lists dozens). The
-  § Architecture sections came over from CLAUDE.md with their "(this pass)" / "— done (step 6)"
+  § Architecture sections came over from the old notes file with their "(this pass)" / "— done (step 6)"
   markers; date or drop them first, then add both checks to `scripts/check-docs.mjs`.
 
 ## Decisions

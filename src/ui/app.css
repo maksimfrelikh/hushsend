@@ -1,8 +1,8 @@
 /* ============================================================
    hushsend — application component layer
    ------------------------------------------------------------
-   Composition, hierarchy, states and copy come from the Claude
-   Design canvas (README § UI). EVERY colour, font,
+   Composition, hierarchy, states and copy come from the design
+   canvas (README § UI). EVERY colour, font,
    radius, motion and gutter value here is a stark-ui-kit token:
    --bg/--fg/--muted/--faint/--line/--line-2/--ink/--ink-fg,
    --r-*, --t-*, --w-*, --label-*, --font-*, --ease-*, --dur-*,

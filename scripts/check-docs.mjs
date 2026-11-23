@@ -8,9 +8,10 @@
 //      a heading of the target;
 //   3. section references — prose pointers such as "README § Risk 3" or "§ File transfer" must name
 //      a heading that exists in that file (the same file when none is named): moving or renaming a
-//      section without updating its pointers is the drift this catches. In the dated records only the
-//      file has to exist — they may point at a sub-item of a document as it was then, and the names of
-//      the documents merged into README.md on 2026-11-22 (TESTPLAN, THREATMODEL, …) resolve to it;
+//      section without updating its pointers is the drift this catches. The dated records are not
+//      held to it — they may point at a sub-item of a document as it was then, or at a document that
+//      is gone; the names of the documents merged into README.md on 2026-11-22 (TESTPLAN,
+//      THREATMODEL, …) resolve to it;
 //   4. code paths — `src/…`, `tests/…`, `deploy/…` (and the like) quoted in a LIVING document must
 //      exist. The append-only records (docs/history/, docs/test-runs/) are exempt: they describe the
 //      tree as it was on their date.
@@ -25,7 +26,7 @@ const RECORDS = ['docs/history/', 'docs/test-runs/'];
 const ROOT = execSync('git rev-parse --show-toplevel', { encoding: 'utf8' }).trim();
 const files = execSync("git ls-files '*.md'", { cwd: ROOT, encoding: 'utf8' }).split('\n').filter(Boolean);
 // Short names the prose uses for the root documents ("README § Backlog").
-const ALIASES = { CLAUDE: 'CLAUDE.md', README: 'README.md' };
+const ALIASES = { README: 'README.md' };
 // The documents merged into README.md on 2026-11-22. The dated records still name them; only there do
 // they resolve (to README.md) — in the living documents they are dead names.
 const RETIRED = {
@@ -110,7 +111,7 @@ for (const file of files) {
       .replace(/`[^`]*`/g, (m) => '\uE000'.repeat(m.length));
     let lastNamed = null;
     let lastEnd = -1;
-    const REF = /(?:([\w./-]+\.md)|\b(CLAUDE|BACKLOG|TESTPLAN|THREATMODEL|README|COMPATIBILITY|DEPLOY))?(?:['’]s)?[ \t]*§[ \t]*([^\n§]+)/g;
+    const REF = /(?:([\w./-]+\.md)|\b(BACKLOG|TESTPLAN|THREATMODEL|README|COMPATIBILITY|DEPLOY))?(?:['’]s)?[ \t]*§[ \t]*([^\n§]+)/g;
     for (let m; (m = REF.exec(refText)); ) {
       const lead = refText.slice(Math.max(0, m.index - 12), m.index);
       if (/RFC\s*\d+\s*$/i.test(lead) || /\uE000\s*$/.test(lead)) continue; // an RFC's section, or a code file's
@@ -122,7 +123,7 @@ for (const file of files) {
         const base = named.replace(/\.md$/, '').split('/').pop();
         const candidates = [named, normalize(join(here, named)), ALIASES[base], isRecord(file) && RETIRED[base]].filter(Boolean);
         target = candidates.find((c) => inRepo(c) && statSync(join(ROOT, c)).isFile());
-        if (!target) { report(file, n, `section reference to a missing file: ${named} § …`); continue; }
+        if (!target) { if (!isRecord(file)) report(file, n, `section reference to a missing file: ${named} § …`); continue; }
         lastNamed = named;
       }
       const nameText = m[3].split(/ →|->|[,;:()[\]"“]|['’]s\b| — | – |\. |\.$|\*\*| and | or | \/ /)[0];
