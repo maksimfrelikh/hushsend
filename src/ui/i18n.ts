@@ -164,6 +164,14 @@ export const STR = {
   rwTitle: { en: 'Waiting for the other device', ru: 'Ждём другое устройство' },
   rwDesc: { en: 'Open hushsend on it and tap Reconnect on this device’s row.' },
 
+  // --- relay-retry wait (this side tapped "Retry with relay" first) ---
+  relayWaitTitle: { en: 'Waiting for your peer' },
+  relayWaitDesc: {
+    en: 'Ask them to tap “Retry with relay” on their screen. The pairing you started continues — nothing is scanned or typed again.',
+  },
+  relayWaitFallback: { en: 'If they have closed the page, start over with a new invite.' },
+  startOverInstead: { en: 'Start over instead' },
+
   // --- SAS · reader (shows its phrase and reads it aloud) ---
   sasReaderTitle: { en: 'Read this phrase aloud', ru: 'Прочитайте фразу вслух' },
   /** The only gate on this side: clicking through without hearing the peer is the one way a human
@@ -319,17 +327,39 @@ export const STR = {
   // A signaling drop that is not a room answer (1006 above all) — no digits to check, a network to.
   serverLostTitle: { en: 'Lost the connection to the server' },
   serverLostDesc: { en: 'Check your internet connection and start again.' },
-  // Max-privacy STRICT model: never relays — a direct failure is terminal (step 6d).
+  // Max-privacy STRICT model: a direct failure is terminal, never silently relayed (step 6d).
   directFailTitle: { en: 'Couldn’t connect directly', ru: 'Не удалось соединиться напрямую' },
-  // The way out is one tap, and only half of it: a relay is used when BOTH sides allow it.
+  // The way out is one tap on EACH side: the same pairing continues through the relay once both
+  // users ask for it (connectionSlice.relayRetry === 'offered').
   directFailHint: {
+    en: 'Retry with relay continues this pairing in Reliable: a server carries the encrypted traffic when no direct path exists. Both of you have to tap it — a relay is used only when both sides ask for it. Nothing is scanned or typed again.',
+  },
+  // Nothing of the failed attempt can be continued: the button starts a new pairing in Reliable.
+  directFailStartOver: {
     en: 'Retry with relay starts over in Reliable, which sends the encrypted traffic through a server when no direct path exists. Your peer has to switch to Reliable too — a relay is used only when both sides allow it.',
   },
   retryRelay: { en: 'Retry with relay' },
+  // The peer's own tap, as the untrusted server reports it (connectionSlice.peerAsksRelay).
+  peerAsksRelay: { en: 'Your peer has tapped it and is waiting for you.' },
   // Reliable held a relay and still found no path (NO_RELAY_PATH_REASON): most often a peer in Max privacy.
   noRelayPathHint: {
     en: 'No path worked, not even through the relay. A relay is used only when both sides allow it — if your peer is in Max privacy, ask them to switch to Reliable too.',
   },
+  // The same failure while the pairing can still continue: the peer's tap, then this side's.
+  noRelayPathRetryHint: {
+    en: 'No path worked, not even through the relay. A relay is used only when both sides ask for it — if your peer is in Max privacy, ask them to tap “Retry with relay”, then tap Try again here. Nothing is scanned or typed again.',
+  },
+  // …and after the retry: both sides allowed the relay, so the peer's mode is no longer the reason.
+  noRelayPathAfterRetry: {
+    en: 'No path worked, not even through the relay. One of the two networks may block it altogether.',
+  },
+  retryAgain: { en: 'Try again' },
+  // The retry rendezvous stayed empty (RELAY_RETRY_NO_SHOW_REASON).
+  retryNoShowTitle: { en: 'Your peer did not join the retry' },
+  retryNoShowDesc: {
+    en: 'Both of you have to tap “Retry with relay”. Start over makes a new invite in Reliable — or takes you home, if the invite was theirs.',
+  },
+  startOver: { en: 'Start over' },
   // The network check found the reason on THIS side (connectionSlice.nat === symmetric).
   directFailSymmetric: {
     en: 'This network gives your device a different address for every destination — mobile data and many VPNs do — so the other device could not reach it.',

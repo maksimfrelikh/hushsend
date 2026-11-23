@@ -4,11 +4,12 @@ import type { AppDispatch } from '../store';
 /**
  * Two halves of one case — a pair that could not connect directly.
  *
- * The MAX side ends on the direct-failure screen, whose "Retry with relay" calls `retryWithRelay`:
- * the failed session is disposed and a NEW one starts in Reliable — what this side can start alone.
- * The RELIABLE side of a mixed pair (its peer in Max privacy drops relay candidates) used to end on
- * "channel closed during pairing"; with a relay in hand and ICE failing before any channel, it now
- * ends on the reason FailedScreen turns into "ask your peer to switch to Reliable too".
+ * "Retry with relay" continues the same pairing (SessionController.relayRetryInPlace.test.ts). Where
+ * the failed attempt left nothing to continue from — here: no fingerprints, the mock has none — the
+ * button falls back to `startOverWithRelay`: the failed session is disposed and a NEW one starts in
+ * Reliable, what this side can start alone. The RELIABLE side of a mixed pair (its peer in Max privacy
+ * drops relay candidates) used to end on "channel closed during pairing"; with a relay in hand and ICE
+ * failing before any channel, it ends on the reason FailedScreen turns into "ask your peer".
  */
 
 const hoisted = vi.hoisted(() => {
@@ -77,7 +78,7 @@ const failureReasons = (dispatch: ReturnType<typeof vi.fn>): string[] =>
     .filter((a) => a.type === connectionActions.failed.type)
     .map((a) => a.payload!.reason);
 
-describe('retryWithRelay — the Max side starts over in Reliable', () => {
+describe('retryWithRelay with nothing to continue — the fallback starts over in Reliable', () => {
   it('the creator of a link gets a NEW link, in Reliable, after the failed session is disposed', async () => {
     const { sc, internals, starts, dispose } = controller();
     Object.assign(internals, { method: 'qr', isCreator: true, privacyMode: 'max' });

@@ -12,10 +12,11 @@ import { onMacDesktop } from '../platform';
  * our own code expired while we waited in its room, room not found or code expired, lost the connection
  * to the server (a signaling drop that is not a room answer), nobody came (reconnect), direct path
  * failed (Max privacy — with "Retry with relay"), no path even through the relay (Reliable, most often
- * a peer in Max privacy), the missing-relay hint in Reliable, connection lost (an AUTHENTICATED channel
- * died — with the last file's outcome), generic, and the words method, which additionally offers fresh
- * words. There is no "Try again": "Retry with relay" is the one action that starts over, because it
- * changes what failed — the mode.
+ * a peer in Max privacy — "Try again" while the pairing can continue), nobody came to the retry, the
+ * missing-relay hint in Reliable, connection lost (an AUTHENTICATED channel died — with the last
+ * file's outcome), generic, and the words method, which additionally offers fresh words. "Retry with
+ * relay" continues the same pairing once both users tap it, and "Try again" is its name on a side
+ * already in Reliable; no other variant offers a retry, because nothing about it would have changed.
  *
  * NOTHING IS SAID TWICE (owner's rule, 2026-09-27): a title, and a description only where it tells the
  * user something the title does not. The mono eyebrows that paraphrased every title are gone, and the
@@ -39,6 +40,11 @@ export function FailedScreen(): ReactElement {
   // Max privacy only: the network check found THIS side behind a symmetric NAT (core/natCheck.ts) —
   // the direct variant then names that as the reason.
   const symmetricNat = useAppSelector((s) => s.connection.nat?.verdict === 'symmetric');
+  // "Retry with relay": `offered` — this pairing can continue through the relay once both users tap;
+  // `active` — this session was that retry, and there is no second one.
+  const relayRetry = useAppSelector((s) => s.connection.relayRetry);
+  const canContinue = relayRetry === 'offered';
+  const peerAsksRelay = useAppSelector((s) => s.connection.peerAsksRelay);
   // Whether this session ever had a file on the wire (the connection-lost variant then shows it).
   const hadTransfer = useAppSelector((s) => s.transfer.phase !== 'idle' && !!s.transfer.fileName);
 
@@ -82,6 +88,9 @@ export function FailedScreen(): ReactElement {
   // Codeless reconnect: the wait cap fired with nobody at the rendezvous. Keyed off the stable
   // RECONNECT_NO_SHOW_REASON marker the core sets.
   const isNoShow = /did not show up/.test(lower);
+  // This side tapped "Retry with relay" and nobody came to the retry rendezvous. Keyed off
+  // RELAY_RETRY_NO_SHOW_REASON.
+  const isRetryNoShow = /did not join the retry/.test(lower);
   // An AUTHENTICATED channel died after `connected`. Keyed off CONNECTION_LOST_PREFIX
   // (`connection lost: <which signal>`).
   const isLost = lower.startsWith('connection lost');
@@ -97,7 +106,9 @@ export function FailedScreen(): ReactElement {
         ? 'noWebrtc'
         : isNoShow
           ? 'noShow'
-          : isWaitExpired
+          : isRetryNoShow
+            ? 'retryNoShow'
+            : isWaitExpired
             ? 'waitExpired'
             : isExpired
               ? 'expired'
@@ -133,14 +144,18 @@ export function FailedScreen(): ReactElement {
     mismatch: { title: t('erMismatchTitle'), desc: mismatchDesc },
     waitExpired: waitCopy,
     noShow: { title: t('noShowTitle'), desc: t('noShowDesc') },
+    retryNoShow: { title: t('retryNoShowTitle'), desc: t('retryNoShowDesc') },
     noWebrtc: { title: t('noWebrtcTitle'), desc: t('noWebrtcDesc') },
     expired: expiredCopy,
     server: { title: t('serverLostTitle'), desc: t('serverLostDesc') },
     direct: {
       title: t('directFailTitle'),
-      desc: symmetricNat ? `${t('directFailSymmetric')} ${t('directFailHint')}` : t('directFailHint'),
+      desc: `${symmetricNat ? `${t('directFailSymmetric')} ` : ''}${t(canContinue ? 'directFailHint' : 'directFailStartOver')}`,
     },
-    noRelayPath: { title: t('erGenericTitle'), desc: t('noRelayPathHint') },
+    noRelayPath: {
+      title: t('erGenericTitle'),
+      desc: t(canContinue ? 'noRelayPathRetryHint' : relayRetry === 'active' ? 'noRelayPathAfterRetry' : 'noRelayPathHint'),
+    },
     // Title, the file, the signal. A description could not honestly say WHOSE side dropped.
     lost: { title: t('lostTitle'), desc: '' },
     generic: { title: t('erGenericTitle'), desc: '' },
@@ -169,6 +184,10 @@ export function FailedScreen(): ReactElement {
           hadTransfer ? (
             <LastTransfer />
           ) : null
+        ) : canContinue && peerAsksRelay && (variant === 'direct' || variant === 'noRelayPath') ? (
+          <p className="hs-p hs-p--narrow" role="status" data-testid="peer-asks-relay">
+            {t('peerAsksRelay')}
+          </p>
         ) : relayUnavailable ? (
           <p className="hs-p hs-p--muted hs-p--narrow" data-testid="relay-unavailable-hint">
             {t('relayUnavailableHint')}
@@ -181,8 +200,27 @@ export function FailedScreen(): ReactElement {
       }
       reason={reason}
       actions={
-        variant === 'direct' ? (
-          // Max privacy could not connect directly: start over in Reliable, for this visit — the
+        variant === 'retryNoShow' ? (
+          <>
+            <Pill variant="primary" block testId="start-over-btn" onClick={() => void session.startOverWithRelay()}>
+              {t('startOver')}
+            </Pill>
+            <TextLink testId="reset-btn" onClick={() => session.dispose()}>
+              {t('backHome')}
+            </TextLink>
+          </>
+        ) : variant === 'noRelayPath' && canContinue ? (
+          // Already in Reliable: the same retry, under the name it has on this side.
+          <>
+            <Pill variant="primary" block testId="retry-relay-btn" onClick={() => void session.retryWithRelay()}>
+              {t('retryAgain')}
+            </Pill>
+            <TextLink testId="reset-btn" onClick={() => session.dispose()}>
+              {t('backHome')}
+            </TextLink>
+          </>
+        ) : variant === 'direct' ? (
+          // Max privacy could not connect directly: this side asks for the relay, for this visit — the
           // stored mode stays the user's own choice (README § Max-privacy strict model).
           <>
             <Pill

@@ -760,9 +760,9 @@ Each is enforced in code and covered by tests; the linked section has the mechan
 - Once `connected`, every method closes its own signaling socket, so the untrusted server never learns
   how long the session runs; liveness is the DataChannel and ICE, never room presence
   (§ Signaling WS lifecycle).
-- Max privacy never relays — no fallback, no consent prompt (§ Max-privacy strict model). The failure
-  screen's "Retry with relay" ends that session and starts a new pairing in Reliable; it carries
-  nothing over.
+- Max privacy never relays unless both users ask for it in that session, each by a tap on "Retry with
+  relay" after a direct failure — no automatic fallback, nothing the peer or the server can trigger.
+  The retried transport is authenticated again by the method's own secret (§ Max-privacy strict model).
 
 ### Connection — the state machine, the signaling socket, early frames
 
@@ -1613,8 +1613,10 @@ see **Max-privacy strict model** below.
   over loopback). Server `turn-credentials` minting is **done (6d server side)** — see Signaling server §.
 
 ##### Max-privacy strict model (done — completes 6d)
-**Max-privacy NEVER relays. Period — no consent escalation, no relay-retry of a session.** Two always-on mechanisms
-enforce it in Max-privacy, then a direct failure is **terminal**:
+**Max privacy never relays unless both users ask for it in that session** — each by their own tap on
+"Retry with relay" after a direct failure (below; the owner's decision of 2026-11-23, § Decisions).
+No timer, no automatic fallback, nothing the peer or the signaling server can send moves it. Until
+then these always-on mechanisms keep a Max-privacy pairing direct, and a direct failure is **terminal**:
 - **No local TURN** — Max-privacy never requests coturn creds, so we never offer a relay candidate
   (`ensureTurnReady` is a no-op off Reliable).
 - **Strict relay-candidate filter** — the PeerConnection **DROPS the peer's incoming `typ relay` ICE
@@ -1673,29 +1675,85 @@ enforce it in Max-privacy, then a direct failure is **terminal**:
   in flight + channel not open + not established) routes the link/qr, room/SAS and reconnect
   `onPeerLeft` branches through `failDirect(DIRECT_FAIL_REASON)`; **words is excluded** (its peer-left
   is a counted guess with its own retry copy). Unit: `SessionController.sasPeerLeft.test.ts`.
-- **"Retry with relay" (since 2026-11-22) — a new pairing, not an escalation.** The direct-failure
-  screen's primary action (testid `retry-relay-btn`; "Back home" stays under it) calls
-  `SessionController.retryWithRelay()`: the failed session is disposed — its PeerConnection, its
-  socket, its link or words or room — and what this side can start ALONE starts again in Reliable.
-  Whoever made the invite gets a fresh one (a new link, new words, a new room); a reconnect is tried
-  again with the same device; a joiner lands on the home screen with Reliable selected and waits for
-  the peer's new invite. The strict model is untouched: the Max session never relays, nothing is
-  renegotiated, and the peer is asked nothing — which is also the limit, and the copy says it: **the
-  peer has to be in Reliable too**, because a mixed pair does not relay (the Max side drops relay
-  candidates and refuses a relayed path).
+- **"Retry with relay" — the SAME pairing continues through the relay once both users tap it
+  (since 2026-11-23; from 2026-11-22 it started a new pairing, which meant a second scan or a second
+  code).** After a direct failure each side holds what the retry needs: `failDirect` closed the
+  PeerConnection and left the method's secret in place. The direct-failure screen's primary action
+  (testid `retry-relay-btn`; "Back home" stays under it) calls `SessionController.retryWithRelay()`.
+  - **Consent is each side's own tap, and nothing else.** `retryWithRelay()` is called only from that
+    button. The tap also sends the peer one frame over the old signaling socket, `{ kind:
+    'relay-retry' }` — a courtesy, so that the peer's failure screen can say "your peer is waiting".
+    The frame comes through the untrusted server, so that line is ALL it can do: a forged, repeated or
+    late one starts nothing and requests nothing (`connection.peerAsksRelay` is a projection only).
+  - **Where the two meet: a rendezvous derived from the failed attempt, not the old room.** A room
+    on the signaling server lives 3 minutes (words and token rooms from creation, a 4-digit room
+    since its last join), and a failed direct attempt has usually spent most of that. So the retry
+    never depends on the old socket: both sides compute the same 128-bit token from the two DTLS
+    fingerprints of the failed attempt (`relayRetryToken`, `src/core/relayRetry.ts`: SHA-256 under
+    its own label, the fingerprints in sorted order) and take that token room, join-or-create — the
+    side that taps first waits in it. The fingerprints crossed the server inside the SDP, so the
+    token is not a secret and does not need to be: like every rendezvous here it is routing, and the
+    server could always put anyone into any room. What authenticates is the next point. A reconnect
+    meets there too, not at its own bucket rendezvous: the peer's failed socket still sits in that
+    room, and a side arriving there would pair with it — and ask for a relay — before the peer tapped.
+  - **Authentication covers the retried transport — what is reused and what is agreed again.** The
+    retry builds new PeerConnections, so the DTLS certificates, the fingerprints, the offer and the
+    answer are all new, and every method runs its full check over them:
+
+    | Method | Reused from the failed attempt | Agreed again |
+    |---|---|---|
+    | link / QR | the link secret S | key-confirmation over the new fingerprints |
+    | words | the CPace key of the failed attempt | key-confirmation over the new fingerprints |
+    | room | nothing | nonces, commit–reveal and the SAS; the two people compare the three words |
+    | reconnect | the pin and the pairing secret | fresh challenges; hello → proof → ok |
+
+    **S** is reused because it never left the two devices, has 128 bits, and the confirmation tag is
+    a MAC bound to the fingerprints and the role — a second tag under S, over other fingerprints,
+    tells an observer nothing about the first. **The CPace key** is reused, and CPace is NOT run
+    again, because every CPace run is one guess at the four words: a second run would hand a peer
+    who guessed wrong a second guess for the price of one failed connection. The key exists on both
+    sides by the time ICE can fail (the initiator starts WebRTC only after CPace). A mismatch in
+    the retry ends the pairing; it does not return to the words screen for another joiner. **The
+    room** has nothing to reuse — its 4-digit code is public — so the SAS runs from scratch over the
+    new fingerprints, and the people compare words for the first time: the failed attempt never
+    showed any, the nonce reveal waits for the channel (§ room method). **Nothing secret is sent through
+    signaling**, and no new secret is made.
+  - **Strict until both have tapped.** A side that has not tapped stays where the failure left it:
+    no PeerConnection, no TURN request. The side that tapped first sits alone in the retry room and
+    asks for TURN credentials only when a peer arrives there (`beginPairing` → `ensureTurnReady`, as
+    in any Reliable pairing). **The limit this leaves:** "a peer arrived" is the server's word. A
+    server that fakes the arrival makes a side that DID tap request credentials and gather relay
+    candidates for a pairing that then fails its authentication; it cannot move a side that did not
+    tap, and it gains no relayed byte of a transfer.
+  - **One retry per pairing.** A retry that fails is terminal, with the ordinary Reliable copy.
+  - **Waiting, and when continuing is impossible.** Alone in the retry room the screen says so
+    (`RelayWaitScreen`, testid `relay-waiting`: ask your peer to tap "Retry with relay" too; nothing
+    is scanned or typed again) for `RELAY_RETRY_WAIT_MS` (150 s — the server's own 3-minute room TTL
+    would cut a pairing that started later than that). Then, or at once from "Start over instead",
+    comes the fallback, which is the behaviour of 2026-11-22: `startOverWithRelay()` — whoever made
+    the invite gets a fresh one in Reliable (a new link, new words, a new room), a reconnect is tried
+    again, a joiner lands on the home screen with Reliable selected. The no-show failure
+    (`RELAY_RETRY_NO_SHOW_REASON`, variant `retryNoShow`) says that this is what "Start over" does.
+    The same wait is what a peer who left, a peer whose page is closed and a peer on a client from
+    before 2026-11-23 all look like; the retry itself survives a dead signaling socket and an
+    expired room, since it uses neither. Where the failed attempt left no two fingerprints to derive
+    from, the button starts over directly and the copy says "starts over".
   - **What the tap stores: nothing.** The mode changes for the visit (`setPrivacyMode('reliable',
-    false)` in `prefs.tsx`): the home screen shows Reliable selected, a reload is back on the stored
-    choice. Max privacy is the default (§ Privacy modes), and a retry on one bad network is not the
-    user deciding to relay everywhere from now on; choosing Reliable on the home screen still stores it.
-  - **The Reliable side of a mixed pair** used to end on "channel closed during pairing". Its ICE
-    fails although it holds a relay, so `onChannelClose('ICE failed')` before any channel, with relay
-    URLs in hand, now fails every method with `NO_RELAY_PATH_REASON`, and `FailedScreen` (variant
-    `noRelayPath`, testid `no-relay-path-hint`) says: "No path worked, not even through the relay … if
-    your peer is in Max privacy, ask them to switch to Reliable too." It does not claim to know the
-    peer's mode — the same reason fits a network that blocks UDP altogether. Without relay URLs the
-    reason stays as it was and the missing-relay hint explains it. One edge keeps the old copy: a Max
-    peer that leaves its failure screen before the Reliable side's own ICE gives up reaches it as
-    "peer left during pairing".
+    false)` in `prefs.tsx`): a reload is back on the stored choice. Max privacy is the default
+    (§ Privacy modes), and a retry on one bad network is not the user deciding to relay everywhere
+    from now on; choosing Reliable on the home screen still stores it.
+  - **The Reliable side of a mixed pair** — its ICE fails although it holds a relay, because the Max
+    peer drops relay candidates and refuses a relayed path. `onChannelClose('ICE failed')` before any
+    channel, with relay URLs in hand, ends every method through `failDirect(NO_RELAY_PATH_REASON)`:
+    terminal, socket left open, the retry armed exactly as on the Max side. `FailedScreen` (variant
+    `noRelayPath`, testid `no-relay-path-hint`) says that no path worked even through the relay and
+    that, if the peer is in Max privacy, they should tap "Retry with relay"; this side's button reads
+    "Try again" (same testid `retry-relay-btn`, same `retryWithRelay()`) and takes it to the same
+    retry room. It still taps: a session is restarted by its user, never by a frame from the server.
+    The copy does not claim to know the peer's mode — the same reason fits a network that blocks UDP
+    altogether. For a words creator this is a change: such a failure used to count as a wrong guess
+    and return to the words screen; it is now the end of that code, like every other "no path".
+    Without relay URLs the reason stays as it was and the missing-relay hint explains it.
 - **No relax-offer / bilateral / relax signal**: there is NO consent-gated relay escalation. The
   `connection.relax` projection, the `relax` signaling frame, `relaxConnection`/`declineRelax`, and the
   `pc.setConfiguration`/`restartIce` ICE-restart-over-relay were all **removed**. This also removes the
@@ -3065,6 +3123,11 @@ elsewhere. Open questions waiting for a decision are in [Backlog](#backlog--open
 - Product ideas rejected: a relay-only "hide my IP" mode (everything through the server), any
   store-and-forward (the server never stores files), metadata stripping, a file fingerprint, an offline
   mode via QR signaling, blocking resistance / a self-host kit, text messages, one-to-many sends.
+- "Retry with relay" continues the same pairing (2026-11-23), for every method: after a direct
+  failure, when both users tap it, the pairing they started goes on through the relay with nothing
+  scanned, pasted or typed again. This reverses "Max privacy never relays a session — a retry is a new
+  pairing" (2026-11-22), which the owner met on the carrier as a second QR scan. The rule is now:
+  Max privacy never relays unless both users ask for it in that session (§ Max-privacy strict model).
 - No port prediction for symmetric NATs (2026-11-22): adding the neighbours of a peer's announced port
   connected a phone on the owner's carrier in a prototype ([2026-11-22 run](docs/test-runs/2026-11-22.md)),
   but it rests on how one carrier numbers its ports and can break with the next one.

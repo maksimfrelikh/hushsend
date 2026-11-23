@@ -84,6 +84,15 @@ export interface ConnectionState {
    */
   nat: NatCheckResult | null;
   /**
+   * "Retry with relay" (README § Max-privacy strict model). `offered`: this pairing failed for want of
+   * a path and can continue through the relay once both users tap. `active`: this side's user tapped —
+   * the session is the retry (alone in `awaitingPeer` it shows the RelayWaitScreen), and a failure of
+   * it offers no second one.
+   */
+  relayRetry: 'none' | 'offered' | 'active';
+  /** The peer says it tapped "Retry with relay". From the untrusted server: a line of copy, no more. */
+  peerAsksRelay: boolean;
+  /**
    * The authenticated connection is in ICE `disconnected`: nothing is arriving from the other device
    * right now. Transient — it either comes back (false again) or the core ends the session as lost
    * (`connected → failed`). A projection for the transfer screen, NOT an FSM state: while it is true
@@ -115,6 +124,8 @@ const initialState: ConnectionState = {
   stunDisagreed: false,
   relayUnavailable: false,
   nat: null,
+  relayRetry: 'none',
+  peerAsksRelay: false,
   interrupted: false,
   roster: [],
   notice: null,
@@ -219,6 +230,15 @@ const slice = createSlice({
       state.nat = action.payload;
     },
     /** The connected channel went quiet (true) or came back (false) — see the field's note. */
+    relayRetryOffered(state) {
+      if (state.status === 'failed' && state.relayRetry === 'none') state.relayRetry = 'offered';
+    },
+    peerAskedRelay(state) {
+      state.peerAsksRelay = true;
+    },
+    relayRetryStarted(state) {
+      state.relayRetry = 'active';
+    },
     interrupted(state, action: PayloadAction<boolean>) {
       state.interrupted = state.status === 'connected' && action.payload;
     },

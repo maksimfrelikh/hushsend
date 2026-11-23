@@ -15,8 +15,8 @@
  *
  * NOTE: switching mode affects the NEXT connection (iceServers are read at pairing start, before the
  * PeerConnection is created); it does NOT re-negotiate a live connection. Max-privacy is STRICT — it
- * NEVER relays: a live Max-privacy ICE failure is terminal (the SessionController fails with a hint to
- * switch to Reliable), not escalated to a relay. The relay-candidate filter that enforces this lives in
+ * NEVER relays: a live Max-privacy ICE failure is terminal (the SessionController fails, and its
+ * screen offers "Retry with relay"), not escalated to a relay. The relay-candidate filter that enforces this lives in
  * `src/core/relax.ts`.
  */
 

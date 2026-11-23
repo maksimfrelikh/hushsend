@@ -13,6 +13,7 @@ import { useAppSelector } from '../../store/hooks';
 export function Diagnostics(): ReactElement | null {
   const dev = useAppSelector((s) => s.dev);
   const nat = useAppSelector((s) => s.connection.nat);
+  const relayRetry = useAppSelector((s) => s.connection.relayRetry);
   if (!import.meta.env.DEV) return null;
 
   return (
@@ -50,6 +51,9 @@ export function Diagnostics(): ReactElement | null {
       <p>
         nat: <span data-testid="nat-verdict">{nat?.verdict ?? '—'}</span> · ipv6:{' '}
         <span data-testid="nat-ipv6">{nat ? String(nat.ipv6) : '—'}</span>
+      </p>
+      <p>
+        relay retry: <span data-testid="relay-retry">{relayRetry}</span>
       </p>
       <p>
         ice mode: <span data-testid="ice-mode">{dev.iceConfig?.mode ?? '—'}</span> · relay:{' '}

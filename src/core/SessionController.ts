@@ -24,6 +24,7 @@ import { pathVerdict } from './pathAttest';
 import { probeStunViews } from './stunCheck';
 import { checkNat } from './natCheck';
 import { pairingRoleFor } from './pairingRole';
+import { relayRetryToken } from './relayRetry';
 import { peerLeftAbortsPairing } from './livenessGate';
 import {
   buildIceServers,
@@ -209,6 +210,40 @@ const lobbySignalSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('busy') }),
 ]);
 type LobbySignal = z.infer<typeof lobbySignalSchema>;
+
+/**
+ * "Retry with relay" (README § Max-privacy strict model): the one frame a side sends its peer over the
+ * OLD signaling socket when its user taps the button. It carries nothing and authenticates nothing —
+ * the relay is untrusted, so all it may do on arrival is let the failure screen say "your peer is
+ * waiting". The retry itself starts only from this side's own tap (retryWithRelay).
+ */
+const relayRetrySignalSchema = z.object({ kind: z.literal('relay-retry') });
+
+/**
+ * How long the side that tapped "Retry with relay" first waits ALONE at the retry rendezvous. Kept
+ * under the server's 3-minute token-room TTL (armed when the first side arrives, never re-armed): a
+ * peer that arrives at the end of this wait still has the rest of the TTL to pair in.
+ */
+const DEFAULT_RELAY_RETRY_WAIT_MS = 150_000;
+
+/** Resolve the retry wait. Production ALWAYS uses the default; DEV-only `?relayRetryWaitMs=N` (or
+ *  `window.__HUSHSEND_RELAY_RETRY_WAIT_MS__`) shrinks it so the no-show e2e runs in seconds. */
+function relayRetryWaitMs(): number {
+  if (import.meta.env.DEV) {
+    try {
+      const w = window as unknown as { __HUSHSEND_RELAY_RETRY_WAIT_MS__?: unknown };
+      if (typeof w.__HUSHSEND_RELAY_RETRY_WAIT_MS__ === 'number' && w.__HUSHSEND_RELAY_RETRY_WAIT_MS__ > 0) {
+        return w.__HUSHSEND_RELAY_RETRY_WAIT_MS__;
+      }
+      const q = new URLSearchParams(window.location.search).get('relayRetryWaitMs');
+      const n = q ? Number(q) : NaN;
+      if (Number.isFinite(n) && n > 0) return n;
+    } catch {
+      /* no window (non-browser) — fall through to the default */
+    }
+  }
+  return DEFAULT_RELAY_RETRY_WAIT_MS;
+}
 
 /**
  * How long the SAS window may stay open before we give up. Two phases share this budget, both
@@ -647,6 +682,13 @@ const DIRECT_FAIL_REASON = "couldn't connect directly (Max privacy)";
 const NO_RELAY_PATH_REASON = 'no path worked, even through the relay';
 
 /**
+ * Failure reason when this side tapped "Retry with relay" and nobody came to the retry rendezvous in
+ * time: the peer did not tap, left, or runs a client from before the in-place retry. A STABLE marker
+ * for FailedScreen (`did not join the retry`), which offers the fallback — start over.
+ */
+const RELAY_RETRY_NO_SHOW_REASON = 'the peer did not join the retry';
+
+/**
  * Failure reason for a room that expired while THIS side sat in it with nobody engaged — our own
  * words, our own link, or a room lobby (creator or joiner). The server's TTL close (4010 `expired`)
  * reaches the waiting side exactly as it reaches a joiner of a dead code, and used to show the
@@ -894,6 +936,15 @@ export class SessionController {
   private turnCreds: TurnCredentials | null = null;
   /** Memoizes the one-shot TURN fetch per session so concurrent startPeer calls never double-request. */
   private turnFetch: Promise<void> | null = null;
+  /**
+   * "Retry with relay" for THIS pairing (README § Max-privacy strict model). Non-null from the moment
+   * a pairing failed for want of a path and can continue through the relay (armRelayRetry): `token` is
+   * where the two sides meet again. `active` once this side's user tapped — the session is then the
+   * retry itself, and there is no second one. Cleared by dispose.
+   */
+  private relayRetry: { token: string; active: boolean; waitTimer: ReturnType<typeof setTimeout> | null } | null = null;
+  /** The peer's `relay-retry` frame arrived (untrusted — a projection for the failure screen only). */
+  private peerAsksRelay = false;
   /** The network check (startNatCheck) ran for this session; cleared by dispose. */
   private natCheckStarted = false;
   /** Bumped by dispose, so a check that answers after its session ended is dropped. */
@@ -935,9 +986,9 @@ export class SessionController {
    * Set the privacy mode (step 6d). Pushed in from the persisted UI pref (prefs.tsx) — `max` (direct
    * only, default) or `reliable` (allow a TURN relay fallback). It is READ at pairing start (iceServers
    * are assembled then), so toggling mid-session affects the NEXT connection, not the live one.
-   * Max-privacy is STRICT: it NEVER relays — a direct connection failure is terminal (`failed`, with a
-   * hint to switch to Reliable), never silently relayed and never offered a relay. Cheap setter — no
-   * transport work happens here.
+   * Max-privacy is STRICT: a connection built in it NEVER relays — a direct failure is terminal
+   * (`failed`), never silently relayed; the pairing continues in Reliable only when both users tap
+   * "Retry with relay" (retryWithRelay). Cheap setter — no transport work happens here.
    */
   setPrivacyMode(mode: PrivacyMode): void {
     this.privacyMode = mode;
@@ -1005,6 +1056,13 @@ export class SessionController {
     // Seed the roster from the existing-room peers (mesh lobby — room method). Harmless for
     // words/link/qr (they auto-pair below and never render the roster).
     this.dispatch(connectionActions.rosterSet(peers));
+    if (this.relayRetry?.active) {
+      // The retry rendezvous: nothing to show and nobody to pick. The peer that tapped first is
+      // already here → pair; otherwise wait for its tap (→ awaitingPeer, the RelayWaitScreen).
+      if (peers.length > 0) this.beginPairing(peers[0].id);
+      else this.dispatch(connectionActions.roomReady({ room: '', credential: null }));
+      return;
+    }
     if (this.isCreator) {
       // A: rendezvous allocated. For words it IS the rendezvous word; show the full 5-word
       // credential (rendezvous + 4 secret) so A can read it aloud. For room, credential=null.
@@ -1063,7 +1121,8 @@ export class SessionController {
    *   - words / link / qr: sas null → NOT a lobby (1:1 auto-pair with a single peer).
    */
   private isLobby(): boolean {
-    return this.sas != null;
+    // A retried room pairing meets 1:1 at the retry rendezvous: SAS still, but nobody to pick.
+    return this.sas != null && !this.relayRetry?.active;
   }
 
   /**
@@ -1173,6 +1232,7 @@ export class SessionController {
   private beginPairing(peerId: string): void {
     this.peerId = peerId;
     this.waitingInRoom = false;
+    this.clearRelayRetryWait(); // a retried pairing: the peer came, the deadlines below take over
     const role = pairingRoleFor(this.selfId, peerId);
     if (!role) {
       // Fail closed: an unresolved role (a missing/equal id — impossible in a real room, ids are
@@ -1195,6 +1255,13 @@ export class SessionController {
       // client deadline from here, so a peer that stalls before the DataChannel opens cannot leave us
       // waiting for the untrusted server's room TTL (armConfirmTimeout).
       this.armConfirmTimeout();
+      if (this.sessionKey) {
+        // A retried pairing already holds the CPace key of its failed attempt. CPace is NOT run again
+        // — every run is one guess at the words — so both sides go straight to WebRTC, and the
+        // key-confirmation binds that key to the new fingerprints.
+        this.launchPeer(peerId, initiator);
+        return;
+      }
       if (initiator) {
         // Run CPace FIRST; bring up WebRTC only once we hold the ISK (onCpaceMessage), so the
         // DataChannel can't open before key-confirmation has a key to MAC the DTLS fingerprints under.
@@ -1473,8 +1540,9 @@ export class SessionController {
   // STEP 6d — Max-privacy STRICT model. Max-privacy NEVER relays: the PeerConnection drops the peer's
   // relay candidates (filterRelay, always on in Max-privacy) and never requests local TURN, so no
   // relay path can ever form. A direct connection that cannot come up is therefore TERMINAL — we fail
-  // (→ existing `failed` state, no new FSM state) with a hint to switch to Reliable, rather than
-  // silently relaying or offering a consent-gated relay escalation. The relay path exists ONLY in
+  // (→ existing `failed` state, no new FSM state), never silently relayed. The way on is the failure
+  // screen's "Retry with relay": the pairing continues on a NEW connection in Reliable once BOTH users
+  // tap it (retryWithRelay) — nothing else moves a Max-privacy side. The relay path exists ONLY in
   // Reliable mode (STUN + TURN, where the filter is off). See core/relax.ts for the candidate filter.
   // ===========================================================================
 
@@ -1566,6 +1634,7 @@ export class SessionController {
    * to the peer) PeerConnection also suppresses our own onClose, so no local words/SAS retry fires.
    */
   private failDirect(reason: string): void {
+    const canRetry = this.armRelayRetry(); // reads the fingerprints — before the PeerConnection closes
     this.attemptResolved = true; // words: don't let a later signal count this as a guess attempt
     this.linkSettled = true; // link/qr: close the teardown guard
     if (this.sas) {
@@ -1582,6 +1651,54 @@ export class SessionController {
     this.peer = null;
     this.clearPendingPeerSignals();
     this.fail(new Error(reason));
+    if (canRetry) this.dispatch(connectionActions.relayRetryOffered());
+  }
+
+  /**
+   * Can this pairing, failing now for want of a path, continue through the relay? It can when the
+   * method still holds what authenticates a second transport — the link secret, the CPace key, a SAS
+   * to run again, the pin — and the two sides have somewhere to meet: the rendezvous derived from the
+   * failed attempt's two fingerprints (core/relayRetry.ts). A reconnect uses it too, not its own
+   * bucket rendezvous: the peer's failed socket still sits in that room, and a side arriving there
+   * would pair with it, and ask for a relay, before the peer has tapped. Once per pairing: a retry
+   * that fails is terminal. Arms nothing on the wire — the retry starts only from this side's own tap
+   * (retryWithRelay).
+   */
+  private armRelayRetry(): boolean {
+    if (this.relayRetry || this.established) return false;
+    const holdsAuth =
+      this.method === 'words'
+        ? this.sessionKey !== null
+        : this.method === 'link' || this.method === 'qr'
+          ? this.linkSecret !== null
+          : this.reconnect !== null || this.sas !== null;
+    const token = relayRetryToken(this.peer?.localFingerprint() ?? null, this.peer?.remoteFingerprint() ?? null);
+    if (!holdsAuth || !token) return false;
+    this.relayRetry = { token, active: false, waitTimer: null };
+    return true;
+  }
+
+  /** The peer's `relay-retry` frame. Untrusted, so it only feeds the failure screen's "your peer is
+   *  waiting" line: it never starts a retry, never requests credentials, and is idempotent. */
+  private onPeerAsksRelay(): void {
+    if (this.established || this.relayRetry?.active || this.peerAsksRelay) return;
+    this.peerAsksRelay = true;
+    this.dispatch(devActions.appendLog('relay retry: the peer asks to continue through the relay'));
+    this.dispatch(connectionActions.peerAskedRelay());
+  }
+
+  private clearRelayRetryWait(): void {
+    if (this.relayRetry?.waitTimer != null) clearTimeout(this.relayRetry.waitTimer);
+    if (this.relayRetry) this.relayRetry.waitTimer = null;
+  }
+
+  /** Alone at the retry rendezvous until the wait ran out, or the server closed the room under us. */
+  private failRelayRetryNoShow(): void {
+    if (!this.relayRetry?.active || this.peerId || this.established) return;
+    this.clearRelayRetryWait();
+    this.dispatch(devActions.appendLog('relay retry: nobody came to the retry rendezvous'));
+    this.signaling?.close();
+    this.fail(new Error(RELAY_RETRY_NO_SHOW_REASON));
   }
 
   private onSignal(from: string, data: unknown): void {
@@ -1594,6 +1711,10 @@ export class SessionController {
       return;
     }
     if (from !== this.peerId) return; // 1:1 — ignore SDP/cpace/sas from anyone we're not pairing with
+    if (relayRetrySignalSchema.safeParse(data).success) {
+      this.onPeerAsksRelay();
+      return;
+    }
     // The words method multiplexes CPace onto the signaling channel (kind:'cpace'); everything
     // else is WebRTC SDP/ICE for the PeerConnection. Validate (the relay is UNTRUSTED) and route.
     const cpace = cpaceFrameSchema.safeParse(data);
@@ -1913,8 +2034,10 @@ export class SessionController {
     this.attemptResolved = true;
     this.teardownPeerOnly(); // close the channel — NO file byte ever crossed (not yet connected)
 
-    if (!this.isCreator) {
-      this.signaling?.close(); // B leaves the room so A's 1:1 slot frees for the next attempt
+    if (!this.isCreator || this.relayRetry?.active) {
+      // B leaves the room so A's 1:1 slot frees for the next attempt. A retried pairing ends here on
+      // either side: its room is the retry rendezvous, not the words, so there is no next joiner.
+      this.signaling?.close();
       this.fail(new Error(reason));
       return;
     }
@@ -1982,6 +2105,12 @@ export class SessionController {
    * words via regenerate — A makes a new room, B re-enters).
    */
   private onRoomClosed(_reason: string): void {
+    if (this.relayRetry?.active) {
+      // The retry rendezvous expired. Alone in it: the peer never came. With a peer engaged the socket
+      // close that follows ends the attempt (onSignalingClose).
+      this.failRelayRetryNoShow();
+      return;
+    }
     if (this.method === 'reconnect') {
       // The derived token room expired under us while we waited alone (the server's TTL is armed at
       // first arrival and never re-armed). Take it again — same token within the bucket — rather than
@@ -2032,27 +2161,33 @@ export class SessionController {
     // Reliable. With a relay in hand and no channel yet, that is NO_RELAY_PATH_REASON on every method —
     // the teardown below is each method's own, only the reason differs.
     const noRelayPath = why === 'ICE failed' && !this.channelOpen && (this.turnCreds?.urls.length ?? 0) > 0;
+    if (noRelayPath) {
+      // Terminal like the Max side's direct failure, and for the same reason left with its socket and
+      // its secret: the pairing can continue once the peer allows the relay too (armRelayRetry).
+      this.failDirect(NO_RELAY_PATH_REASON);
+      return;
+    }
     // words method: the channel closing BEFORE we're connected means this pairing attempt
     // failed — typically the peer detected the key-confirmation mismatch and tore the channel
     // down before its tag reached us. Without this, a peer could hang in `confirming` forever
     // waiting for a tag that was never delivered. (Guarded, so it never double-counts.)
     if (this.method === 'words' && !this.established) {
-      this.onWordsPairingFailure(noRelayPath ? NO_RELAY_PATH_REASON : 'channel closed during pairing');
+      this.onWordsPairingFailure('channel closed during pairing');
     }
     // link/qr: the channel closing before connected means the peer hard-stopped its
     // key-confirmation (e.g. it detected the tag mismatch and tore down) — fail in step, no bytes.
     if ((this.method === 'link' || this.method === 'qr') && !this.established) {
-      this.failLink(noRelayPath ? NO_RELAY_PATH_REASON : 'channel closed during pairing');
+      this.failLink('channel closed during pairing');
     }
     // reconnect: the channel closing before connected means the peer hard-stopped its re-auth (it
     // detected OUR key changed, or refused our hello) — fail in step, no bytes.
     if (this.reconnect && !this.established) {
-      this.failReconnect(noRelayPath ? NO_RELAY_PATH_REASON : 'reconnect aborted — channel closed during re-auth');
+      this.failReconnect('reconnect aborted — channel closed during re-auth');
     }
     // room + SAS: the channel closing before connected means the peer rejected the SAS (or the
     // transport failed) — abort so we never hang in awaitingSas/confirming. (Guarded, one-shot.)
     if (this.sas && !this.established) {
-      this.failSas(noRelayPath ? NO_RELAY_PATH_REASON : 'channel closed during SAS pairing');
+      this.failSas('channel closed during SAS pairing');
     }
   }
 
@@ -2360,6 +2495,10 @@ export class SessionController {
     // AFTER we're connected is harmless. Before that, it's a setup failure
     // (e.g. 4009 "room not found", 4002 "room full").
     if (this.established) return;
+    if (this.relayRetry?.active && !this.peerId) {
+      this.failRelayRetryNoShow(); // the retry rendezvous went away while we waited alone in it
+      return;
+    }
     if (this.method === 'reconnect' && this.reconnect && !this.reconnect.settled) {
       // Waiting alone: a server-side close (TTL 4010 without a room-closed frame, a restart, a
       // bounce) is answered by taking the rendezvous again, bounded by RECONNECT_MAX_REJOINS. Once
@@ -2683,6 +2822,12 @@ export class SessionController {
   private resumeReconnectWait(why: string): void {
     const rc = this.reconnect;
     if (!rc || rc.settled || this.established || this.channelOpen) return;
+    if (this.relayRetry?.active) {
+      // A retried reconnect met its peer at the retry rendezvous, on that peer's own tap. There is no
+      // wait to go back to: a peer that leaves it has ended the pairing.
+      this.failReconnect(`reconnect: ${why}`);
+      return;
+    }
     if (rc.timer != null) clearTimeout(rc.timer);
     rc.timer = null;
     this.peer?.close();
@@ -3711,17 +3856,76 @@ export class SessionController {
   }
 
   /**
-   * The direct-failure screen's "Retry with relay": end the failed Max-privacy session and start over
-   * in Reliable. Nothing of the failed session is reused — Max privacy stays strict, that session never
-   * relays; this is a NEW pairing the user asked for by name. What "start over" means is what this
-   * side can do alone: whoever made the invite gets a fresh one (new link, new words, a new room); a
-   * reconnect is tried again with the same device; a joiner goes home and waits for the peer's new
-   * invite. The peer has to be in Reliable too (a mixed pair does not relay) — the screen says so.
+   * "Retry with relay" — THIS side's user asks for the relay (README § Max-privacy strict model). The
+   * pairing that failed for want of a path continues: both sides, each on its own user's tap, meet at
+   * the retry rendezvous in Reliable and authenticate the new transport with what the method already
+   * holds — the link secret, the CPace key of the failed attempt (no second CPace: that would be a
+   * second guess at the words), a SAS run afresh, or the pin under a fresh challenge. Nothing is
+   * scanned or typed again and no secret crosses signaling.
    *
-   * The core's own mode is set here so the new session starts in it at once; the stored preference is
-   * the UI's (prefs.tsx), which the caller switches for this visit.
+   * The only caller is the button. The peer is told over the old socket, if it is still there, so its
+   * screen can say that this side waits; that frame starts nothing on the peer (onPeerAsksRelay). TURN
+   * credentials are requested when a peer arrives at the rendezvous (beginPairing), not before.
+   *
+   * Where nothing can be continued — no retry was armed, or this session already is one — it starts
+   * over instead (startOverWithRelay). The core's own mode is set here; the stored preference is the
+   * UI's (prefs.tsx), which the caller switches for this visit.
    */
   async retryWithRelay(): Promise<void> {
+    const retry = this.relayRetry;
+    if (!retry || retry.active) {
+      await this.startOverWithRelay();
+      return;
+    }
+    if (this.peerId) this.signaling?.send(this.peerId, { kind: 'relay-retry' });
+    const method = this.method;
+    const token = retry.token;
+    if (!method) {
+      await this.startOverWithRelay();
+      return;
+    }
+    const keep = {
+      isCreator: this.isCreator,
+      linkSecret: this.linkSecret,
+      sessionKey: this.sessionKey,
+      sas: this.sas !== null,
+      pairingId: this.reconnect?.pairingId ?? null,
+    };
+    this.dispose();
+    this.privacyMode = 'reliable';
+    this.method = method;
+    this.isCreator = keep.isCreator; // what "start over" means for this side, should the retry fail
+    this.linkSecret = keep.linkSecret;
+    this.sessionKey = keep.sessionKey;
+    if (keep.sas) this.sas = newSasState(); // fresh nonce: the SAS runs again over the new fingerprints
+    if (keep.pairingId) {
+      // The same pin, a fresh challenge. No wait timers of its own: the retry rendezvous has one wait.
+      this.reconnect = newReconnectState(keep.pairingId);
+      this.dispatch(devActions.setReconnect({ active: true, outcome: null }));
+    }
+    this.relayRetry = {
+      token,
+      active: true,
+      waitTimer: setTimeout(() => this.failRelayRetryNoShow(), relayRetryWaitMs()),
+    };
+    this.dispatch(connectionActions.relayRetryStarted());
+    this.dispatch(connectionActions.joinStarted({ method, room: '' }));
+    try {
+      this.openSignaling();
+      await this.signaling!.connect({ join: token, codeType: 'token' });
+    } catch (err) {
+      this.clearRelayRetryWait();
+      this.fail(err);
+    }
+  }
+
+  /**
+   * The fallback of "Retry with relay", and all of it until 2026-11-23: end the session and start a
+   * NEW pairing in Reliable. What "start over" means is what this side can do alone: whoever made the
+   * invite gets a fresh one (new link, new words, a new room); a reconnect is tried again with the
+   * same device; a joiner goes home and waits for the peer's new invite.
+   */
+  async startOverWithRelay(): Promise<void> {
     const method = this.method;
     const creator = this.isCreator;
     const pairingIdHex = this.reconnect ? bytesToHex(this.reconnect.pairingId) : null;
@@ -3768,6 +3972,9 @@ export class SessionController {
     this.established = false;
     this.channelOpen = false;
     this.clearInterruptTimer();
+    this.clearRelayRetryWait();
+    this.relayRetry = null;
+    this.peerAsksRelay = false;
     this.natCheckStarted = false;
     this.natCheckRun += 1;
     // words-method state

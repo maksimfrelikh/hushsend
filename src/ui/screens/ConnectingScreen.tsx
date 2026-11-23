@@ -23,8 +23,8 @@ import { NatWarning } from '../components/NatWarning';
  * reject into a settled session.
  *
  * Privacy mode (step 6d): Max-privacy is STRICT — it never relays, so a direct ICE failure during
- * `pairing` is terminal and routes straight to the Failed screen (with a switch-to-Reliable hint),
- * NOT a relay-escalation offer here. So this screen has no relay UI.
+ * `pairing` is terminal and routes straight to the Failed screen (with "Retry with relay"), NOT a
+ * relay-escalation offer here. So this screen has no relay UI.
  */
 export function ConnectingScreen({ stage }: { stage: Stage }): ReactElement {
   const session = useSession();

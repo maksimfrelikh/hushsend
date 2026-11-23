@@ -1,8 +1,9 @@
 /**
  * Max-privacy STRICT relay filter (step 6d). Pure + framework-free so it unit-tests without a browser.
  *
- * Max-privacy = NEVER relayed. Period — no consent escalation, no relay-retry. Two mechanisms enforce
- * that, and they are ALWAYS on in Max-privacy:
+ * A Max-privacy connection is NEVER relayed — no fallback, nothing escalates it. (After a direct
+ * failure the PAIRING may continue on a new connection, in Reliable, once both users tap "Retry with
+ * relay": SessionController.retryWithRelay.) Two mechanisms enforce that, ALWAYS on in Max-privacy:
  *   1. We request NO local TURN (the iceServers builder, step 6d) → we never offer a relay candidate.
  *   2. We DROP the peer's relay candidates (`isRelayCandidate`/`shouldDropCandidate`) → a relay address
  *      the peer SIGNALS is never added on our side.
@@ -21,7 +22,7 @@
  * rather than inferred from what we accepted.
  *
  * So a Max-privacy pair that cannot connect directly simply FAILS (the SessionController routes the ICE
- * failure to a terminal `failed`, with a hint to switch to Reliable); it is never offered a relay. The
+ * failure to a terminal `failed`, whose screen offers "Retry with relay"); that connection never relays. The
  * relay path exists only in Reliable mode (STUN + TURN, where this filter is OFF). This module is just the candidate predicate; the live PeerConnection wiring (where the filter
  * runs) lives in PeerConnection, which owns the non-serializable objects.
  */

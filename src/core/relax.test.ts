@@ -15,7 +15,7 @@ import {
 /**
  * The Max-privacy STRICT relay filter (step 6d): the relay-candidate predicate. In Max-privacy the
  * PeerConnection drops the peer's TURN-relay candidates (and never requests local TURN), so we are
- * NEVER relayed — a direct connection that can't come up fails terminally (no consent escalation). In
+ * NEVER relayed — a direct connection that can't come up fails terminally (nothing escalates it). In
  * Reliable the filter is off (relay allowed).
  */
 

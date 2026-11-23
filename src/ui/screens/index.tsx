@@ -4,6 +4,7 @@ import type { ConnectionMethod } from '../../store/connectionSlice';
 import { Screen, ScreenBusy } from '../ui';
 import { HomeScreen } from './HomeScreen';
 import { ReconnectWaitScreen } from './ReconnectWaitScreen';
+import { RelayWaitScreen } from './RelayWaitScreen';
 import { LobbyScreen } from './LobbyScreen';
 import { WordsCreateScreen } from './WordsCreateScreen';
 import { ShareScreen } from './ShareScreen';
@@ -19,7 +20,8 @@ import type { PacedScreen } from './usePacedScreen';
  * architecture requires — through the pacing in pacing.ts: a screen the FSM has just left is held
  * for a moment with its controls quiet, and the Connecting screen appears only when a pre-connection
  * stage outlasts that hold. The host-side `awaitingPeer` view additionally branches on the method
- * (words credential / the shared link+QR / the room lobby / the codeless reconnect wait). The hard
+ * (words credential / the shared link+QR / the room lobby / the codeless reconnect wait), after the
+ * relay-retry wait, which is the same for all of them. The hard
  * invariant holds structurally: only <TransferScreen> (status `connected`) renders the file UI, and
  * the pacing shows `connected` only while the status is `connected`, so no byte UI exists before
  * auth.
@@ -29,6 +31,7 @@ import type { PacedScreen } from './usePacedScreen';
  */
 export function ScreenRouter({ paced }: { paced: PacedScreen }): ReactElement {
   const method = useAppSelector((s) => s.connection.method);
+  const retrying = useAppSelector((s) => s.connection.relayRetry === 'active');
   const shown = paced.pace.shown;
   return (
     <ScreenBusy.Provider value={paced.busy}>
@@ -37,7 +40,7 @@ export function ScreenRouter({ paced }: { paced: PacedScreen }): ReactElement {
       ) : shown.kind === 'blank' ? (
         <Screen>{null}</Screen>
       ) : (
-        <SettledScreen status={shown.status} method={method} />
+        <SettledScreen status={shown.status} method={method} retrying={retrying} />
       )}
     </ScreenBusy.Provider>
   );
@@ -46,14 +49,18 @@ export function ScreenRouter({ paced }: { paced: PacedScreen }): ReactElement {
 function SettledScreen({
   status,
   method,
+  retrying,
 }: {
   status: Settled;
   method: ConnectionMethod | null;
+  retrying: boolean;
 }): ReactElement {
   switch (status) {
     case 'idle':
       return <HomeScreen />;
     case 'awaitingPeer':
+      // "Retry with relay", tapped here first: every method waits the same way for the peer's tap.
+      if (retrying) return <RelayWaitScreen />;
       switch (method) {
         case 'words':
           return <WordsCreateScreen />;
