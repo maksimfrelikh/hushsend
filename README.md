@@ -677,8 +677,8 @@ Chosen per offer, before it reaches the screen — the order and the reasons are
   rests on, was checked the next day ([2026-11-23 run](docs/test-runs/2026-11-23.md)). STUN
   answers over IPv6 since that day, for a pair that has IPv6 on both sides — not yet seen in use.
   Reliable connects such pairs through the relay. Since 2026-11-22 the app checks its own side when a
-  Max-privacy pairing starts and warns before the wait (§ Network check) — built and run against a
-  simulated NAT, not yet seen on the carrier.
+  Max-privacy pairing starts and warns before the wait (§ Network check) — seen on that carrier
+  2026-11-23, with no warning on the home line (test plan case C7).
 - **Playwright's WebKit does not resolve a STUN host name**: against
   `stun:stun.hushsend.frelikh.dev:3479` it gathered no `srflx` candidate, against the same server by
   IP address it did (measured 2026-11-22, WebKit 27.2). Safari does resolve it (the iOS Simulator's
@@ -1730,10 +1730,10 @@ attestation: it refuses nothing and never changes the mode.
   ([2026-11-23 run](docs/test-runs/2026-11-23.md)) — so the check reads the network there, not the
   browser. The iOS Simulator is the exception: the check reads `symmetric` in it on every network
   (the [test plan](#test-plan--the-real-device-pass-step-6e) says why), so it is not judged there.
-- **Not verified:** a real symmetric NAT. The decision is unit-tested on the candidate lines the
-  engines produced, and the e2e runs the whole check in each engine against the two-port servers. The
-  NAT suite has a case behind a symmetric router — Linux netfilter, Chromium — that has not run yet
-  (§ The NAT suite); the carrier, with a real phone on it, is test plan case C7.
+- **Verified on a real symmetric NAT** twice (2026-11-23): the NAT suite's case behind a symmetric
+  router — Linux netfilter, Chromium (§ The NAT suite) — and an iPhone on a carrier, test plan case C7.
+  The decision itself is unit-tested on the candidate lines the engines produced, and the e2e runs the
+  whole check in each engine against the two-port servers.
 - **Tests**: `natCheck.test.ts` (the parser and the verdict, including WebKit's re-gathered sockets in
   both directions); `tests/e2e/nat-check.spec.ts` (two STUN servers run by the spec, pointed at with
   the DEV-only `?natCheck=<url>,<url>`: nothing asked on page load; a symmetric answer warns on the
@@ -2039,7 +2039,8 @@ network, firewall, other services, secrets, deploy history — is described in t
 | ufw | 80/443 tcp (nginx), 3478 tcp+udp and 49160–49200 udp (TURN), 3479 udp (STUN); no router — the public address is on the interface. DNS (Cloudflare, DNS only): explicit records, A+AAAA for `hushsend` and `stun.hushsend`, **A only** for `turn.hushsend` — the TURN relay listens on IPv4 only |
 
 **Repeat frontend redeploys** (signaling/nginx unchanged): `bash /opt/hushsend/deploy/deploy-frontend.sh`
-(as root) pulls, `npm ci`, builds with the live `VITE_*` baked in, and publishes `dist/` to
+(as root) pulls and starts itself again — so the script and the `build-env.sh` it reads are the pulled
+ones — then `npm ci`, builds with the live `VITE_*` baked in, and publishes `dist/` to
 `/var/www/hushsend/dist`. It restarts nothing (a static-asset swap needs no restart), runs as root so `sudo` never enters
 the picture, and swaps the new build in with a rename: the
 previous one stays as `dist.old` until the smoke check passes, so a rollback is
@@ -2733,7 +2734,7 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       the wall-clock and the byte counts for both sizes, padded vs the file. If the small-file case
       feels slow on LTE, `PAD_FLOOR` / `BUCKETS_PER_OCTAVE` are the two constants to reconsider — that
       is a product decision the numbers should inform.
-- [ ] **C7 · the network check on a symmetric NAT — NEW 2026-11-22.** The check
+- [x] **C7 · the network check on a symmetric NAT — NEW 2026-11-22** *(PASS 2026-11-23: an iPhone, Safari, on Epic cellular and on the home Wi-Fi, all five steps as written by the owner's report — [the 2026-11-23 run](docs/test-runs/2026-11-23.md))* — The check
       (§ Network check) was built against two local STUN servers that imitate a symmetric NAT; a real
       one is the carrier measured that day. On the live build, phone on **cellular with Wi-Fi off**,
       **Max privacy**: (1) Invite someone → Link or QR code. Expected within a second or two, under
@@ -2749,7 +2750,7 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       be missing there (§ Network check, Limits); record which. (5) Switch the phone to Reliable and
       make a link: no warning. Record phone, browser and carrier, and for any step that disagrees a
       screenshot. A network with IPv6 adds "It can still work if your peer's network has IPv6…".
-- [ ] **C8 · "Retry with relay" across real networks — NEW 2026-11-22.** Phone on **cellular**, Mac on
+- [x] **C8 · "Retry with relay" across real networks — NEW 2026-11-22** *(PASS 2026-11-23: the same iPhone on Epic cellular ↔ the Mac on the home Wi-Fi, all five steps as written by the owner's report — [the 2026-11-23 run](docs/test-runs/2026-11-23.md))* — Phone on **cellular**, Mac on
       the home Wi-Fi, both **Max privacy**. (1) Mac: Invite someone → Link or QR code; phone: scan it.
       Both end on "Couldn't connect directly" with "Retry with relay". (2) Tap it on the Mac: a NEW QR
       code. Tap it on the phone: the home screen, **Reliable** selected. (3) Scan the new code:
@@ -2883,9 +2884,7 @@ delivery (§ The road to "yes"); path attestation and the STUN operator (§ Secu
 **Agreed — to do:**
 - Max privacy across networks, what is left after 2026-11-22 (§ Platform limits has what was
   measured; the history is in [pre-launch.md](docs/history/pre-launch.md)): try two ordinary Wi-Fi
-  networks in different places, another carrier, and a pair with IPv6 on both sides; and the network
-  check and "Retry with relay" on the carrier itself — test plan cases C7 and C8 (both built against
-  simulated failures, § Network check and § Max-privacy strict model).
+  networks in different places, another carrier, and a pair with IPv6 on both sides.
 - Relay capacity: coturn's 49160–49200 range is ~41 allocations (a fully relayed pair takes two).
   A total cap (`bps-capacity`, 20 MB/s = ten allocations at 2 MB/s), two allocations per credential and
   a per-IP mint limit landed 2026-11-22 (the Capacity section of hush-signaling-server's runbook). Left: widen the

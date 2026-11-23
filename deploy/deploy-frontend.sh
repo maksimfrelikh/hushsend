@@ -16,11 +16,6 @@
 #
 set -euo pipefail
 
-# The VITE_* values live in deploy/build-env.sh — the SAME file the CI build-and-attest job
-# sources — so the hashes CI publishes describe the bytes this script produces. Do not inline them
-# here again: two copies that agree today are a silent break tomorrow.
-# shellcheck source=deploy/build-env.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/build-env.sh"
 DEPLOY_DIR="${DEPLOY_DIR:-/var/www/hushsend/dist}"
 HEALTH_URL="${HEALTH_URL:-https://hushsend.frelikh.dev/health}"
 SITE_URL="${SITE_URL:-https://hushsend.frelikh.dev}"
@@ -36,7 +31,14 @@ log() { printf '\n\033[1m▶ %s\033[0m\n' "$*"; }
 if [ "$SKIP_PULL" != "1" ]; then
   log "git pull --ff-only"
   git pull --ff-only
+  SKIP_PULL=1 exec bash "$REPO_ROOT/deploy/deploy-frontend.sh"
 fi
+
+# The VITE_* values live in deploy/build-env.sh — the SAME file the CI build-and-attest job
+# sources — so the hashes CI publishes describe the bytes this script produces. Do not inline them
+# here again: two copies that agree today are a silent break tomorrow.
+# shellcheck source=deploy/build-env.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/build-env.sh"
 
 # 2. Dependencies (safe to run every time; a no-op when package-lock is unchanged).
 log "npm ci"
