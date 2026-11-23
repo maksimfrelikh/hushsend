@@ -277,15 +277,21 @@ function side(mode: PrivacyMode = 'max') {
 }
 type Side = ReturnType<typeof side>;
 
+const realSetTimeout = setTimeout;
 const settle = (ms = 20): Promise<unknown> => vi.advanceTimersByTimeAsync(ms);
 /** The identity key and its signatures are WebCrypto: they finish on the real event loop, which the
- *  fake clock does not turn — so the paths that sign (enrollment, the reconnect proof) are drained,
- *  until `done`, for five real seconds at most, on a machine where 25 turns are not enough. */
+ *  fake clock does not turn — so the paths that sign (enrollment, the reconnect proof) are drained.
+ *  Where 25 turns are not enough it goes on until `done`, four real seconds at most, moving the fake
+ *  clock at the pace of the real one: what the signature unblocks runs on fake timers. */
 async function drain(done?: () => boolean): Promise<void> {
-  const deadline = performance.now() + 5000;
-  for (let i = 0; i < 25 || (done && !done() && performance.now() < deadline); i++) {
-    await settle(i < 25 ? 20 : 0);
+  for (let i = 0; i < 25; i++) {
+    await settle();
     await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  const deadline = performance.now() + 4000;
+  while (done && !done() && performance.now() < deadline) {
+    await settle(5);
+    await new Promise<void>((resolve) => realSetTimeout(resolve, 5));
   }
 }
 const pc = (s: Side): Pc => {
