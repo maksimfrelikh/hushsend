@@ -10,6 +10,7 @@ import {
   type StatsEntry,
 } from '../relax';
 import { localCandidateAddresses } from '../pathAttest';
+import { certificateHasFingerprint, sdpFingerprint } from './fingerprint';
 
 /**
  * How long the Max-privacy channel-open gate waits for ICE to publish a selected candidate pair
@@ -67,6 +68,13 @@ export interface PeerConnectionHandlers {
   onIceFailed?: () => void;
   /** A message arrived on the DataChannel. Step-1 ping uses strings; binary transfer is step 2. */
   onMessage?: (data: string | ArrayBuffer) => void;
+  /**
+   * The peer's description was refused, or the certificate DTLS accepted is not the one it named
+   * (`DESCRIPTION_TAMPERED_REASON`, core/webrtc/fingerprint.ts). The description comes through the
+   * untrusted server, so this is tampering until shown otherwise: the owner fails the pairing closed.
+   * Nothing was applied in the first case, and `onOpen` never fires in the second.
+   */
+  onTampered?: (reason: string) => void;
 }
 
 export interface PeerConfig {
@@ -117,12 +125,14 @@ const signalPayloadSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('ice'), candidate: z.unknown() }),
 ]);
 
-function parseFingerprint(sdp: string | undefined | null): string | null {
-  if (!sdp) return null;
-  // SDP line: `a=fingerprint:<hash-func> <hex:hex:...>` — the value DTLS validates against.
-  const m = /a=fingerprint:(\S+)\s+(\S+)/.exec(sdp);
-  return m ? `${m[1]} ${m[2]}` : null;
-}
+/**
+ * What the owner fails a pairing with when a description is refused (`onTampered`): the peer's
+ * description did not name exactly one certificate, a second description arrived, or the certificate
+ * DTLS accepted is not the one that was named. A STABLE marker — FailedScreen keys its "compromised"
+ * variant off `tampered` / `man-in-the-middle`.
+ */
+export const DESCRIPTION_TAMPERED_REASON =
+  'the connection description was tampered with — it must name exactly one certificate (possible man-in-the-middle)';
 
 /**
  * Wraps a raw RTCPeerConnection + RTCDataChannel (deliberately NOT PeerJS/
@@ -138,6 +148,17 @@ export class PeerConnection {
   private readonly highWaterMark = 1 << 20; // 1 MiB
   /** Set on our own close() so deliberate teardown doesn't fire onClose. */
   private closed = false;
+  /** Set by start(): the side that offers takes one answer, the side that answers takes one offer. */
+  private initiator = false;
+  /**
+   * The peer's certificate fingerprint, from the ONE description this connection ever takes —
+   * validated as it arrived (`sdpFingerprint`), before the engine saw it, and never replaced. What
+   * `remoteFingerprint()` returns: the engines disagree on what `remoteDescription.sdp` serializes
+   * back when a description carried more than one line, so that text is not read for it.
+   */
+  private remoteFp: string | null = null;
+  /** one-shot guard for onTampered. */
+  private tamperReported = false;
   /** Strict-model relay filter: drop the peer's relay candidates while true (Max-privacy). Fixed at
    *  construction — Max-privacy never escalates to a relay. */
   private readonly filterRelay: boolean;
@@ -181,6 +202,7 @@ export class PeerConnection {
   start(initiator: boolean): void {
     const pc = new RTCPeerConnection({ iceServers: this.config.iceServers });
     this.pc = pc;
+    this.initiator = initiator;
 
     pc.onicecandidate = (e) => {
       // DEV/TEST: suppress our own candidates so no real path can form (drives the simulated failure).
@@ -253,25 +275,24 @@ export class PeerConnection {
     if (!pc) return;
     const payload = parsed.data;
 
-    if (payload.kind === 'offer') {
-      // ONE offer per connection. hushsend never renegotiates (`createOffer` is called exactly once),
-      // so a second inbound offer is not a feature we have — but this handler used to apply ANY offer
-      // at ANY time with no state check, which handed the untrusted server a renegotiation primitive:
-      // inject a re-offer with fresh ICE credentials and the path moves, at a moment the attacker
-      // picks, AFTER the channel-open relay check has already run and will not run again. (2026-09-12
-      // audit.) Refuse once the transport is up.
-      if (this.channel && this.channel.readyState !== 'connecting') {
-        if (import.meta.env.DEV) console.warn('[webrtc] refused a re-offer after the channel came up');
+    if (payload.kind === 'offer' || payload.kind === 'answer') {
+      // ONE remote description per connection, of the kind this side is waiting for: the answerer
+      // takes one offer, the offerer one answer. hushsend never renegotiates (`createOffer` is called
+      // exactly once), so a second one is not a feature we have — but this handler used to apply ANY
+      // offer until the channel was up, and any answer at any time, which handed the untrusted server
+      // a renegotiation primitive: a later description with other ICE credentials moves the path at a
+      // moment the attacker picks (2026-09-12 audit), and one with another fingerprint would swap the
+      // certificate the authentication is bound to after it was read (2026-11-23).
+      if (this.remoteFp !== null || (payload.kind === 'offer') === this.initiator) {
+        if (import.meta.env.DEV) console.warn(`[webrtc] refused an unexpected ${payload.kind}`);
         return;
       }
-      await pc.setRemoteDescription(this.sanitizeDescription(payload.description));
+      if (!(await this.takeRemoteDescription(pc, payload.description))) return;
       await this.flushIce();
+      if (payload.kind === 'answer') return;
       await pc.setLocalDescription(await pc.createAnswer());
       const d = pc.localDescription;
       if (d) this.handlers.onSignal?.({ kind: 'answer', description: { type: d.type, sdp: d.sdp } });
-    } else if (payload.kind === 'answer') {
-      await pc.setRemoteDescription(this.sanitizeDescription(payload.description));
-      await this.flushIce();
     } else {
       const candidate = payload.candidate as RTCIceCandidateInit | null;
       if (!candidate) return; // end-of-candidates marker
@@ -301,15 +322,18 @@ export class PeerConnection {
     return this.pc?.sctp?.maxMessageSize ?? 0;
   }
 
-  /** The fingerprint from our LOCAL SDP (what we offer the peer to validate against). */
+  /** The fingerprint from our LOCAL SDP (what we offer the peer to validate against) — under the
+   *  same rule as the peer's: null unless the description names exactly one. */
   localFingerprint(): string | null {
-    return parseFingerprint(this.pc?.localDescription?.sdp);
+    const check = sdpFingerprint(this.pc?.localDescription?.sdp);
+    return check.ok ? check.fingerprint : null;
   }
 
-  /** The fingerprint from the REMOTE SDP — the cert DTLS actually validates the peer
-   *  against. This is the value step-3 key-confirmation will MAC for channel binding. */
+  /** The peer's certificate fingerprint — the value key-confirmation, the SAS and the reconnect
+   *  signature bind to. From the description as it ARRIVED and was validated (`remoteFp`), not from
+   *  what the engine serializes back; null until a description was taken, and after close(). */
   remoteFingerprint(): string | null {
-    return parseFingerprint(this.pc?.remoteDescription?.sdp);
+    return this.pc ? this.remoteFp : null;
   }
 
   close(): void {
@@ -340,6 +364,62 @@ export class PeerConnection {
       if (!this.closed) this.handlers.onClose?.('data channel closed');
     };
     channel.onmessage = (e: MessageEvent) => this.handlers.onMessage?.(e.data as string | ArrayBuffer);
+  }
+
+  /**
+   * Take the peer's description — the only one this connection will ever take. It is refused, and the
+   * owner told (`onTampered`), unless every fingerprint line in it names the same single certificate
+   * (core/webrtc/fingerprint.ts has the measurement that makes "the first line" unsafe). The value is
+   * stored BEFORE the engine is handed the description, so nothing that arrives while that call is
+   * pending can take its place; and what the engine then reports back has to name it too.
+   */
+  private async takeRemoteDescription(pc: RTCPeerConnection, description: unknown): Promise<boolean> {
+    const d = this.sanitizeDescription(description);
+    const check = sdpFingerprint(d?.sdp);
+    if (!check.ok) {
+      this.reportTampered(`the peer's description has ${check.reason === 'none' ? 'no' : check.reason} fingerprint lines`);
+      return false;
+    }
+    this.remoteFp = check.fingerprint;
+    await pc.setRemoteDescription(d);
+    if (this.closed) return false;
+    const kept = sdpFingerprint(pc.remoteDescription?.sdp);
+    if (!kept.ok || kept.fingerprint !== check.fingerprint) {
+      this.reportTampered('the engine kept a fingerprint other than the one the description named');
+      return false;
+    }
+    return true;
+  }
+
+  private reportTampered(detail: string): void {
+    if (this.closed || this.tamperReported) return;
+    this.tamperReported = true;
+    if (import.meta.env.DEV) console.warn(`[webrtc] refusing: ${detail}`);
+    this.handlers.onTampered?.(DESCRIPTION_TAMPERED_REASON);
+  }
+
+  /**
+   * The second lock, at channel-open: the certificate DTLS actually accepted has to be the one the
+   * description named. `getRemoteCertificates()` gave the peer's certificate in Chromium 158, Firefox
+   * 159 and WebKit 27.2 (measured 2026-11-23), and its SHA-256 was the fingerprint of the SDP in each.
+   * Where an engine does not have the call, or reports no certificate, there is no second opinion and
+   * the single-fingerprint rule stands alone — `true`. Certificates that are there, none of which is
+   * the named one, are `false`; a chain is searched whole, so its order does not matter.
+   */
+  private async remoteCertificateMatches(): Promise<boolean> {
+    const fingerprint = this.remoteFp;
+    if (!fingerprint) return false;
+    let chain: ArrayBuffer[];
+    try {
+      chain = this.pc?.sctp?.transport?.getRemoteCertificates?.() ?? [];
+    } catch {
+      return true;
+    }
+    if (chain.length === 0) return true;
+    for (const der of chain) {
+      if ((await certificateHasFingerprint(der, fingerprint)) !== false) return true;
+    }
+    return false;
   }
 
   private async flushIce(): Promise<void> {
@@ -418,6 +498,11 @@ export class PeerConnection {
       }
     }
     if (this.closed) return; // the await above yields — the owner may have torn us down meanwhile
+    if (!(await this.remoteCertificateMatches())) {
+      this.reportTampered('the certificate DTLS accepted is not the one the description named');
+      return;
+    }
+    if (this.closed) return;
     // DEV/TEST: widen the window between "the channel is open and already delivering messages" and
     // "the owner has processed channel-open". That window is REAL — `setupChannel` wires `onmessage`
     // synchronously while this gate awaits `getStats()` — and a peer frame landing inside it used to

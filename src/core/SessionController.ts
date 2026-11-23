@@ -1261,6 +1261,24 @@ export class SessionController {
   private onPeerStartFailure(err: unknown): void {
     const reason = webrtcAvailable() ? `could not start the connection (${errText(err)})` : WEBRTC_UNAVAILABLE_REASON;
     this.dispatch(devActions.appendLog(`startPeer failed: ${errText(err)}`));
+    this.failPairing(reason);
+  }
+
+  /**
+   * The PeerConnection refused the peer's description, or the certificate DTLS accepted is not the
+   * one it named (core/webrtc/fingerprint.ts). The description came through the untrusted server, so
+   * the pairing fails closed, through the method's own teardown, with the reason FailedScreen shows
+   * as "compromised". Before authentication by construction: the channel is never handed over after
+   * this. Once `established` nothing reports it any more — a description is taken once.
+   */
+  private onPeerTampered(reason: string): void {
+    if (this.established) return;
+    this.dispatch(devActions.appendLog(`webrtc: ${reason}`));
+    this.failPairing(reason);
+  }
+
+  /** Fail the pairing in progress through the teardown of its method. */
+  private failPairing(reason: string): void {
     if (this.method === 'words') this.onWordsPairingFailure(reason);
     else if (this.method === 'link' || this.method === 'qr') this.failLink(reason);
     else if (this.reconnect) this.failReconnect(reason);
@@ -1374,6 +1392,7 @@ export class SessionController {
         onMessage: (data) => this.onPeerMessage(data),
         onIceFailed: () => this.onIceFailed(),
         onInterrupted: (interrupted) => this.onPeerInterrupted(interrupted),
+        onTampered: (reason) => this.onPeerTampered(reason),
       },
       {
         iceServers,
