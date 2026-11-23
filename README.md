@@ -141,19 +141,20 @@ be verified without a reference hash.
 
 **Feature-complete and deployed.** All four methods, the codeless reconnect, the mesh lobby, TURN,
 light/dark, the Claude Design screen set (English only for now; the RU table is kept, the switch
-hidden), and the deployment are built and live. **453 vitest tests** (the client; the signaling
+hidden), and the deployment are built and live. **486 vitest tests** (the client; the signaling
 server's 28 run in its own repository) and a
-Playwright e2e suite — **64 cases per engine: 63 run on chromium, 59 on firefox, 58 on webkit** (2026-11-23) (the
+Playwright e2e suite — **69 cases per engine: 68 run on chromium, 64 on firefox, 63 on webkit** (2026-11-23) (the
 silent-peer case needs CDP, and the two straight-into-Downloads cases apply only where the stream path
 does — desktop Chromium; the two site-storage cases skip on Playwright's WebKit, whose storage cannot
 write; plus 2 opt-in cases everywhere, the size ladder and the two-STUN cross-check), plus a 4-case
 phone profile and 5 cross-engine pairs — cover the protocol paths; the axe
 gate (`npm run test:a11y`, 152 checks) and the screenshot gate (`npm run visual`, 207 checks — on the
 deploy host, whose renders the baselines are) cover the screens. The counts were re-run 2026-11-23
-on the owner's Mac, on the Vite 8 / Vitest 5 / Playwright 1.65 toolchain, with the in-place "Retry
-with relay" and the fixes of its review in (vitest 453 of 453; e2e 189 passed, 12 skipped, none
-failed; axe 152 of 152). The screenshot gate ran the same day on the deploy host, before those fixes,
-which change no screen (207 of 207, the 12 baselines of the retry's six scenes recorded there).
+on the owner's Mac, on the Vite 8 / Vitest 5 / Playwright 1.65 toolchain, with the one-fingerprint
+rule, the in-place "Retry with relay" and the fixes of its review in (vitest 486 of 486; e2e 204
+passed, 12 skipped, none failed; axe 152 of 152). The screenshot gate ran the same day on the deploy
+host, before those fixes and that rule, which change no screen (207 of 207, the 12 baselines of the
+retry's six scenes recorded there).
 Refresh them here whenever the suite grows.
 
 A second internal audit on **2026-09-12**, modelling a fully malicious signaling server rather than a
@@ -1748,7 +1749,11 @@ then these always-on mechanisms keep a Max-privacy pairing direct, and a direct 
     room** has nothing to reuse — its 4-digit code is public — so the SAS runs from scratch over the
     new fingerprints, and the people compare words for the first time: the failed attempt never
     showed any, the nonce reveal waits for the channel (§ room method). **Nothing secret is sent through
-    signaling**, and no new secret is made.
+    signaling**, and no new secret is made. The retry's PeerConnection is a new one and takes its one
+    description under the one-fingerprint rule like any other (§ Crypto); a description refused there
+    ends the retry for good, socket closed, through the method's own teardown (`onPeerTampered`). The
+    rendezvous token is derived from the fingerprints that rule validated, and `relayRetryToken`
+    folds their case, so the spelling a side holds them in does not move the room.
   - **Strict until both have tapped.** A side that has not tapped stays where the failure left it:
     no PeerConnection, no TURN request. The side that tapped first sits alone in the retry room and
     asks for TURN credentials only when a peer arrives there (`beginPairing` → `ensureTurnReady`, as
@@ -1832,12 +1837,15 @@ then these always-on mechanisms keep a Max-privacy pairing direct, and a direct 
   middle of the comparison, or after a link's channel opened, does not end it, and before the channel
   it ends it with the connection closed; a forged join, offer, candidate, `busy` or `pair-request`
   at an untapped failed side — Max or Reliable — starts nothing; frames of a socket that was let go
-  reach no later session; the next pairing in Max privacy is strict again. `SessionController.retryWithRelay.test.ts` (the fallback: what each role restarts; the
+  reach no later session; the next pairing in Max privacy is strict again; a refused description in
+  the retry of a link, words or room pairing fails it closed with no second retry.
+  `SessionController.retryWithRelay.test.ts` (the fallback: what each role restarts; the
   Reliable-side reason and its three negative controls). `tests/e2e/relay-retry.spec.ts`, each engine:
   link — both tap, connected in Reliable with a TURN entry, a file arrives, no second link, nothing
   stored; one tap only — no PeerConnection built, the other side still Max, the wait ends, "Start
   over" makes a new link; words; room (straight to the SAS, both confirm); reconnect; the mixed pair
-  ("Try again"). The e2e has no relay to connect through — that the retried path IS the relay is the
+  ("Try again"); a second fingerprint line added to the retry's description — refused as compromised,
+  nothing offered again. The e2e has no relay to connect through — that the retried path IS the relay is the
   NAT suite's sixth case (§ The NAT suite). Visual and axe scenes: `failed-direct-retry`,
   `failed-direct-peer-asks`, `failed-no-relay-path-retry`, `failed-no-relay-path-after-retry`,
   `relay-wait`, `failed-retry-no-show`. Reliable's relay actually

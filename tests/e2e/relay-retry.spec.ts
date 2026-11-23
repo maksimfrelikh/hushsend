@@ -261,3 +261,61 @@ test('mixed pair · the Reliable side reads "Try again", and the pairing continu
   }
   await sendFile(sender, receiver);
 });
+
+/** Runs in the page, before the app: once `window.__rewriteDescriptions` is set, every offer / answer
+ *  this tab sends gets a second fingerprint line — what its peer would receive from a server that
+ *  rewrote it (tests/e2e/fingerprint.spec.ts has the same stand-in for a first pairing). */
+function rewriteDescriptionsOnDemand(): void {
+  const another =
+    'a=fingerprint:sha-256 ' +
+    Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) => b.toString(16).padStart(2, '0').toUpperCase()).join(':');
+  const send = WebSocket.prototype.send;
+  WebSocket.prototype.send = function (this: WebSocket, data: Parameters<WebSocket['send']>[0]): void {
+    const w = window as unknown as { __rewriteDescriptions?: boolean; __rewritten?: number };
+    if (w.__rewriteDescriptions && typeof data === 'string' && data.includes('a=fingerprint:')) {
+      const frame = JSON.parse(data) as { data?: { description?: { sdp?: string } } };
+      const d = frame.data?.description;
+      const honest = d?.sdp ? /a=fingerprint:\S+ \S+/.exec(d.sdp)?.[0] : undefined;
+      if (d?.sdp && honest) {
+        d.sdp = d.sdp.replace(honest, `${honest}\r\n${another}`);
+        w.__rewritten = (w.__rewritten ?? 0) + 1;
+        data = JSON.stringify(frame);
+      }
+    }
+    send.call(this, data);
+  };
+}
+
+test('link · a description naming a second certificate in the retry is refused: the retry fails closed', async ({
+  browser,
+}) => {
+  const receiver = await openTab(browser);
+  const context = await browser.newContext({ baseURL: BASE });
+  openContexts.push(context);
+  const sender = await context.newPage();
+  await sender.addInitScript(rewriteDescriptionsOnDemand);
+  await sender.goto(`${BASE}/?forceBlob=1`);
+  await forceIceFail(sender, true);
+  await forceIceFail(receiver, true);
+
+  const link = await createLink(receiver, 'qr');
+  await joinQrByPaste(sender, link);
+  await expectDirectFailure(sender, receiver);
+  // From here on the "server" rewrites what the sender's side of the retry says about its certificate.
+  await sender.evaluate(() => {
+    (window as unknown as { __rewriteDescriptions: boolean }).__rewriteDescriptions = true;
+  });
+
+  await receiver.getByTestId('retry-relay-btn').click();
+  await sender.getByTestId('retry-relay-btn').click();
+
+  await expect(receiver.getByTestId('failure')).toHaveAttribute('data-variant', 'mismatch', { timeout: 60_000 });
+  await expect(receiver.getByTestId('failure')).toHaveAttribute('data-reason', /tampered with/);
+  // The retry was the one retry: nothing is offered again, and nothing connected.
+  await expect(receiver.getByTestId('relay-retry')).toHaveText('active');
+  await expect(receiver.getByTestId('retry-relay-btn')).toHaveCount(0);
+  await expect(sender.getByTestId('status')).toHaveText('failed', { timeout: 60_000 });
+  for (const page of [receiver, sender]) await expect(page.getByTestId('auth-state')).toHaveCount(0);
+  expect(await sender.evaluate(() => (window as unknown as { __rewritten?: number }).__rewritten ?? 0)).toBeGreaterThan(0);
+});
+

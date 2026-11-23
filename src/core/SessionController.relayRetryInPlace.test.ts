@@ -100,7 +100,10 @@ const hoisted = vi.hoisted(() => {
     onClose: (why?: string) => void;
     onMessage: (data: string | ArrayBuffer) => void;
     onIceFailed: () => void;
+    onTampered: (reason: string) => void;
   }
+  const TAMPERED =
+    'the connection description was tampered with — it must name exactly one certificate (possible man-in-the-middle)';
   const pcs: MockPeerConnection[] = [];
   let certs = 0;
   class MockPeerConnection {
@@ -163,6 +166,10 @@ const hoisted = vi.hoisted(() => {
     }
     open(): void {
       this.handlers.onOpen();
+    }
+    /** The real wrapper refused the peer's description (core/webrtc/fingerprint.ts). */
+    refuseDescription(): void {
+      this.handlers.onTampered(TAMPERED);
     }
   }
   return { hub, FakeSignaling, MockPeerConnection, pcs };
@@ -1177,6 +1184,72 @@ describe('a mixed pair — one side already in Reliable', () => {
     await failIce(a, b);
 
     expect(a.state()).toMatchObject({ status: 'failed', error: 'channel closed during pairing', relayRetry: 'none' });
+  });
+});
+
+describe('a description that names two certificates, arriving in the retry', () => {
+  // The retry builds a new PeerConnection, and that connection takes its one description under the
+  // one-fingerprint rule like any other (PeerConnection.description.test.ts). What is checked here is
+  // what the session does when it reports a refusal.
+  const pairings = {
+    link: pairByLink,
+    words: pairByWords,
+    room: pairByRoom,
+  } as const;
+
+  for (const [method, pair] of Object.entries(pairings)) {
+    it(`${method}: the retry fails closed as tampered — socket closed, nothing authenticated, no second retry`, async () => {
+      const [a, b] = [side(), side()];
+      await pair(a, b);
+      await failIce(a, b);
+      void a.sc.retryWithRelay();
+      void b.sc.retryWithRelay();
+      await settle();
+      const [mine, theirs] = [pc(a), pc(b)];
+      const token = a.internals.signaling!.room;
+
+      mine.refuseDescription();
+      await settle();
+
+      expect(a.state()).toMatchObject({ status: 'failed', relayRetry: 'active' });
+      expect(a.state().error).toMatch(/tampered with/);
+      expect(a.internals.signaling!.closed).toBe(true);
+      expect(a.internals.peer).toBeNull();
+      expect(mine.closed).toBe(true);
+      expect(a.internals.established).toBe(false);
+      // The peer is left alone in the retry room and ends too; nobody is left there.
+      expect(b.state().status).toBe('failed');
+      expect(hub.rooms.get(token)).toHaveLength(0);
+
+      // A channel on that connection, were it to open now, is nobody's.
+      mine.open();
+      theirs.open();
+      await settle();
+      expect(a.state().status).toBe('failed');
+      expect(kindsSent(mine)).toEqual([]);
+
+      const rooms = hub.taken.length;
+      void a.sc.retryWithRelay();
+      await settle();
+      expect(hub.taken).toHaveLength(rooms);
+    });
+  }
+
+  it('the rendezvous is derived from the validated fingerprints, and their spelling does not move it', async () => {
+    const [a, b] = [side(), side()];
+    await pairByLink(a, b);
+    const [fpA, fpB] = [pc(a).fp, pc(b).fp];
+    await failIce(a, b);
+    void a.sc.retryWithRelay();
+    void b.sc.retryWithRelay();
+    await settle();
+
+    const token = a.internals.signaling!.room;
+    expect(b.internals.signaling!.room).toBe(token);
+    // The wrapper hands out `sha-256 AB:…`; a bundle that read the raw SDP text handed out the same
+    // characters in whatever case the engine wrote. Both give this token.
+    expect(relayRetryToken(`sha-256 ${fpA}`, `sha-256 ${fpB}`)).toBe(relayRetryToken(`SHA-256 ${fpA.toLowerCase()}`, `sha-256 ${fpB}`));
+    expect(token).toBe(relayRetryToken(fpA, fpB));
   });
 });
 
