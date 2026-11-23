@@ -6,7 +6,7 @@
 #
 # Builds the app FOR THE LAB into dist/ (the signaling and STUN addresses are compiled in, so
 # this is not a deployable build — deploy/deploy-frontend.sh makes its own), raises the lab,
-# checks the NAT rules, runs the five cases and removes the lab again. Needs root (network
+# checks the NAT rules, runs the six cases and removes the lab again. Needs root (network
 # namespaces), docker (coturn), nftables, conntrack, and `npx playwright install chromium`.
 # CI runs the same steps one by one: .github/workflows/nat.yml.
 # ============================================================================

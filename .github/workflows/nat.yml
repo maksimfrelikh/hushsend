@@ -17,7 +17,7 @@ env:
 
 jobs:
   nat:
-    name: NAT lab (chromium) · Max direct, Max refused by a symmetric NAT, Reliable relayed, the network check
+    name: NAT lab (chromium) · Max direct, Max refused by a symmetric NAT, Reliable relayed, the network check, Retry with relay
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -51,7 +51,7 @@ jobs:
       - name: Probe — the two NAT rules really give the two mappings
         run: sudo env "PATH=$PATH" GITHUB_ACTIONS=true bash tests/nat/net/check.sh
 
-      - name: The five cases
+      - name: The six cases
         run: |
           status=0
           sudo env "PATH=$PATH" CI=true GITHUB_ACTIONS=true \

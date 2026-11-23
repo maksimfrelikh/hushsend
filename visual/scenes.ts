@@ -524,6 +524,68 @@ export const SCENES: Scene[] = [
     setup: (page) => dispatch(page, ...failed('link', 'no path worked, even through the relay')),
   },
   {
+    // "Retry with relay" offered: the pairing can continue once both users tap.
+    name: 'failed-direct-retry',
+    matrix: 'phone',
+    setup: (page) =>
+      dispatch(page, ...failed('link', "couldn't connect directly (Max privacy)"), conn('relayRetryOffered')),
+  },
+  {
+    // …and the peer has tapped already.
+    name: 'failed-direct-peer-asks',
+    matrix: 'phone',
+    setup: (page) =>
+      dispatch(
+        page,
+        ...failed('link', "couldn't connect directly (Max privacy)"),
+        conn('relayRetryOffered'),
+        conn('peerAskedRelay'),
+      ),
+  },
+  {
+    // The Reliable side of a mixed pair while the pairing can continue: "Try again".
+    name: 'failed-no-relay-path-retry',
+    matrix: 'phone',
+    setup: (page) =>
+      dispatch(page, ...failed('link', 'no path worked, even through the relay'), conn('relayRetryOffered')),
+  },
+  {
+    // The retry itself found no path: both sides allowed the relay, so the copy names the network.
+    name: 'failed-no-relay-path-after-retry',
+    matrix: 'phone',
+    setup: (page) =>
+      dispatch(
+        page,
+        conn('relayRetryStarted'),
+        conn('joinStarted', { method: 'link', room: '' }),
+        conn('failed', { reason: 'no path worked, even through the relay' }),
+      ),
+  },
+  {
+    // This side tapped "Retry with relay" first and waits for the peer's tap.
+    name: 'relay-wait',
+    matrix: 'phone',
+    setup: (page) =>
+      dispatch(
+        page,
+        conn('relayRetryStarted'),
+        conn('joinStarted', { method: 'link', room: '' }),
+        conn('roomReady', { room: '', credential: null }),
+      ),
+  },
+  {
+    // …and the peer never came: "Start over" is the fallback.
+    name: 'failed-retry-no-show',
+    matrix: 'phone',
+    setup: (page) =>
+      dispatch(
+        page,
+        conn('relayRetryStarted'),
+        conn('joinStarted', { method: 'link', room: '' }),
+        conn('failed', { reason: 'the peer did not join the retry' }),
+      ),
+  },
+  {
     // Reliable whose relay never came: its ICE failure is a plain close (filterRelay is off, so it is
     // never the Max-privacy "connect directly" reason), and the relay hint is the one explanation.
     name: 'failed-relay',

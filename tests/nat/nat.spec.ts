@@ -36,6 +36,8 @@ import {
  *   5. the network check, an invite behind each NAT of case 2 → the symmetric side shows
  *                                                              `nat-warning` before anyone joins,
  *                                                              the other side does not
+ *   6. case 2, then both tap "Retry with relay"              → the SAME pairing connects, the pair is
+ *                                                              a relay; one tap alone relays nothing
  *
  * Case 4 is what keeps 2 honest: a lab where nothing connects (STUN down, a route missing) would
  * pass 2 as well. Case 2 also refuses to pass unless both sides gathered a server-reflexive
@@ -445,5 +447,71 @@ test('network check · an invite behind the symmetric NAT warns before anyone jo
     'network check, symmetric and endpoint-independent',
     `r1 symmetric (${nat.r1.mapping} mapping): nat-warning after ${warnedAfterMs} ms, one socket mapped to ${mappings.join(' and ')}\n` +
       `r2 cone (${nat.r2.mapping} mapping): no warning, one socket mapped to ${behindCone.joint[0][0]} by both destinations`,
+  );
+});
+
+test('Max ↔ Max · symmetric ↔ port-restricted · both tap "Retry with relay" → the same pairing connects, through the relay', async () => {
+  const nat = prepare({ r1: 'symmetric', r2: 'cone' });
+  const { a, b } = await pair('max');
+  await Promise.all(
+    [a, b].map((c) =>
+      expect(c.page.getByTestId('direct-fail-hint'), `${c.router}: the direct failure`).toBeVisible({
+        timeout: FAIL_WITHIN_MS,
+      }),
+    ),
+  );
+  const negotiated = async (c: Client): Promise<PcReport[]> =>
+    (await peerConnections(c.page)).filter((r) => r.negotiated);
+
+  // One tap: that side waits, the other is told — and neither has built anything that could relay.
+  const tappedAt = Date.now();
+  await a.page.getByTestId('retry-relay-btn').click();
+  await expect(a.page.getByTestId('relay-waiting'), 'r1: waiting for the peer').toBeVisible();
+  await expect(a.page.getByTestId('link-url'), 'r1: no new invite').toHaveCount(0);
+  await expect(b.page.getByTestId('peer-asks-relay'), 'r2: told that its peer waits').toBeVisible();
+  await expect(b.page.getByTestId('status')).toHaveText('failed');
+  for (const c of [a, b]) {
+    const pcs = await negotiated(c);
+    expect(pcs, `${c.router}: connections that negotiated after one tap`).toHaveLength(1);
+    expect(typesOf(pcs[0]), `${c.router}: the failed attempt's candidate types`).not.toContain('relay');
+    const turnAsked = (await peerConnections(c.page)).some((r) => r.urls.some((u) => u.startsWith('turn')));
+    expect(turnAsked, `${c.router}: a connection configured with a relay after one tap`).toBe(false);
+  }
+
+  await b.page.getByTestId('retry-relay-btn').click();
+  for (const c of [a, b]) {
+    await expect(c.page.getByTestId('status'), `${c.router}: status`).toHaveText('connected', {
+      timeout: CONNECT_WITHIN_MS,
+    });
+    await expect(c.page.getByTestId('auth-state')).toContainText('authenticated');
+    await expect(c.page.getByTestId('path-state'), `${c.router}: path verdict`).toHaveAttribute(
+      'data-path-verdict',
+      'relayed',
+      { timeout: 30_000 },
+    );
+  }
+  const tookMs = Date.now() - tappedAt;
+  const seen: string[] = [];
+  for (const c of [a, b]) {
+    const pcs = await negotiated(c);
+    // The failed attempt and its continuation, on one page: nothing was reloaded or opened again.
+    expect(pcs, `${c.router}: connections that negotiated`).toHaveLength(2);
+    expect(pcs[0].iceStates, `${c.router}: the direct attempt`).not.toContain('connected');
+    const p = pcs[1].selected;
+    expect(p, `${c.router}: a selected pair on the retried connection`).not.toBeNull();
+    expect([p!.local.type, p!.remote.type], `${c.router}: ${describePair(p!)}`).toContain('relay');
+    seen.push(`${c.router}: ${describePair(p!)}`);
+  }
+  await transfer(a, b);
+  const after = (await negotiated(a))[1].selected;
+  expect([after?.local.type, after?.remote.type], 'the pair the file went over').toContain('relay');
+  expect(after?.bytesSent ?? 0, 'bytes sent on the relayed pair').toBeGreaterThan(PAYLOAD_BYTES);
+  await expect(a.page.getByTestId('link-url'), 'r1: still no new invite').toHaveCount(0);
+
+  annotate(
+    'notice',
+    'Max ↔ Max, symmetric ↔ port-restricted, Retry with relay',
+    `connected ${tookMs} ms after the first tap, ${PAYLOAD_BYTES} bytes delivered intact through the relay, one link\n` +
+      `r1 symmetric (${nat.r1.mapping} mapping), r2 cone (${nat.r2.mapping} mapping)\n${seen.join('\n')}`,
   );
 });
