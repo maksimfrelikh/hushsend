@@ -21,6 +21,8 @@ export const ROUTER_WAN = { r1: '198.51.100.2', r2: '203.0.113.2' } as const;
 export const CLIENT_NS = { r1: 'nat-c1', r2: 'nat-c2' } as const;
 const REFLECTOR = ['192.0.2.1', '192.0.2.2'] as const;
 const STUN = '192.0.2.10:3478';
+/** What the network check asks from one socket: the build's STUN server and the second STUN port. */
+export const NAT_CHECK_URLS = [`stun:${STUN}`, 'stun:192.0.2.10:3480'] as const;
 const STATE_DIR = process.env.NAT_STATE_DIR ?? '/tmp/hushsend-nat';
 
 export type Router = keyof typeof ROUTER_WAN;

@@ -17,7 +17,7 @@ env:
 
 jobs:
   nat:
-    name: NAT lab (chromium) · Max direct, Max refused by a symmetric NAT, Reliable relayed
+    name: NAT lab (chromium) · Max direct, Max refused by a symmetric NAT, Reliable relayed, the network check
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -33,13 +33,15 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq nftables conntrack
 
-      # The two addresses are compiled into the bundle (there is no runtime client config): the
-      # signaling server through each namespace's port-forward, STUN at coturn's lab address.
+      # The addresses are compiled into the bundle (there is no runtime client config): the
+      # signaling server through each namespace's port-forward, STUN at coturn's lab address, and
+      # the network check's second STUN port beside it.
       - name: Build the app for the lab
         run: npm run build
         env:
           VITE_SIGNALING_URL: ws://127.0.0.1:8080
           VITE_STUN_URLS: stun:192.0.2.10:3478
+          VITE_NAT_CHECK_STUN_URL: stun:192.0.2.10:3480
 
       # Each of the next three steps fails with ::error:: annotations that say what is wrong: the
       # job log of a public repository needs a sign-in, annotations and step results do not.
@@ -49,7 +51,7 @@ jobs:
       - name: Probe — the two NAT rules really give the two mappings
         run: sudo env "PATH=$PATH" GITHUB_ACTIONS=true bash tests/nat/net/check.sh
 
-      - name: The four cases
+      - name: The five cases
         run: |
           status=0
           sudo env "PATH=$PATH" CI=true GITHUB_ACTIONS=true \

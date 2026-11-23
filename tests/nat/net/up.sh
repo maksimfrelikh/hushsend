@@ -7,13 +7,14 @@
 #   - five network namespaces wired with veth pairs, two of them routers that NAT (nat-mode.sh);
 #   - coturn — the image the relay runs in production, pinned in hush-signaling-server's
 #     deploy/turn/lib.sh, with that repository's turnserver.conf.template rendered for the lab —
-#     as STUN and TURN, in a namespace of its own;
+#     as STUN and TURN, in a namespace of its own, and beside it a second STUN port (tools/stun.ts);
 #   - the signaling server from node_modules and the BUILT app (`vite preview` over dist/) on the
 #     lab's public address;
 #   - in each client namespace a port-forward, so its browser loads http://localhost:5173.
 #
 # The build must have been made for the lab:
-#   VITE_SIGNALING_URL=ws://127.0.0.1:8080 VITE_STUN_URLS=stun:192.0.2.10:3478 npm run build
+#   VITE_SIGNALING_URL=ws://127.0.0.1:8080 VITE_STUN_URLS=stun:192.0.2.10:3478 \
+#     VITE_NAT_CHECK_STUN_URL=stun:192.0.2.10:3480 npm run build
 #
 # Every check below fails with one line that says what is wrong, as an ::error:: annotation on
 # GitHub Actions — the job log of a public repository is not readable without signing in, the
@@ -33,6 +34,8 @@ NODE=$(command -v node)
 [ -f "$REPO/dist/index.html" ] || nat_fail 'NAT lab' 'dist/ is missing — build the app for the lab first (see the header of up.sh)'
 grep -rqF "stun:$TURN_IP:$TURN_PORT" "$REPO/dist/assets" ||
   nat_fail 'NAT lab' "dist/ was not built for the lab: stun:$TURN_IP:$TURN_PORT is not in the bundle (VITE_STUN_URLS)"
+grep -rqF "stun:$TURN_IP:$NAT_CHECK_PORT" "$REPO/dist/assets" ||
+  nat_fail 'NAT lab' "dist/ was not built for the lab: stun:$TURN_IP:$NAT_CHECK_PORT is not in the bundle (VITE_NAT_CHECK_STUN_URL)"
 
 stage='start'
 tail_of() { [ -f "$1" ] && tail -n 8 "$1" 2>/dev/null || true; }
@@ -162,6 +165,7 @@ addr "$NS_INET" to-turn "$INET_TURN_IP/30"
 addr "$NS_TURN" eth0 "$TURN_IP/30"
 ip -n "$NS_TURN" route add default via "$INET_TURN_IP"
 touch "$NAT_STATE_DIR/coturn/go"
+spawn stun2 "$NS_TURN" "$NODE" "$HERE/../tools/stun.ts" "$TURN_IP" "$NAT_CHECK_PORT"
 
 # ── 3. signaling, the built app, the probe's reflector, the forwards ────────
 stage='services'
@@ -202,6 +206,8 @@ fi
 stage='stun and relay'
 wait_for 30 "coturn does not answer STUN on $TURN_IP:$TURN_PORT from behind the NAT (or the reflector is down: $(tail_of "$NAT_STATE_DIR/reflect.log"))" \
   in_ns "$NS_C1" "$NODE" "$HERE/../tools/probe.ts" "$SVC_IP" "$REFLECT_IP2" "$TURN_IP:$TURN_PORT"
+wait_for 15 "the second STUN port $TURN_IP:$NAT_CHECK_PORT does not answer from behind the NAT: $(tail_of "$NAT_STATE_DIR/stun2.log")" \
+  in_ns "$NS_C1" "$NODE" "$HERE/../tools/probe.ts" "$SVC_IP" "$REFLECT_IP2" "$TURN_IP:$NAT_CHECK_PORT"
 # A credential minted exactly as the signaling server mints one must open a relay and carry data,
 # from behind the NAT: relay-probe.mjs is hush-signaling-server's own check.
 turn_user="$(($(date +%s) + 600)):$(openssl rand -hex 8)"

@@ -10,9 +10,12 @@
 #        nat-turn             nat-r1                 nat-r2
 #        coturn (STUN+TURN)   wan 198.51.100.2       wan 203.0.113.2     ← NAT (nftables)
 #        192.0.2.10           lan 192.168.1.1        lan 192.168.2.1
-#                                │                      │
+#        + STUN on :3480         │                      │
 #                             nat-c1                 nat-c2
 #                             192.168.1.2            192.168.2.2         ← one browser each
+#
+# The second STUN port on coturn's address (tools/stun.ts) is the network check's other
+# destination: in production the two STUN ports share one address too.
 #
 # Public addresses are the three documentation ranges (RFC 5737): nothing in the
 # TURN template's denied-peer-ip list, nothing that routes anywhere real.
@@ -43,6 +46,7 @@ C2_IP=192.168.2.2
 SIGNALING_PORT=8080
 APP_PORT=5173
 TURN_PORT=3478
+NAT_CHECK_PORT=3480
 TURN_SECRET=nat-lab-turn-shared-secret
 COTURN_CONTAINER=nat-coturn
 

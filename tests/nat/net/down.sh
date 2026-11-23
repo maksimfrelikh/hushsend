@@ -9,6 +9,7 @@ for ns in "${ALL_NS[@]}"; do
   [ "$ns" = "$NS_TURN" ] || ip netns pids "$ns" 2>/dev/null | xargs -r kill -9 2>/dev/null
 done
 docker rm -f "$COTURN_CONTAINER" >/dev/null 2>&1
+[ -e "/run/netns/$NS_TURN" ] && ip netns pids "$NS_TURN" 2>/dev/null | xargs -r kill -9 2>/dev/null
 for ns in "${ALL_NS[@]}"; do
   [ -e "/run/netns/$ns" ] && ip netns del "$ns" 2>/dev/null
 done

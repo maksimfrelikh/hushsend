@@ -6,7 +6,7 @@
 #
 # Builds the app FOR THE LAB into dist/ (the signaling and STUN addresses are compiled in, so
 # this is not a deployable build — deploy/deploy-frontend.sh makes its own), raises the lab,
-# checks the NAT rules, runs the four cases and removes the lab again. Needs root (network
+# checks the NAT rules, runs the five cases and removes the lab again. Needs root (network
 # namespaces), docker (coturn), nftables, conntrack, and `npx playwright install chromium`.
 # CI runs the same steps one by one: .github/workflows/nat.yml.
 # ============================================================================
@@ -23,6 +23,7 @@ as_user=()
 [ -n "${SUDO_USER:-}" ] && as_user=(sudo -u "$SUDO_USER")
 "${as_user[@]}" env "PATH=$PATH" \
   VITE_SIGNALING_URL="ws://127.0.0.1:$SIGNALING_PORT" VITE_STUN_URLS="stun:$TURN_IP:$TURN_PORT" \
+  VITE_NAT_CHECK_STUN_URL="stun:$TURN_IP:$NAT_CHECK_PORT" \
   npm run build
 
 trap 'bash "$HERE/net/down.sh"' EXIT

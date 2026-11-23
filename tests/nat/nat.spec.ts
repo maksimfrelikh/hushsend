@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createLink } from '../e2e/helpers';
 import {
   APP,
+  NAT_CHECK_URLS,
   ROUTER_WAN,
   annotate,
   launchBehind,
@@ -32,13 +33,18 @@ import {
  *                                                              `direct-fail-hint`, within a bound
  *   3. Reliable ↔ Reliable, symmetric ↔ port-restricted     → connects, the pair is a relay
  *   4. control: case 2's lab with the one rule switched back → connects
+ *   5. the network check, an invite behind each NAT of case 2 → the symmetric side shows
+ *                                                              `nat-warning` before anyone joins,
+ *                                                              the other side does not
  *
  * Case 4 is what keeps 2 honest: a lab where nothing connects (STUN down, a route missing) would
  * pass 2 as well. Case 2 also refuses to pass unless both sides gathered a server-reflexive
  * candidate on their router's address and started checking — it must be the NAT that stopped them.
  *
  * The app is the production build, so there are no DEV diagnostics: the connection is observed
- * from outside, by recording the page's RTCPeerConnections (the bundle is not touched).
+ * from outside, by recording the page's RTCPeerConnections (the bundle is not touched). For case 5
+ * that means the check's verdict is read from what it does — the warning — and from what its own
+ * connections gathered, not from the DEV strip's `nat-verdict`.
  */
 
 test.beforeAll(requireLab);
@@ -46,6 +52,8 @@ test.beforeAll(requireLab);
 /** Max privacy must give up in well under this; a session still pending at the bound is a hang. */
 const FAIL_WITHIN_MS = 60_000;
 const CONNECT_WITHIN_MS = 60_000;
+/** The check gives up gathering after 12 s (natCheck.ts); it answered in under a second on a LAN. */
+const CHECK_WITHIN_MS = 15_000;
 const PAYLOAD_BYTES = 512 * 1024;
 
 type Mode = 'max' | 'reliable';
@@ -68,12 +76,20 @@ interface SelectedPair {
 interface PcReport {
   /** A remote description was applied: this is the session's connection, not a STUN probe. */
   negotiated: boolean;
+  /** The STUN / TURN URLs the connection was created with. */
+  urls: string[];
   iceStates: string[];
   candidates: string[];
   selected: SelectedPair | null;
 }
 interface NatWindow {
-  __natPcs: { pc: RTCPeerConnection; negotiated: boolean; iceStates: string[]; candidates: string[] }[];
+  __natPcs: {
+    pc: RTCPeerConnection;
+    negotiated: boolean;
+    urls: string[];
+    iceStates: string[];
+    candidates: string[];
+  }[];
 }
 
 /** Runs in the page before the app: remember every RTCPeerConnection, its local candidates and its
@@ -84,7 +100,8 @@ function recordPeerConnections(): void {
   window.RTCPeerConnection = new Proxy(window.RTCPeerConnection, {
     construct(target, args, newTarget) {
       const pc = Reflect.construct(target, args, newTarget) as RTCPeerConnection;
-      const entry = { pc, negotiated: false, iceStates: [] as string[], candidates: [] as string[] };
+      const urls = ((args[0] as RTCConfiguration | undefined)?.iceServers ?? []).flatMap((s) => s.urls);
+      const entry = { pc, negotiated: false, urls, iceStates: [] as string[], candidates: [] as string[] };
       pc.addEventListener('icecandidate', (e) => {
         if (e.candidate?.candidate) entry.candidates.push(e.candidate.candidate);
       });
@@ -101,7 +118,7 @@ function recordPeerConnections(): void {
 async function peerConnections(page: Page): Promise<PcReport[]> {
   return page.evaluate(async () => {
     const reports: PcReport[] = [];
-    for (const { pc, negotiated, iceStates, candidates } of (window as unknown as NatWindow).__natPcs) {
+    for (const { pc, negotiated, urls, iceStates, candidates } of (window as unknown as NatWindow).__natPcs) {
       let selected: SelectedPair | null = null;
       try {
         const stats = await pc.getStats();
@@ -126,7 +143,7 @@ async function peerConnections(page: Page): Promise<PcReport[]> {
       } catch {
         // a closed connection has no stats; the recorded candidates and states are the evidence
       }
-      reports.push({ negotiated, iceStates, candidates, selected });
+      reports.push({ negotiated, urls, iceStates, candidates, selected });
     }
     return reports;
   });
@@ -200,6 +217,27 @@ const typesOf = (r: PcReport): string[] =>
   [...new Set(r.candidates.map((c) => / typ (\w+)/.exec(c)?.[1] ?? '?'))].sort();
 const describePair = (p: SelectedPair): string =>
   `${p.local.type} ${p.local.address ?? '?'}:${p.local.port ?? '?'} → ${p.remote.type} ${p.remote.address ?? '?'}:${p.remote.port ?? '?'}`;
+/** The distinct `address:port` a connection learned from STUN. */
+const mappingsOf = (r: PcReport): string[] => [
+  ...new Set(
+    r.candidates.filter((c) => c.includes(' typ srflx')).map((c) => c.split(' ').slice(4, 6).join(':')),
+  ),
+];
+
+/**
+ * The network check's connections, which never negotiate: the one that asks both STUN destinations
+ * from one socket, and the destinations that answered a connection of their own (asked only when
+ * the first one could mean `direct`).
+ */
+async function networkCheck(client: Client): Promise<{ joint: string[][]; answeredAlone: string[] }> {
+  const probes = (await peerConnections(client.page)).filter((r) => !r.negotiated);
+  return {
+    joint: probes.filter((r) => NAT_CHECK_URLS.every((u) => r.urls.includes(u))).map(mappingsOf),
+    answeredAlone: [
+      ...new Set(probes.filter((r) => r.urls.length === 1 && mappingsOf(r).length > 0).map((r) => r.urls[0])),
+    ].sort(),
+  };
+}
 
 async function expectConnected(a: Client, b: Client): Promise<{ a: SelectedPair; b: SelectedPair }> {
   for (const c of [a, b]) {
@@ -363,4 +401,49 @@ test('control · the symmetric router switched back to endpoint-independent → 
   // between case 2 and this one is the rule on nat-r1.
   prepare({ r1: 'symmetric', r2: 'cone' });
   await expectDirect({ r1: 'cone', r2: 'cone' }, 'control: nat-r1 symmetric → cone, Max ↔ Max');
+});
+
+test('network check · an invite behind the symmetric NAT warns before anyone joins; behind the endpoint-independent NAT it stays silent', async () => {
+  const nat = prepare({ r1: 'symmetric', r2: 'cone' });
+  const a = await openClient('r1', 'max');
+  const b = await openClient('r2', 'max');
+  const startedAt = Date.now();
+  await createLink(a.page);
+  await createLink(b.page);
+
+  await expect(
+    a.page.getByTestId('nat-warning'),
+    `r1: the warning on the Share screen within ${CHECK_WITHIN_MS} ms`,
+  ).toBeVisible({ timeout: CHECK_WITHIN_MS });
+  const warnedAfterMs = Date.now() - startedAt;
+  const behindSymmetric = await networkCheck(a);
+  expect(behindSymmetric.joint, 'r1: connections that asked both STUN destinations').toHaveLength(1);
+  // The warning is the NAT's doing: one socket was given two mappings on the router's address.
+  const mappings = behindSymmetric.joint[0];
+  expect(mappings.length, `r1: mappings of one socket, ${mappings.join(' and ')}`).toBe(2);
+  for (const m of mappings) expect(m.split(':')[0], 'r1: the mapped address').toBe(ROUTER_WAN.r1);
+
+  // Silence must be the verdict `direct`, not a check that never ran or never heard back: one
+  // mapping for both destinations, and each destination answered a connection of its own.
+  await expect
+    .poll(async () => (await networkCheck(b)).answeredAlone, {
+      message: 'r2: STUN destinations that answered a connection of their own',
+      timeout: CHECK_WITHIN_MS,
+    })
+    .toEqual([...NAT_CHECK_URLS].sort());
+  const behindCone = await networkCheck(b);
+  expect(behindCone.joint, 'r2: connections that asked both STUN destinations').toHaveLength(1);
+  expect(behindCone.joint[0], 'r2: mappings of one socket').toHaveLength(1);
+  expect(behindCone.joint[0][0].split(':')[0], 'r2: the mapped address').toBe(ROUTER_WAN.r2);
+  // The verdict reaches the screen as soon as those answers are in; a wrong one would show by now.
+  await b.page.waitForTimeout(1_000);
+  await expect(b.page.getByTestId('nat-warning'), 'r2: no warning').toHaveCount(0);
+  await expect(b.page.getByTestId('status')).toHaveText('awaitingPeer');
+
+  annotate(
+    'notice',
+    'network check, symmetric and endpoint-independent',
+    `r1 symmetric (${nat.r1.mapping} mapping): nat-warning after ${warnedAfterMs} ms, one socket mapped to ${mappings.join(' and ')}\n` +
+      `r2 cone (${nat.r2.mapping} mapping): no warning, one socket mapped to ${behindCone.joint[0][0]} by both destinations`,
+  );
 });

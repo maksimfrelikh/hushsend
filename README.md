@@ -227,9 +227,10 @@ The e2e pairs two tabs on loopback, so it never meets a NAT. `tests/nat/` does: 
 BUILT app, each in its own Linux network namespace behind its own NAT router (nftables), with the
 signaling server, the app and coturn — STUN and TURN, the image and config template the relay runs in
 production, taken from the hush-signaling-server commit pinned in `package.json` — on the lab's public
-side. The map is in `tests/nat/net/lib.sh`. Before pairing, each case measures what its two routers
-really do (`tests/nat/tools/probe.ts`: mapping and filtering), then pairs by one-time link and reads
-the candidate pair ICE selected. Four cases, `tests/nat/nat.spec.ts`:
+side, and beside coturn a second STUN port (`tests/nat/tools/stun.ts`), the network check's other
+destination. The map is in `tests/nat/net/lib.sh`. Each case first measures what its two routers
+really do (`tests/nat/tools/probe.ts`: mapping and filtering); the first four then pair by one-time
+link and read the candidate pair ICE selected. Five cases, `tests/nat/nat.spec.ts`:
 
 - **Max ↔ Max, both NATs endpoint-independent** → connects, the selected pair is not a relay, a file
   arrives intact;
@@ -240,6 +241,14 @@ the candidate pair ICE selected. Four cases, `tests/nat/nat.spec.ts`:
   shows "relayed through the server", a file arrives intact;
 - **control** — that lab with the one rule switched from symmetric back to endpoint-independent →
   connects. Without it a lab where nothing can connect would pass the second case.
+- **the network check** (§ Network check) — an invite behind each NAT of the second case, nobody
+  joins. Behind the symmetric NAT the Share screen shows `nat-warning`, and the check's connection
+  was given two mappings on its router's address by the two STUN ports. Behind the
+  endpoint-independent NAT there is no warning, that connection has one mapping, and each port
+  answered a connection of its own — what the verdict `direct` is made of; the build is the production
+  one, so the verdict itself is not on the screen. **Not yet run:** written 2026-11-23 on macOS,
+  where the lab cannot be raised, and rehearsed there against the same build and two local STUN
+  servers with no NAT between.
 
 It needs Linux, root, docker, nftables and conntrack, so it is not part of the list above:
 
@@ -248,9 +257,10 @@ sudo env "PATH=$PATH" bash tests/nat/run.sh   # builds dist/ FOR THE LAB, raises
 ```
 
 CI runs it nightly and on demand ([`.github/workflows/nat.yml`](.github/workflows/nat.yml)), not per
-push. Run it after a change to ICE, the privacy modes or the relay credentials, and after a bump of the
-hush-signaling-server pin. Its limits: Chromium only, IPv4 only, TURN over UDP only, and the NAT is
-Linux netfilter — port-restricted filtering in both rules, no hairpinning, no second NAT layer.
+push. Run it after a change to ICE, the privacy modes, the network check or the relay credentials, and
+after a bump of the hush-signaling-server pin. Its limits: Chromium only, IPv4 only, TURN over UDP
+only, and the NAT is Linux netfilter — port-restricted filtering in both rules, no hairpinning, no
+second NAT layer.
 
 ## About this document
 
@@ -1719,14 +1729,16 @@ attestation: it refuses nothing and never changes the mode.
   browser. The iOS Simulator is the exception: the check reads `symmetric` in it on every network
   (the [test plan](#test-plan--the-real-device-pass-step-6e) says why), so it is not judged there.
 - **Not verified:** a real symmetric NAT. The decision is unit-tested on the candidate lines the
-  engines produced, and the e2e runs the whole check in each engine against the two-port servers; the
-  carrier, with a real phone on it, is test plan case C7.
+  engines produced, and the e2e runs the whole check in each engine against the two-port servers. The
+  NAT suite has a case behind a symmetric router — Linux netfilter, Chromium — that has not run yet
+  (§ The NAT suite); the carrier, with a real phone on it, is test plan case C7.
 - **Tests**: `natCheck.test.ts` (the parser and the verdict, including WebKit's re-gathered sockets in
   both directions); `tests/e2e/nat-check.spec.ts` (two STUN servers run by the spec, pointed at with
   the DEV-only `?natCheck=<url>,<url>`: nothing asked on page load; a symmetric answer warns on the
   invite screen and is named on the failure screen of both sides; equal answers read `direct` and
-  show nothing; a silent server reads `unknown`; Reliable asks nothing). Visual scenes `share-nat`,
-  `connecting-nat`, `failed-direct-nat`.
+  show nothing; a silent server reads `unknown`; Reliable asks nothing); the fifth case of
+  `tests/nat/nat.spec.ts` (§ The NAT suite). Visual scenes `share-nat`, `connecting-nat`,
+  `failed-direct-nat`.
 
 #### Path attestation (`src/core/pathAttest.ts`) — who is actually on the wire
 Authentication answers "is this my peer?"; attestation answers **"is the traffic going to them?"**.
@@ -2871,7 +2883,8 @@ delivery (§ The road to "yes"); path attestation and the STUN operator (§ Secu
   measured; the history is in [pre-launch.md](docs/history/pre-launch.md)): try two ordinary Wi-Fi
   networks in different places, another carrier, and a pair with IPv6 on both sides; and the network
   check and "Retry with relay" on the carrier itself — test plan cases C7 and C8 (both built against
-  simulated failures, § Network check and § Max-privacy strict model).
+  simulated failures, § Network check and § Max-privacy strict model); and the first run of the NAT
+  suite's network-check case (§ The NAT suite).
 - Screenshot baselines for the 2026-11-22 screens, on the deploy host (they were built on a Mac, where
   the gate cannot be judged): new scenes `share-nat`, `connecting-nat`, `failed-direct-nat`,
   `failed-no-relay-path`; `failed-direct` changed (new copy, "Retry with relay"). Until then
