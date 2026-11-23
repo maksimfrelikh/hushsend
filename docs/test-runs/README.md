@@ -24,7 +24,7 @@ output, and whether it reproduced on the other engine.
 | [2026-10-03](2026-10-03.md) | the FIRST real iPhone · Chrome 154 (the Mac) ↔ **iPhone 15** (iOS 26.6, Safari 26.6) over USB — Phase A/B/E on the LAN, Phase C on LTE |
 | [2026-10-11](2026-10-11.md) | the owner, by hand · a phone on cellular ↔ a laptop on the home Wi-Fi, Max ↔ Max — did not connect, nothing captured<br>a STUN probe from the server's LAN against the live `:3479` — the public mapping, port preserved; only the TURN `:3478` answers the router's LAN address |
 | [2026-11-22](2026-11-22.md) | Max ↔ Max across networks on the owner's carrier, by hand: two attempts, neither connected · the carrier NAT measured from the STUN host — symmetric, neighbouring ports · STUN over IPv6 enabled, unused there · a port-prediction prototype connected once, not adopted |
-| [2026-11-23](2026-11-23.md) | a control for the 2026-11-22 NAT measurement, on the home line · Safari 27.2 on an iPhone and Safari 26.5.2 on macOS ask three STUN servers from one socket; Safari 26.5 in the iOS Simulator uses a port per server · the verdict stands |
+| [2026-11-23](2026-11-23.md) | a control for the 2026-11-22 NAT measurement, on the home line · Safari 27.2 on an iPhone and Safari 26.5.2 on macOS ask three STUN servers from one socket; Safari 26.5 in the iOS Simulator uses a port per server · the verdict stands<br>the NAT suite's network-check case, first run on the CI runner — all five cases pass<br>the screenshot gate on netcup in Playwright's container: 181 older baselines match, 14 recorded, 195 of 195 |
 
 ## How the pass progressed
 

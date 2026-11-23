@@ -151,8 +151,8 @@ gate (`npm run test:a11y`, 140 checks) and the screenshot gate (`npm run visual`
 deploy host, whose renders the baselines are) cover the screens. The counts were re-run 2026-11-22
 on the owner's Mac, on the Vite 8 / Vitest 5 / Playwright 1.65 toolchain, with the network check and
 "Retry with relay" in (vitest 406 of 406; e2e 177 passed, 12 skipped, none failed; axe 140 of 140) —
-all but the screenshot gate, which was last run 2026-10-11 on the deploy host at 187 checks and
-waits for new baselines (§ Backlog).
+and the screenshot gate 2026-11-23 on the deploy host (195 of 195, with the 14 baselines of those
+screens recorded there that day).
 Refresh them here whenever the suite grows.
 
 A second internal audit on **2026-09-12**, modelling a fully malicious signaling server rather than a
@@ -219,7 +219,10 @@ in, there is no runtime client config) and what each must be for a real deploy: 
   keyboard contracts) and `npm run visual` (screenshots, tokens, geometry). Both drive the states
   through the DEV-only `window.__hsStore` / `__hsKeystore` hooks — no peer, no server. The screenshot
   baselines are the deploy host's renders: compare there, and re-record (`npm run visual:update`) only
-  with a reviewed reason (§ UI).
+  with a reviewed reason (§ UI). There the gate runs in Playwright's own container image, the tag of
+  the `@playwright/test` version in the lockfile, over a copy of the build clone with `npm ci` done —
+  `docker run --rm --ipc=host -v "$PWD":/work -w /work mcr.microsoft.com/playwright:v1.65.0-noble npm run visual`
+  — so the renders do not depend on what the host has installed ([2026-11-23 run](docs/test-runs/2026-11-23.md)).
 
 ### The NAT suite
 
@@ -246,9 +249,8 @@ link and read the candidate pair ICE selected. Five cases, `tests/nat/nat.spec.t
   was given two mappings on its router's address by the two STUN ports. Behind the
   endpoint-independent NAT there is no warning, that connection has one mapping, and each port
   answered a connection of its own — what the verdict `direct` is made of; the build is the production
-  one, so the verdict itself is not on the screen. **Not yet run:** written 2026-11-23 on macOS,
-  where the lab cannot be raised, and rehearsed there against the same build and two local STUN
-  servers with no NAT between.
+  one, so the verdict itself is not on the screen. First run 2026-11-23 on the CI runner: the warning
+  270 ms after the Share screen ([2026-11-23 run](docs/test-runs/2026-11-23.md)).
 
 It needs Linux, root, docker, nftables and conntrack, so it is not part of the list above:
 
@@ -2883,12 +2885,7 @@ delivery (§ The road to "yes"); path attestation and the STUN operator (§ Secu
   measured; the history is in [pre-launch.md](docs/history/pre-launch.md)): try two ordinary Wi-Fi
   networks in different places, another carrier, and a pair with IPv6 on both sides; and the network
   check and "Retry with relay" on the carrier itself — test plan cases C7 and C8 (both built against
-  simulated failures, § Network check and § Max-privacy strict model); and the first run of the NAT
-  suite's network-check case (§ The NAT suite).
-- Screenshot baselines for the 2026-11-22 screens, on the deploy host (they were built on a Mac, where
-  the gate cannot be judged): new scenes `share-nat`, `connecting-nat`, `failed-direct-nat`,
-  `failed-no-relay-path`; `failed-direct` changed (new copy, "Retry with relay"). Until then
-  `npm run visual` fails on those 14 images.
+  simulated failures, § Network check and § Max-privacy strict model).
 - Relay capacity: coturn's 49160–49200 range is ~41 allocations (a fully relayed pair takes two).
   A total cap (`bps-capacity`, 20 MB/s = ten allocations at 2 MB/s), two allocations per credential and
   a per-IP mint limit landed 2026-11-22 (the Capacity section of hush-signaling-server's runbook). Left: widen the
