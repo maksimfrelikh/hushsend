@@ -228,8 +228,7 @@ describe('at channel-open — the certificate DTLS accepted is the one that was 
     p.rtc.ondatachannel!({ channel });
     channel.readyState = 'open';
     channel.onopen!();
-    await tick();
-    await tick();
+    await vi.waitFor(() => expect(p.onOpen.mock.calls.length + p.tampered.length).toBeGreaterThan(0), { timeout: 5000 });
     return p;
   }
 
