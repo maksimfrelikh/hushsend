@@ -186,6 +186,7 @@ const slice = createSlice({
       state.status = 'awaitingPeer';
       state.room = action.payload.room;
       state.credential = action.payload.credential;
+      state.peerAsksRelay = false; // nobody is engaged: the notice was an earlier peer's
     },
     joinStarted(state, action: PayloadAction<{ method: ConnectionMethod; room: string }>) {
       if (!canGo(state.status, 'joining')) return warnIllegal(state.status, 'joining');
@@ -271,6 +272,7 @@ const slice = createSlice({
       state.sas = null;
       state.sasRole = null;
       state.pathCheck = null; // per-pair, exactly like sas — must not survive into the next pick
+      state.peerAsksRelay = false; // per-pair too
       state.peerId = null;
     },
     confirmStarted(state) {

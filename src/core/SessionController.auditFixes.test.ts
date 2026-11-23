@@ -58,7 +58,7 @@ interface Internals {
   peerId: string | null;
   established: boolean;
   sas: Record<string, unknown> | null;
-  peer: { sent: unknown[] } | null;
+  peer: { sent: unknown[]; close(): void } | null;
   signaling: { send: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> } | null;
   pendingOffer: unknown;
   pendingEnrollFrame: unknown;
@@ -74,7 +74,7 @@ function newSc(): { sc: SessionController; i: Internals; dispatch: ReturnType<ty
   const sc = new SessionController(dispatch as unknown as AppDispatch);
   const i = sc as unknown as Internals;
   i.signaling = { send: vi.fn(), close: vi.fn() };
-  i.peer = { sent: [] };
+  i.peer = { sent: [], close: vi.fn() };
   i.peerId = 'peer-b';
   i.method = 'room';
   return { sc, i, dispatch };

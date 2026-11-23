@@ -141,7 +141,7 @@ be verified without a reference hash.
 
 **Feature-complete and deployed.** All four methods, the codeless reconnect, the mesh lobby, TURN,
 light/dark, the Claude Design screen set (English only for now; the RU table is kept, the switch
-hidden), and the deployment are built and live. **435 vitest tests** (the client; the signaling
+hidden), and the deployment are built and live. **453 vitest tests** (the client; the signaling
 server's 28 run in its own repository) and a
 Playwright e2e suite — **64 cases per engine: 63 run on chromium, 59 on firefox, 58 on webkit** (2026-11-23) (the
 silent-peer case needs CDP, and the two straight-into-Downloads cases apply only where the stream path
@@ -151,9 +151,9 @@ phone profile and 5 cross-engine pairs — cover the protocol paths; the axe
 gate (`npm run test:a11y`, 152 checks) and the screenshot gate (`npm run visual`, 207 checks — on the
 deploy host, whose renders the baselines are) cover the screens. The counts were re-run 2026-11-23
 on the owner's Mac, on the Vite 8 / Vitest 5 / Playwright 1.65 toolchain, with the in-place "Retry
-with relay" in (vitest 435 of 435; e2e 189 passed, 12 skipped, none failed; axe 152 of 152). The
-screenshot gate ran the same day on the deploy host with that change in (207 of 207, the 12 baselines
-of its six scenes recorded there).
+with relay" and the fixes of its review in (vitest 453 of 453; e2e 189 passed, 12 skipped, none
+failed; axe 152 of 152). The screenshot gate ran the same day on the deploy host, before those fixes,
+which change no screen (207 of 207, the 12 baselines of the retry's six scenes recorded there).
 Refresh them here whenever the suite grows.
 
 A second internal audit on **2026-09-12**, modelling a fully malicious signaling server rather than a
@@ -850,6 +850,27 @@ method used only by the words attempt-cap path).
   `tests/e2e/ws-close.spec.ts` (link + words: connect → socket closes → peer-left doesn't drop P2P /
   count a guess → transfer AFTER close intact); room/SAS + lobby behaviour stays green in
   `room-sas.spec.ts` / `lobby.spec.ts`.
+- **A socket the SERVER closes, before `connected` (rewritten 2026-11-23).** Three cases
+  (`onSignalingClose`). *The channel is not open yet*: signaling is still carrying the offer, the
+  answer and the candidates, so the pairing fails — and `fail()` closes the PeerConnection with it
+  (it used to leave it: a channel that opened afterwards could still authenticate, and the core then
+  held `established` under a screen that said failed). *The channel is open*: signaling has no job
+  left — the key-confirmation, the SAS verdicts and the reconnect hello / proof / ok ride the channel
+  — so the close is ignored and the pairing's own deadline goes on bounding it. The one exception is
+  a room pairing whose two SAS nonces are not both out, since those ride signaling. Until that day
+  only reconnect had this rule, and a 3-minute room expiring under a slow SAS comparison ended it.
+  *The session has already failed*: nothing happens (below).
+- **A failed session takes nothing from the server (2026-11-23).** `fail()` is the one way into
+  `failed`: it closes the PeerConnection, disarms the pairing deadlines and sets `ended`, after which
+  a welcome, a join, a leave, an offer, a candidate, a room-closed and a socket close all do
+  nothing. Two frames are still read on a socket `failDirect` left open: the peer's `relay-retry`
+  notice while a retry is offered (a line of copy — § Max-privacy strict model), and another lobby
+  member's `pair-request`, answered with `busy` so that member is not left waiting. Before this a
+  forged `busy` then `pair-request` from the failed pairing's own peer walked a failed room session
+  into a NEW pairing with nobody having tapped anything — in Reliable with a relay in its
+  configuration. Each socket's and each PeerConnection's handlers also answer only while it is still
+  the session's own (`openSignaling`, `startPeer`), so nothing from one the controller has let go
+  lands in the next session.
 
 #### Early frames and the channel-open window
 
@@ -1692,7 +1713,9 @@ then these always-on mechanisms keep a Max-privacy pairing direct, and a direct 
     button. The tap also sends the peer one frame over the old signaling socket, `{ kind:
     'relay-retry' }` — a courtesy, so that the peer's failure screen can say "your peer is waiting".
     The frame comes through the untrusted server, so that line is ALL it can do: a forged, repeated or
-    late one starts nothing and requests nothing (`connection.peerAsksRelay` is a projection only).
+    late one starts nothing and requests nothing (`connection.peerAsksRelay` is a projection only,
+    and it belongs to the engaged peer — it is dropped when a words creator goes back to its words or
+    a lobby pairing is reset). No other frame moves a failed side either (§ Signaling WS lifecycle).
   - **Where the two meet: a rendezvous derived from the failed attempt, not the old room.** A room
     on the signaling server lives 3 minutes (words and token rooms from creation, a 4-digit room
     since its last join), and a failed direct attempt has usually spent most of that. So the retry
@@ -1733,22 +1756,32 @@ then these always-on mechanisms keep a Max-privacy pairing direct, and a direct 
     server that fakes the arrival makes a side that DID tap request credentials and gather relay
     candidates for a pairing that then fails its authentication; it cannot move a side that did not
     tap, and it gains no relayed byte of a transfer.
-  - **One retry per pairing.** A retry that fails is terminal, with the ordinary Reliable copy.
+  - **One retry per pairing.** A retry that fails is terminal, with the ordinary Reliable copy. One
+    that finds no path either closes its socket and drops the link secret or the CPace key at once
+    (`failDirect`); whichever side's ICE gives up first, the other reads "no path" too, not "peer
+    left" (`peerLeftWhileDirectAttempt`). A second tap while the retry runs, or after it failed, does
+    nothing — starting over is `startOverWithRelay()`, behind its own button.
     The screens read it from `connection.relayRetry`: `offered` (set by `failDirect` when the retry
     was armed — the button continues), `active` (this side tapped: the session is the retry, and its
     failure offers no other), `none` (the button, where there is one, starts over).
   - **Waiting, and when continuing is impossible.** Alone in the retry room the screen says so
     (`RelayWaitScreen`, testid `relay-waiting`: ask your peer to tap "Retry with relay" too; nothing
-    is scanned or typed again) for `RELAY_RETRY_WAIT_MS` (150 s — the server's own 3-minute room TTL
-    would cut a pairing that started later than that). Then, or at once from "Start over instead",
+    is scanned or typed again) for `RELAY_RETRY_WAIT_MS` (120 s). The retry room is closed by the
+    server 3 minutes after the FIRST side arrived, never re-armed, so a peer that taps at the end of
+    the wait has a minute of signaling left for the offer, the answer, the candidates and (room) the
+    two SAS nonces; from the open channel on the socket is not needed (§ Signaling WS lifecycle), so
+    two people may take their time over the three words. Then, or at once from "Start over instead",
     comes the fallback, which is the behaviour of 2026-11-22: `startOverWithRelay()` — whoever made
     the invite gets a fresh one in Reliable (a new link, new words, a new room), a reconnect is tried
     again, a joiner lands on the home screen with Reliable selected. The no-show failure
     (`RELAY_RETRY_NO_SHOW_REASON`, variant `retryNoShow`) says that this is what "Start over" does.
     The same wait is what a peer who left, a peer whose page is closed and a peer on a client from
     before 2026-11-23 all look like; the retry itself survives a dead signaling socket and an
-    expired room, since it uses neither. Where the failed attempt left no two fingerprints to derive
-    from, the button starts over directly and the copy says "starts over".
+    expired room, since it uses neither — a failed session ignores what the server does to its old
+    room (§ Signaling WS lifecycle; before that fix an expiring word room took the CPace key with it,
+    and the retry of a words pairing died 3 minutes after the words were made). Where the failed
+    attempt left no two fingerprints to derive from, the button starts over directly and the copy
+    says "starts over".
   - **What the tap stores: nothing.** The mode changes for the visit (`setPrivacyMode('reliable',
     false)` in `prefs.tsx`): a reload is back on the stored choice. Max privacy is the default
     (§ Privacy modes), and a retry on one bad network is not the user deciding to relay everywhere
@@ -1790,8 +1823,16 @@ then these always-on mechanisms keep a Max-privacy pairing direct, and a direct 
   (a fresh nonce, the SAS on both sides) and reconnect; a `relay-retry` frame forged, repeated, early,
   from a stranger or late only ever sets the prompt; a peer without the secret, and a joiner that
   guessed the words wrong, fail the confirmation in the retry; the wait runs out into the no-show
-  reason and "Start over"; a failed retry offers no second one; the mixed pair; no fingerprints, no
-  offer. `SessionController.retryWithRelay.test.ts` (the fallback: what each role restarts; the
+  reason and "Start over"; a failed retry offers no second one and leaves no socket, secret or
+  timer; a second tap does nothing; the mixed pair; no fingerprints, no offer. From the review of
+  2026-11-23: nothing secret reaches the hub in any encoding, as a frame or as a room name; a
+  reflected tag, a tag of the failed attempt, a reflected reconnect hello and a replayed CPace frame
+  are all refused or unanswered; an approval of the failed attempt's SAS does not carry over; a word
+  room expiring under the failure screens leaves the retry working; the retry room expiring in the
+  middle of the comparison, or after a link's channel opened, does not end it, and before the channel
+  it ends it with the connection closed; a forged join, offer, candidate, `busy` or `pair-request`
+  at an untapped failed side — Max or Reliable — starts nothing; frames of a socket that was let go
+  reach no later session; the next pairing in Max privacy is strict again. `SessionController.retryWithRelay.test.ts` (the fallback: what each role restarts; the
   Reliable-side reason and its three negative controls). `tests/e2e/relay-retry.spec.ts`, each engine:
   link — both tap, connected in Reliable with a TURN entry, a file arrives, no second link, nothing
   stored; one tap only — no PeerConnection built, the other side still Max, the wait ends, "Start
@@ -2909,7 +2950,7 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       "Retry with relay" on the **iPhone**: within a few seconds both show the transfer screen with the
       row "relayed through the server". Nothing was scanned again. Send a file each way. (4) Reload
       both: Max privacy is selected again. (5) Repeat with the taps in the other order (iPhone first).
-      (6) **One tap only**: fail again, tap on the Mac, leave the iPhone alone: after two and a half
+      (6) **One tap only**: fail again, tap on the Mac, leave the iPhone alone: after two
       minutes the Mac reads "Your peer did not join the retry" with "Start over", which makes a new QR
       code; the iPhone still shows its failure screen. (7) **Slow hands**: fail again and wait four
       minutes before either tap, so that the first room has expired on the server; then tap on both —
@@ -2922,9 +2963,13 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       on the home Wi-Fi, both Max privacy. (1) **Room**: Mac creates a room, the iPhone enters the four
       digits, one side picks the other. Both end on "Couldn't connect directly". Tap "Retry with
       relay" on both: no code is asked for and nobody is picked again — the three-word comparison
-      appears; read, pick, confirm on both; connected, "relayed through the server". (2) **Words**:
+      appears; read, pick, confirm on both; connected, "relayed through the server". Once more with
+      a slow comparison: tap on the Mac, wait a minute and a half, tap on the iPhone, and let the
+      three words stand for another two minutes before confirming — it must still connect (the retry
+      room has expired on the server by then). (2) **Words**:
       Mac creates words, the iPhone enters them; after the failure tap "Retry with relay" on both:
-      connected without the words being entered again. (3) **Reconnect**: with the two devices paired
+      connected without the words being entered again. Once more with slow hands: wait until four
+      minutes have passed since the words were made, then tap on both — it must still connect. (3) **Reconnect**: with the two devices paired
       (after step 1 or 2), go home on both, tap Reconnect on each other's row in Max privacy; after
       the failure tap "Retry with relay" on both: connected, no code.
 - [x] **C5 · mobile-to-mobile** *(DROPPED by the owner 2026-10-03: both handsets have each been paired with the Mac across networks — Max fails closed, Reliable relays — and a phone↔phone pair would add only a second carrier NAT on the same relay)* — IPH (LTE) ↔ AND-1 (different LTE / other Wi-Fi), Reliable. The

@@ -136,7 +136,8 @@ session".
 - **The retried channel is authenticated in full**: the link secret again, the CPace key of the
   failed attempt (no second CPace — that would be a second guess at the words), a SAS from scratch,
   the pin under fresh challenges.
-- **Tapped first, a side waits 150 s**, then offers "Start over" — the behaviour of the day before.
+- **Tapped first, a side waits** (150 s as built; 120 s after the review below), then offers "Start
+  over" — the behaviour of the day before.
 - **A limit the invariant "strict until both tapped" ran into:** a side learns that its peer came
   only from the server. A server that fakes it makes a side that already tapped ask for TURN
   credentials and gather relay candidates for a pairing that then fails its check; a side that did
@@ -146,6 +147,26 @@ session".
   offers "Try again", which continues the pairing like the Max side's button.
 - **Not verified:** real networks (test plan C9, C10); the NAT suite's case was written on a Mac and
   has not run; the screenshot baselines of the six new screens are to be recorded on the deploy host.
+
+### Reviewed the same day — what an independent read found, and what changed
+
+Nothing in it let anyone relay a byte, authenticate or get a second guess at the words; the retry
+itself broke in two cases, and a failed session still listened to the server.
+
+- **Words: the retry died once the word room expired** (3 minutes after the words were made): the
+  room's teardown ran on a session that had already failed and took the CPace key. A failed session
+  now ignores the server altogether, bar the peer's "I tapped" notice.
+- **Room: the retry room could expire in the middle of the comparison** (150 s of waiting inside a
+  180 s room). The wait is 120 s, and from the open channel on a closed socket no longer ends a
+  pairing on any method — it had no job left there.
+- **A forged `busy` and `pair-request` restarted a failed room pairing** with nobody tapping, in
+  Reliable with a relay configured. Closed with the same rule; a pick by another lobby member is
+  answered `busy`.
+- **Smaller:** a retry that found no path left its socket in the room and its secret in memory; the
+  "peer has tapped" line outlived the peer it was about; a second tap during the retry started over;
+  a socket closed by the server mid-pairing failed the screen but left the connection alive.
+- **Tests said more than they checked** in nine places; each now asserts what its name says, and
+  every finding has its case ([README § Max-privacy strict model](../../README.md#max-privacy-strict-model-done--completes-6d), Tests).
 
 ## 2026-11-23 — one certificate per description
 

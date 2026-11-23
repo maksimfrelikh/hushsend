@@ -220,11 +220,13 @@ type LobbySignal = z.infer<typeof lobbySignalSchema>;
 const relayRetrySignalSchema = z.object({ kind: z.literal('relay-retry') });
 
 /**
- * How long the side that tapped "Retry with relay" first waits ALONE at the retry rendezvous. Kept
- * under the server's 3-minute token-room TTL (armed when the first side arrives, never re-armed): a
- * peer that arrives at the end of this wait still has the rest of the TTL to pair in.
+ * How long the side that tapped "Retry with relay" first waits ALONE at the retry rendezvous. The
+ * server closes a token room 3 minutes after its FIRST arrival and never re-arms that, so a peer that
+ * arrives at the very end of this wait has a minute of signaling left — for the offer, the answer, the
+ * candidates and (room) the two SAS nonces. That is all the socket is needed for: once the channel is
+ * open the rest of the authentication rides it, and a closed socket is ignored (onSignalingClose).
  */
-const DEFAULT_RELAY_RETRY_WAIT_MS = 150_000;
+const DEFAULT_RELAY_RETRY_WAIT_MS = 120_000;
 
 /** Resolve the retry wait. Production ALWAYS uses the default; DEV-only `?relayRetryWaitMs=N` (or
  *  `window.__HUSHSEND_RELAY_RETRY_WAIT_MS__`) shrinks it so the no-show e2e runs in seconds. */
@@ -913,6 +915,10 @@ export class SessionController {
   private attemptResolved = false;
   /** true once we've reached `connected`; after that a signaling drop is harmless (P2P is live). */
   private established = false;
+  /** true once the session FAILED (fail() — the store's terminal `failed`). From then on it takes
+   *  nothing from the server but the peer's `relay-retry` notice (onSignalAfterFailure): no frame, join
+   *  or close may start, resume or tear down anything in a session only its user can restart. */
+  private ended = false;
   /** true once the DataChannel has OPENED (transport up). From this point the DataChannel + ICE are
    *  the SOLE liveness authority for the 1:1 methods — a signaling `peer-left` no longer aborts the
    *  pairing (see onPeerLeft / livenessGate). Reset on a words retry / lobby reset / dispose. */
@@ -1009,14 +1015,17 @@ export class SessionController {
     this.turnCreds = null;
     this.turnFetch = null;
     this.startNatCheck();
-    this.signaling = new SignalingClient(this.signalingUrl, {
-      onWelcome: (selfId, room, peers) => this.onWelcome(selfId, room, peers),
-      onPeerJoined: (peer) => this.onPeerJoined(peer),
-      onPeerLeft: (peerId) => this.onPeerLeft(peerId),
-      onSignal: (from, data) => this.onSignal(from, data),
-      onRoomClosed: (reason) => this.onRoomClosed(reason),
-      onClose: (code, reason) => this.onSignalingClose(code, reason),
+    // Each handler answers only while its socket is still THIS session's: the controller outlives its
+    // sessions, and a frame from a socket it has let go must not land in the next one.
+    const client: SignalingClient = new SignalingClient(this.signalingUrl, {
+      onWelcome: (selfId, room, peers) => this.signaling === client && this.onWelcome(selfId, room, peers),
+      onPeerJoined: (peer) => this.signaling === client && this.onPeerJoined(peer),
+      onPeerLeft: (peerId) => this.signaling === client && this.onPeerLeft(peerId),
+      onSignal: (from, data) => this.signaling === client && this.onSignal(from, data),
+      onRoomClosed: (reason) => this.signaling === client && this.onRoomClosed(reason),
+      onClose: (code, reason) => this.signaling === client && this.onSignalingClose(code, reason),
     });
+    this.signaling = client;
   }
 
   /**
@@ -1050,7 +1059,7 @@ export class SessionController {
     // derived as the opposite of ours), flipping it after we emit our tag turns that defence into an
     // oracle: the server echoes our own tag back and it verifies. That MITMs words without knowing the
     // 4 secret words, and link/qr without knowing S. (2026-09-12 audit.)
-    if (this.selfId) return;
+    if (this.selfId || this.ended) return;
     this.selfId = selfId;
     this.dispatch(devActions.setSelfId(selfId));
     // Seed the roster from the existing-room peers (mesh lobby — room method). Harmless for
@@ -1105,6 +1114,7 @@ export class SessionController {
   private onPeerJoined(peer: PeerInfo): void {
     // Always reflect the newcomer in the roster (every method seeds it; only the lobby renders it).
     this.dispatch(connectionActions.rosterAdd(peer));
+    if (this.ended) return;
     if (this.isLobby()) return; // lobby: pairing starts on a human pick, not on a join — just roster
     if (this.peer || this.role) return; // 1:1 auto-pair: already engaged with a peer
     // A newcomer arrived while we were in the room. Both ids are known now → beginPairing.
@@ -1206,6 +1216,7 @@ export class SessionController {
     this.peer = null;
     this.clearPendingPeerSignals(); // drop a stale pre-PC offer/ICE so it can't replay into the next pick's PC
     this.peerId = null;
+    this.peerAsksRelay = false; // it was that peer's; the store drops it with returnToLobby
     this.role = null;
     this.channelOpen = false;
     this.confirmFps = null;
@@ -1357,7 +1368,7 @@ export class SessionController {
     // Always drop the leaver from the roster (and clear a stale "busy" notice naming it). A peer we
     // are NOT paired with leaving the lobby must update the roster but otherwise not disturb us.
     this.dispatch(connectionActions.rosterRemove({ peerId }));
-    if (peerId !== this.peerId) return;
+    if (this.ended || peerId !== this.peerId) return;
     if (import.meta.env.DEV) console.debug('[session] peer left', peerId);
     // words: a peer that drops while the rendezvous is still the liveness authority (BEFORE the
     // DataChannel transport is up) aborts this pairing attempt (counts on A; a clean leave-and-fail
@@ -1368,7 +1379,10 @@ export class SessionController {
     // anti-bruteforce window intact (every actual guess is counted by the confirmation-mismatch /
     // channel-close paths regardless) while not failing a peer that has, in fact, connected.
     if (this.method === 'words' && peerLeftAbortsPairing(this.established, this.channelOpen)) {
-      this.onWordsPairingFailure('peer left during pairing');
+      // In a retried pairing there is no guess left to count (it reuses the CPace key), so a peer
+      // that gives up on the path first reads as that — see peerLeftWhileDirectAttempt.
+      if (this.relayRetry?.active && this.peerLeftWhileDirectAttempt()) this.failDirectAfterPeerLeft();
+      else this.onWordsPairingFailure('peer left during pairing');
     }
     // link/qr: same gate — a peer dropping before the transport is up aborts this single-use attempt
     // (no bytes); a post-channel-open `peer-left` is the benign post-connect close and is ignored.
@@ -1423,8 +1437,11 @@ export class SessionController {
     // "In flight" means ICE actually ran: a remote description arrived (the fingerprint parses). A
     // PeerConnection that only ever sent an offer into the void — a reconnect pairing against a ghost
     // socket, say — was never a direct attempt that failed.
+    // The same holds for a retried pairing in Reliable: both ICE agents give up at about the same
+    // moment, whichever does first closes the retry socket (failDirect), and the other side would
+    // read "peer left" where the truth is "no path".
     return (
-      this.privacyMode === 'max' &&
+      (this.privacyMode === 'max' || this.relayRetry?.active === true) &&
       this.peer !== null &&
       this.peer.remoteFingerprint() !== null &&
       !this.channelOpen &&
@@ -1433,10 +1450,15 @@ export class SessionController {
   }
 
   private failDirectAfterPeerLeft(): void {
+    const max = this.privacyMode === 'max';
     this.dispatch(
-      devActions.appendLog('peer left before any transport while our direct attempt was still running (Max privacy) — failing with the Reliable hint'),
+      devActions.appendLog(
+        max
+          ? 'peer left before any transport while our direct attempt was still running (Max privacy) — failing with the Reliable hint'
+          : 'peer left the retry before any transport while our attempt was still running — failing as "no path"',
+      ),
     );
-    this.failDirect(DIRECT_FAIL_REASON);
+    this.failDirect(max ? DIRECT_FAIL_REASON : NO_RELAY_PATH_REASON);
   }
 
   /**
@@ -1451,15 +1473,16 @@ export class SessionController {
     await this.ensureTurnReady();
     const iceServers = this.iceServers();
     this.publishIceConfig();
-    this.peer = new PeerConnection(
+    // As with the socket (openSignaling): a connection this session has let go reports nothing to it.
+    const pc: PeerConnection = new PeerConnection(
       {
-        onSignal: (data) => this.signaling?.send(peerId, data),
-        onOpen: () => void this.onChannelOpen(),
-        onClose: (why) => this.onChannelClose(why),
-        onMessage: (data) => this.onPeerMessage(data),
-        onIceFailed: () => this.onIceFailed(),
-        onInterrupted: (interrupted) => this.onPeerInterrupted(interrupted),
-        onTampered: (reason) => this.onPeerTampered(reason),
+        onSignal: (data) => this.peer === pc && this.signaling?.send(peerId, data),
+        onOpen: () => this.peer === pc && void this.onChannelOpen(),
+        onClose: (why) => this.peer === pc && this.onChannelClose(why),
+        onMessage: (data) => this.peer === pc && this.onPeerMessage(data),
+        onIceFailed: () => this.peer === pc && this.onIceFailed(),
+        onInterrupted: (interrupted) => this.peer === pc && this.onPeerInterrupted(interrupted),
+        onTampered: (reason) => this.peer === pc && this.onPeerTampered(reason),
       },
       {
         iceServers,
@@ -1471,7 +1494,8 @@ export class SessionController {
         gateDelayMs: gateDelayMs(),
       },
     );
-    this.peer.start(initiator);
+    this.peer = pc;
+    pc.start(initiator);
     // Replay any WebRTC signals that arrived before this PC existed (e.g. the peer's offer reached a
     // Reliable answerer while it was still fetching TURN creds). The queue is normally empty (signals
     // hit handleSignal directly once the PC is up); it is non-empty only in the pre-PC race window.
@@ -1650,6 +1674,14 @@ export class SessionController {
     this.peer?.close();
     this.peer = null;
     this.clearPendingPeerSignals();
+    if (this.relayRetry?.active) {
+      // The retry itself found no path, and there is no second one: nothing is left to wait for on
+      // this socket or to keep the secret for. (The peer's own ICE is failing at this moment; should
+      // our close reach it first, it still reads "no path" — peerLeftWhileDirectAttempt.)
+      this.signaling?.close();
+      this.linkSecret = null;
+      this.sessionKey = null;
+    }
     this.fail(new Error(reason));
     if (canRetry) this.dispatch(connectionActions.relayRetryOffered());
   }
@@ -1701,7 +1733,27 @@ export class SessionController {
     this.fail(new Error(RELAY_RETRY_NO_SHOW_REASON));
   }
 
+  /**
+   * A FAILED session still has its socket where the failure left it open (failDirect), and takes two
+   * things from it. The peer's `relay-retry` notice, while a retry is offered — a line of copy. And a
+   * lobby member's pick, answered with `busy` so that member is not left waiting for a peer that is
+   * gone. Everything else is dropped: `busy` and `pair-request` from the failed pairing's own peer used
+   * to walk a failed lobby session back into a new pairing, with nobody having tapped anything.
+   */
+  private onSignalAfterFailure(from: string, data: unknown): void {
+    if (from === this.peerId) {
+      if (this.relayRetry && relayRetrySignalSchema.safeParse(data).success) this.onPeerAsksRelay();
+      return;
+    }
+    const lobby = lobbySignalSchema.safeParse(data);
+    if (this.sas && lobby.success && lobby.data.kind === 'pair-request') this.sendLobby(from, { kind: 'busy' });
+  }
+
   private onSignal(from: string, data: unknown): void {
+    if (this.ended) {
+      this.onSignalAfterFailure(from, data);
+      return;
+    }
     // Mesh-lobby pairing control (room method) is handled BEFORE the 1:1 gate, because a pick can
     // come from a peer we are not yet paired with (pair-request), or report that a peer we picked is
     // busy. Validated (the relay is UNTRUSTED) before use.
@@ -2066,6 +2118,7 @@ export class SessionController {
     this.peer = null;
     this.clearPendingPeerSignals(); // a fresh joiner's offer must not see a stale one from this attempt
     this.peerId = null;
+    this.peerAsksRelay = false; // it was that peer's; the store drops it with the next roomReady
     this.role = null;
     this.channelOpen = false; // next attempt's channel is not open yet
     this.cpaceState = null;
@@ -2105,6 +2158,10 @@ export class SessionController {
    * words via regenerate — A makes a new room, B re-enters).
    */
   private onRoomClosed(_reason: string): void {
+    // A failed session is over whatever the room does next. Above all a words pairing waiting for
+    // "Retry with relay": its word room expires 3 minutes after it was made, and the teardown below
+    // would take the CPace key the retry is going to authenticate with.
+    if (this.ended) return;
     if (this.relayRetry?.active) {
       // The retry rendezvous expired. Alone in it: the peer never came. With a peer engaged the socket
       // close that follows ends the attempt (onSignalingClose).
@@ -2493,33 +2550,65 @@ export class SessionController {
   private onSignalingClose(code: number, reason: string): void {
     // A live P2P DataChannel outlives the signaling socket, so a server-side close
     // AFTER we're connected is harmless. Before that, it's a setup failure
-    // (e.g. 4009 "room not found", 4002 "room full").
-    if (this.established) return;
+    // (e.g. 4009 "room not found", 4002 "room full"). A session that already failed has nothing
+    // left for it to end.
+    if (this.established || this.ended) return;
     if (this.relayRetry?.active && !this.peerId) {
       this.failRelayRetryNoShow(); // the retry rendezvous went away while we waited alone in it
       return;
     }
-    if (this.method === 'reconnect' && this.reconnect && !this.reconnect.settled) {
+    if (this.method === 'reconnect' && this.reconnect && !this.reconnect.settled && !this.peerId) {
       // Waiting alone: a server-side close (TTL 4010 without a room-closed frame, a restart, a
-      // bounce) is answered by taking the rendezvous again, bounded by RECONNECT_MAX_REJOINS. Once
-      // the DataChannel is up the socket has no job left on this path (hello/proof/ok ride the
-      // channel), so its close is harmless — the same reasoning as the post-connect close.
-      if (!this.peerId) {
-        this.rejoinReconnectRendezvous(`closed (code ${code}${reason ? `: ${reason}` : ''})`);
-        return;
-      }
-      if (this.channelOpen) return;
+      // bounce) is answered by taking the rendezvous again, bounded by RECONNECT_MAX_REJOINS.
+      this.rejoinReconnectRendezvous(`closed (code ${code}${reason ? `: ${reason}` : ''})`);
+      return;
+    }
+    // Once the DataChannel is up, signaling has no job left: the key-confirmation, the SAS verdicts
+    // and the reconnect hello / proof / ok all ride the channel. The one exception is a room pairing
+    // whose two SAS nonces are not both out yet — they ride signaling. So a close after that point is
+    // as harmless as the post-connect one, on every method; the pairing's own deadline still bounds
+    // it. (Until 2026-11-23 only reconnect had this rule, and a token room expiring under a retried
+    // room pairing cut it in the middle of the comparison.)
+    if (this.channelOpen && !(this.sas && !(this.sas.peerNonce && this.sas.revealedMine))) {
+      this.dispatch(devActions.appendLog('signaling: closed after the channel opened — the pairing goes on over the channel'));
+      return;
     }
     if (code === 4010 && this.waitingInRoom) {
       this.fail(new Error(WAIT_EXPIRED_REASON));
       return;
     }
-    this.fail(new Error(`signaling closed (code ${code}${reason ? `: ${reason}` : ''})`));
+    this.fail(
+      new Error(
+        // The retry rendezvous has no code a person could have mistyped or let expire, so its close
+        // must not read as one (FailedScreen keys "expired" off the code).
+        this.relayRetry?.active
+          ? 'signaling closed during the retry'
+          : `signaling closed (code ${code}${reason ? `: ${reason}` : ''})`,
+      ),
+    );
   }
 
+  /**
+   * The ONE way a session becomes `failed`. Whatever path got here, a failed session holds no
+   * transport and waits on no deadline: the PeerConnection is closed (a bare `fail` used to leave it —
+   * a channel that opened afterwards could still authenticate, and the core then held `established`
+   * under a screen that said failed), the pairing timers are disarmed, and `ended` shuts the server's
+   * frames out. The signaling socket is the caller's to close or to leave (failDirect leaves it).
+   */
   private fail(err: unknown): void {
     const reason = err instanceof Error ? err.message : String(err);
     if (import.meta.env.DEV) console.error('[session] failed:', reason);
+    this.ended = true;
+    this.peer?.close();
+    this.peer = null;
+    this.clearPendingPeerSignals();
+    this.clearConfirmTimeout();
+    if (this.sas?.timer != null) clearTimeout(this.sas.timer);
+    if (this.sas) this.sas.timer = null;
+    if (this.reconnect?.timer != null) clearTimeout(this.reconnect.timer);
+    if (this.reconnect) this.reconnect.timer = null;
+    this.clearReconnectWait();
+    this.clearRelayRetryWait();
     this.dispatch(connectionActions.failed({ reason }));
   }
 
@@ -2835,6 +2924,7 @@ export class SessionController {
     this.clearPendingPeerSignals();
     this.pendingReconnectFrames = [];
     this.peerId = null;
+    this.peerAsksRelay = false;
     this.role = null;
     this.channelOpen = false;
     // Per-pairing re-auth state back to the start; the pairing secret and our challenge stay.
@@ -3867,13 +3957,16 @@ export class SessionController {
    * screen can say that this side waits; that frame starts nothing on the peer (onPeerAsksRelay). TURN
    * credentials are requested when a peer arrives at the rendezvous (beginPairing), not before.
    *
-   * Where nothing can be continued — no retry was armed, or this session already is one — it starts
-   * over instead (startOverWithRelay). The core's own mode is set here; the stored preference is the
+   * Where nothing can be continued — no retry was armed — it starts over instead
+   * (startOverWithRelay); in a session that already is the retry it does nothing. The core's own mode is set here; the stored preference is the
    * UI's (prefs.tsx), which the caller switches for this visit.
    */
   async retryWithRelay(): Promise<void> {
     const retry = this.relayRetry;
-    if (!retry || retry.active) {
+    // One retry, started once: a second tap while it runs — or after it failed — is not a request
+    // to start over (that is startOverWithRelay, behind its own button).
+    if (retry?.active) return;
+    if (!retry) {
       await this.startOverWithRelay();
       return;
     }
@@ -3971,6 +4064,7 @@ export class SessionController {
     this.isCreator = false;
     this.established = false;
     this.channelOpen = false;
+    this.ended = false;
     this.clearInterruptTimer();
     this.clearRelayRetryWait();
     this.relayRetry = null;
