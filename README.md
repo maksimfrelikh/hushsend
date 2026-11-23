@@ -2978,7 +2978,7 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       privacy, ask them to switch to Reliable too" — not "channel closed during pairing". If the Mac
       reads "peer left during pairing", note whether the phone's screen was left before the Mac's
       changed (§ Max-privacy strict model, the one edge).
-- [ ] **C9 · "Retry with relay" continues the same pairing — NEW 2026-11-23** (it replaces what C8
+- [x] **C9 · "Retry with relay" continues the same pairing — NEW 2026-11-23** *(PASS 2026-11-23 by the owner's report: an iPhone, Safari, on Epic cellular ↔ the Mac on the home Wi-Fi, steps 1–5 as written; steps 6–8 were offered as optional and the report does not say whether they were run — [the 2026-11-23 run](docs/test-runs/2026-11-23.md))* (it replaces what C8
       tested: since that day the retry needs no second scan). iPhone on **cellular with Wi-Fi off**,
       Mac on the home Wi-Fi, both **Max privacy**. (1) Mac: Invite someone → Link or QR code; iPhone:
       scan it. Both end on "Couldn't connect directly"; the text under it says "Retry with relay
@@ -2997,7 +2997,7 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       them to tap “Retry with relay”, then tap Try again here". Tap "Retry with relay" on the iPhone,
       "Try again" on the Mac: connected, relayed. Record the times from the second tap to the transfer
       screen, and for any step that disagrees a screenshot of both screens.
-- [ ] **C10 · the same for a 4-digit room and for words — NEW 2026-11-23.** iPhone on cellular, Mac
+- [x] **C10 · the same for a 4-digit room and for words — NEW 2026-11-23** *(PASS 2026-11-23 by the owner's report: room, words and reconnect, once each; the two slow variants were not asked for — [the 2026-11-23 run](docs/test-runs/2026-11-23.md))* — iPhone on cellular, Mac
       on the home Wi-Fi, both Max privacy. (1) **Room**: Mac creates a room, the iPhone enters the four
       digits, one side picks the other. Both end on "Couldn't connect directly". Tap "Retry with
       relay" on both: no code is asked for and nobody is picked again — the three-word comparison
@@ -3134,8 +3134,9 @@ delivery (§ The road to "yes"); path attestation and the STUN operator (§ Secu
 - Max privacy across networks, what is left after 2026-11-22 (§ Platform limits has what was
   measured; the history is in [pre-launch.md](docs/history/pre-launch.md)): try two ordinary Wi-Fi
   networks in different places, another carrier, and a pair with IPv6 on both sides.
-- "Retry with relay" in place (2026-11-23), what is not yet seen: the carrier — test plan cases C9
-  and C10.
+- "Retry with relay" in place (2026-11-23), what is not confirmed on the carrier: one tap only, slow
+  hands and the mixed pair (test plan C9, steps 6–8), and the slow variants of the room and the words
+  (C10). The lab and the unit tests cover them; the main paths passed on the carrier that day.
 - Relay capacity: coturn's 49160–49200 range is ~41 allocations (a fully relayed pair takes two).
   A total cap (`bps-capacity`, 20 MB/s = ten allocations at 2 MB/s), two allocations per credential and
   a per-IP mint limit landed 2026-11-22 (the Capacity section of hush-signaling-server's runbook). Left: widen the
