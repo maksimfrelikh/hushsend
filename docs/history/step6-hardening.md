@@ -83,7 +83,7 @@ was true on its date; the current state is in the living documents (see [README.
     via their own high-entropy **token** (`codeType=token`, 128-bit, strictly 1:1 `ONE_TO_ONE_MAX_PEERS
     = 2`). A stray peer can't reach the room (token is unguessable) and a forwarded link still reaches a
     SINGLE receiver (a 2nd joiner is bounced 4002) — interloper-resistance is now STRUCTURAL, not a
-    `peers[0]` heuristic. See [methods.md](../../README.md#connection-methods-4) § link/qr method + [claude-md-retired-sections.md](claude-md-retired-sections.md) § Signaling server.
+    `peers[0]` heuristic. See [methods.md](../../README.md#connection-methods-4) § link/qr method + [claude-md-retired-sections.md](retired-sections.md) § Signaling server.
 - ✅ **TURN relay + Reliable / Max-privacy (STRICT) mode (6d)** — *DONE*.
   - ✅ **Server side — DONE (this pass).** The signaling server answers a **`turn-request`** frame with
     short-lived HMAC coturn credentials (`use-auth-secret` / REST scheme): `username` = a future
@@ -96,7 +96,7 @@ was true on its date; the current state is in the living documents (see [README.
     (default 3600). coturn deployed SEPARATELY — `deploy/coturn.conf.example` (relay-port range +
     firewall, `user-quota` / `total-quota` / `max-bps`, anti-SSRF `no-multicast-peers` /
     `no-loopback-peers` / `denied-peer-ip` on RFC1918 + link-local, `fingerprint`, `no-cli`).
-    `tests/integration/turn-credentials.test.ts`. (See [claude-md-retired-sections.md](claude-md-retired-sections.md) § Signaling server / TURN credentials.)
+    `tests/integration/turn-credentials.test.ts`. (See [claude-md-retired-sections.md](retired-sections.md) § Signaling server / TURN credentials.)
   - ✅ **Client side — DONE (this pass).** The home **PrivacyToggle is now functional** (persisted pref
     `hushsend.privacy`, default **Max-privacy**, pushed into the core via `<PrivacyModeSync>` →
     `SessionController.setPrivacyMode`). It drives `iceServers` (`src/core/iceServers.ts`
@@ -229,7 +229,7 @@ was true on its date; the current state is in the living documents (see [README.
   CDN] / `Permissions-Policy camera=(self)`), `server/.env.example` (all server env + criticality notes),
   `deploy/coturn.conf.example` (from 6d), `deploy/DEPLOY.md` (step-by-step + inline gotchas). Only code
   change: an additive startup `[config]` summary log (no secrets) in `signaling-server.js`. Consolidated
-  env reference in [claude-md-retired-sections.md](claude-md-retired-sections.md) § Deployment / configuration. The ops half is done too: nginx/coturn/DNS/TLS
+  env reference in [claude-md-retired-sections.md](retired-sections.md) § Deployment / configuration. The ops half is done too: nginx/coturn/DNS/TLS
   run on the real host, and the CSP held for a real QR scan on a non-Chromium engine (iOS Safari, the
   self-hosted zxing WASM, 2026-10-03 — TESTPLAN A2/B3). The X-Real-IP/TRUST_PROXY pairing is documented in all three
   artifacts; the footgun it guards against:

@@ -57,7 +57,7 @@ Dated records, not maintained — the current state is in the living documents (
      role is now per-pairing by readable-id order**
      (`src/core/sasRole.ts`, projected as `connection.sasRole`, fail-closed restart on a missing id)
      so the lobby's joiner↔joiner pairs still get one reader + one picker. See **Signaling server**
-     [claude-md-retired-sections.md](claude-md-retired-sections.md) § *Managed-room hardening* and room/SAS [methods.md](../../README.md#connection-methods-4) § *Server cap / TTL / rate-limit* + *SAS role*.
+     [claude-md-retired-sections.md](retired-sections.md) § *Managed-room hardening* and room/SAS [methods.md](../../README.md#connection-methods-4) § *Server cap / TTL / rate-limit* + *SAS role*.
    - ✅ **6b — per-pairing transport/crypto role** — `this.role` (initiator/responder) is now fixed
      **PER-PAIRING from the readable ids** (`src/core/pairingRole.ts` `pairingRoleFor`, same id order
      as the SAS reader/picker; unit-tested in `pairingRole.test.ts`), NOT create/join. This breaks the
@@ -74,7 +74,7 @@ Dated records, not maintained — the current state is in the living documents (
      clear notice (no hang). Works for ANY pair incl. **joiner↔joiner**. Signaling protocol grew:
      `welcome.peers` + `peer-joined` now carry `{id, device, joinedAt}` (coarse device label sent by
      the client, server-capped ≤32 + server-stamped joinedAt; the `device` label was removed again
-     2026-09-27 — [claude-md-retired-sections.md](claude-md-retired-sections.md) § Signaling server). words/link/qr are NOT lobbies (auto-pair
+     2026-09-27 — [claude-md-retired-sections.md](retired-sections.md) § Signaling server). words/link/qr are NOT lobbies (auto-pair
      with one peer); reconnect is its own codeless method (own wait screen, auto-pairs). `LobbyScreen` +
      `pickPeer`/`onPairRequest`/`onBusy`; `tests/e2e/lobby.spec.ts` (joiner↔joiner + busy),
      `connectionSlice.test.ts` (roster), `room-server.test.ts` (roster protocol). See **Room lobby** §.
@@ -114,7 +114,7 @@ Dated records, not maintained — the current state is in the living documents (
      on an iPhone 15** (iOS 26.6, driven by WebDriver): transport on the LAN, on LTE (Max fails closed with
      the hint, Reliable relays through coturn at 1.7 MB/s), site-storage receive to 2 GiB, QR scan + camera
      deny, share sheet, reconnect — [the 2026-10-03 run log](../test-runs/2026-10-03.md). One platform limit found: iOS Safari
-     ends the connection on screen lock ([claude-md-retired-sections.md](claude-md-retired-sections.md) § Known residuals). TESTPLAN 47/47 closed 2026-10-03; Android
+     ends the connection on screen lock ([claude-md-retired-sections.md](retired-sections.md) § Known residuals). TESTPLAN 47/47 closed 2026-10-03; Android
      Firefox was dropped by the owner (too rare a combination) and stays untested.
    - ✅ **6f — nginx deployment — LIVE at hushsend.frelikh.dev** — the config
      templates + runbook are built and committed: `deploy/nginx.conf.example` (TLS, 80→443, SPA
@@ -125,7 +125,7 @@ Dated records, not maintained — the current state is in the living documents (
      the server env template and the coturn template (both in hush-signaling-server since 2026-10-03), and
      `deploy/DEPLOY.md` (step-by-step + inline gotchas). The only code change was an **additive startup
      `[config]` summary log** (no secrets) in `signaling-server.js`. Consolidated env reference:
-     **[claude-md-retired-sections.md](claude-md-retired-sections.md) § Deployment / configuration above. **LIVE — first bring-up 2026-06-20 on a VPS
+     **[claude-md-retired-sections.md](retired-sections.md) § Deployment / configuration above. **LIVE — first bring-up 2026-06-20 on a VPS
      (`frelikhmax.fvds.ru`), MOVED to the owner's home server 2026-08-16**, which is what serves it
      today (facts re-verified on the box 2026-09-12; **DEPLOY.md § 0 is the as-realized source of
      truth** — do not cite the old VPS): Ubuntu 26.04.1, nginx 1.28.3, **Node v22.22.1 system

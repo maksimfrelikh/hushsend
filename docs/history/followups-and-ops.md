@@ -60,7 +60,7 @@ was true on its date; the current state is in the living documents (see [README.
   4-digit squatting/enumeration for link/QR — resistance is now structural. room stays 4-digit, words
   stays `word`. Tests: `room-server.test.ts` (token alloc / validator / 1:1 cap), `link.test.ts` +
   `qr.test.ts` (token round-trip), `link.spec.ts` (link/qr e2e over token rendezvous). This is the
-  SAME fix as "link/qr lobby-race resistance" above. (See [methods.md](../../README.md#connection-methods-4) § link/qr method + [claude-md-retired-sections.md](claude-md-retired-sections.md) § Signaling server.)
+  SAME fix as "link/qr lobby-race resistance" above. (See [methods.md](../../README.md#connection-methods-4) § link/qr method + [claude-md-retired-sections.md](retired-sections.md) § Signaling server.)
 
 (✅ **Pre-SAS pairing deadline firing-direction — now tested** (pre-deploy cleanup): `?stallSasNonce=1`
 makes a peer reach the SAS but withhold its nonce reveal, `?preSasTimeoutMs=N` shrinks the pre-SAS
@@ -219,7 +219,7 @@ into docs/architecture/ (one file per topic), the run logs into docs/test-runs/,
 docs/history/, the owner's decisions into docs/decisions.md, the platform matrix into COMPATIBILITY.md,
 the test pass's section 0 into docs/test-setup.md; CLAUDE.md became a short guide with the table of
 what goes where. Sections that only repeated another document's subject were retired to
-[claude-md-retired-sections.md](claude-md-retired-sections.md). `scripts/check-docs.mjs` (`npm run
+[claude-md-retired-sections.md](retired-sections.md). `scripts/check-docs.mjs` (`npm run
 docs:check`, in CI) now fails on a file over 500 lines, a dead link, a `§` pointer to a missing heading
 and a missing code path; its first run found pointers that had been dangling before the restructuring
 too (`BACKLOG.md § Third pass` in THREATMODEL.md and five e2e specs — no such section ever existed).

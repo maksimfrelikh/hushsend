@@ -471,7 +471,7 @@ was true on its date; the current state is in the living documents (see [README.
   removed from the keystore.
   - **keystore-GC / pin-merge** *(still deferred)* — collapsing the redundant pins to one canonical pin
     per peer in the keystore itself (so the dual-pin caveat stops accumulating dead pins) is NOT done;
-    the dedup is display-only. See [claude-md-retired-sections.md](claude-md-retired-sections.md) § Known residuals (dual-pin).
+    the dedup is display-only. See [claude-md-retired-sections.md](retired-sections.md) § Known residuals (dual-pin).
 
 - ✅ **Post-transfer "send another" doesn't reset between sends — DONE.** The done screen now parks on
   its terminal plaque with an explicit **"New transfer"** button (`new-transfer-btn`, reusing the

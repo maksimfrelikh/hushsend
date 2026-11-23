@@ -426,7 +426,7 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
 
 ### Doc corrections made in the same pass
 
-- **[claude-md-retired-sections.md](claude-md-retired-sections.md) § Known residuals overstated the `pairingId` leak.** It said reconnect "announces it over
+- **[claude-md-retired-sections.md](retired-sections.md) § Known residuals overstated the `pairingId` leak.** It said reconnect "announces it over
   signaling-routed setup, so the untrusted relay can observe 'these two have paired before'". It does
   not: every reconnect frame rides the **DataChannel** (`sendReconnect` → `this.peer.send`), which is
   DTLS-protected, and `pairingId` appears in **no** signaling schema (`src/types/protocol.ts`). The

@@ -948,7 +948,7 @@ auto-pairs. **Both the creator AND every joiner land in `awaitingPeer`** (a join
 4-digit code + a **roster** of everyone else in the room, each with a **Connect** button. The human
 PICKS whom to raise a 1:1 channel with.
 - **Roster projection**: `connection.roster: PeerInfo[]` (`{id, joinedAt}` — the coarse `device` label
-  was removed from the protocol 2026-09-27, see [the retired sections](docs/history/claude-md-retired-sections.md) § Signaling server), maintained by the
+  was removed from the protocol 2026-09-27, see [the retired sections](docs/history/retired-sections.md) § Signaling server), maintained by the
   core from signaling — `welcome` (set the existing peers) / `peer-joined` (add) / `peer-left` (remove,
   also clearing a stale busy notice). Serializable; the live objects stay in the core. (Seeded for all
   methods, but only the room `LobbyScreen` renders it.)

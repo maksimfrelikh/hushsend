@@ -26,7 +26,7 @@ schemas — unit-tested), `SessionController` (`reconnectTo`, the wait/refresh/r
 `SessionController.reconnectRendezvous.test.ts`), `ReconnectWaitScreen`, `room-server.test.ts`
 (join-or-create + TTL on a joined token), `tests/e2e/reconnect.spec.ts` (happy, stall, key-changed,
 held hello, wire hygiene incl. the socket URL, order independence, no-show), `link.spec.ts` (dead
-link still fails at once). See [crypto.md](../../README.md#crypto) § Crypto / Reconnect and [claude-md-retired-sections.md](claude-md-retired-sections.md) § Known residuals.
+link still fails at once). See [crypto.md](../../README.md#crypto) § Crypto / Reconnect and [claude-md-retired-sections.md](retired-sections.md) § Known residuals.
 
 **What this closed:** both failure modes below; the "reconnect + plain room join" mismatch (a plain
 join lands in a lobby, a reconnect never enters one — nothing to mix); the `pairingId` disclosure to
@@ -37,7 +37,7 @@ copy, `blindPairingId`, `reconnect-init`/`reconnect-fallback`, the SAS-fallback 
 **What it did NOT do:** return-to-lobby (unrelated, still deferred below); keystore GC / pin-merge
 (the dual-pin caveat stands — a wiped side pairs afresh and the other side gains a second pin).
 
-**New residuals, small, recorded in [claude-md-retired-sections.md](claude-md-retired-sections.md) § Known residuals:** the token repeats within one
+**New residuals, small, recorded in [claude-md-retired-sections.md](retired-sections.md) § Known residuals:** the token repeats within one
 10-minute bucket; clock skew delays the meeting by up to the skew.
 
 ### History (the by-code design, kept for the record)
