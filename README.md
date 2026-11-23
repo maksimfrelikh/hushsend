@@ -148,12 +148,12 @@ silent-peer case needs CDP, and the two straight-into-Downloads cases apply only
 does — desktop Chromium; the two site-storage cases skip on Playwright's WebKit, whose storage cannot
 write; plus 2 opt-in cases everywhere, the size ladder and the two-STUN cross-check), plus a 4-case
 phone profile and 5 cross-engine pairs — cover the protocol paths; the axe
-gate (`npm run test:a11y`, 152 checks) and the screenshot gate (`npm run visual`, 195 checks — on the
+gate (`npm run test:a11y`, 152 checks) and the screenshot gate (`npm run visual`, 207 checks — on the
 deploy host, whose renders the baselines are) cover the screens. The counts were re-run 2026-11-23
 on the owner's Mac, on the Vite 8 / Vitest 5 / Playwright 1.65 toolchain, with the in-place "Retry
 with relay" in (vitest 435 of 435; e2e 189 passed, 12 skipped, none failed; axe 152 of 152). The
-screenshot gate last ran 2026-11-23 on the deploy host, before that change (195 of 195); its six new
-scenes have no baselines yet (§ Backlog).
+screenshot gate ran the same day on the deploy host with that change in (207 of 207, the 12 baselines
+of its six scenes recorded there).
 Refresh them here whenever the suite grows.
 
 A second internal audit on **2026-09-12**, modelling a fully malicious signaling server rather than a
@@ -256,7 +256,8 @@ link and read the candidate pair ICE selected. Six cases, `tests/nat/nat.spec.ts
   tap that side waits, the other is told, and neither page holds a connection configured with a
   relay. After the second the SAME pairing connects: on each page the failed connection and the
   retried one, the retried pair a relay, "relayed through the server" on the screen, a file intact,
-  and no second link. **Not yet run:** written 2026-11-23 on macOS, where the lab cannot be raised.
+  and no second link. First run 2026-11-23 on the CI runner: connected 375 ms after the first tap
+  ([2026-11-23 run](docs/test-runs/2026-11-23.md)).
 
 It needs Linux, root, docker, nftables and conntrack, so it is not part of the list above:
 
@@ -3051,10 +3052,7 @@ delivery (§ The road to "yes"); path attestation and the STUN operator (§ Secu
   measured; the history is in [pre-launch.md](docs/history/pre-launch.md)): try two ordinary Wi-Fi
   networks in different places, another carrier, and a pair with IPv6 on both sides.
 - "Retry with relay" in place (2026-11-23), what is not yet seen: the carrier — test plan cases C9
-  and C10; the first run of the NAT suite's sixth case (§ The NAT suite); and the screenshot baselines
-  of its screens, on the deploy host — new scenes `failed-direct-retry`, `failed-direct-peer-asks`,
-  `failed-no-relay-path-retry`, `failed-no-relay-path-after-retry`, `relay-wait`,
-  `failed-retry-no-show` (phone width, light and dark: 12 images); no existing scene changed.
+  and C10.
 - Relay capacity: coturn's 49160–49200 range is ~41 allocations (a fully relayed pair takes two).
   A total cap (`bps-capacity`, 20 MB/s = ten allocations at 2 MB/s), two allocations per credential and
   a per-IP mint limit landed 2026-11-22 (the Capacity section of hush-signaling-server's runbook). Left: widen the
