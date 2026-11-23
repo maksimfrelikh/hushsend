@@ -58,8 +58,9 @@ Downloads on desktop Chromium, through the site's private storage elsewhere
 
 - **Max privacy (default)** — direct only. Your own STUN, never a relay; the peer learns your IP,
   nothing else carries your traffic. If a direct path cannot come up, the connection **fails** rather
-  than quietly relaying; the failure screen offers "Retry with relay", which starts over in Reliable
-  for that visit. Transfers are **padded** so the byte count on the wire shows a
+  than quietly relaying; the failure screen offers "Retry with relay" — when both people tap it, the
+  pairing they started continues through the relay for that visit, with nothing scanned or typed
+  again. Transfers are **padded** so the byte count on the wire shows a
   range rather than the exact file (≤12.5% extra above 1 MiB; see `core/transfer/padding.ts` for what
   that does and does not hide — duration and the fact of a transfer are still visible).
 - **Reliable** — adds a TURN relay (short-lived HMAC credentials minted per session; the shared
@@ -147,12 +148,12 @@ silent-peer case needs CDP, and the two straight-into-Downloads cases apply only
 does — desktop Chromium; the two site-storage cases skip on Playwright's WebKit, whose storage cannot
 write; plus 2 opt-in cases everywhere, the size ladder and the two-STUN cross-check), plus a 4-case
 phone profile and 5 cross-engine pairs — cover the protocol paths; the axe
-gate (`npm run test:a11y`, 140 checks) and the screenshot gate (`npm run visual`, 195 checks — on the
+gate (`npm run test:a11y`, 152 checks) and the screenshot gate (`npm run visual`, 195 checks — on the
 deploy host, whose renders the baselines are) cover the screens. The counts were re-run 2026-11-23
-on the owner's Mac, on the Vite 8 / Vitest 5 / Playwright 1.65 toolchain, with the one-fingerprint
-rule in (vitest 435 of 435; e2e 189 passed, 12 skipped, none failed; axe 140 of 140). The screenshot
-gate last ran 2026-11-23 on the deploy host, before that rule, which changes no screen (195 of 195,
-with the 14 baselines of the network check and "Retry with relay" recorded there that day).
+on the owner's Mac, on the Vite 8 / Vitest 5 / Playwright 1.65 toolchain, with the in-place "Retry
+with relay" in (vitest 435 of 435; e2e 189 passed, 12 skipped, none failed; axe 152 of 152). The
+screenshot gate last ran 2026-11-23 on the deploy host, before that change (195 of 195); its six new
+scenes have no baselines yet (§ Backlog).
 Refresh them here whenever the suite grows.
 
 A second internal audit on **2026-09-12**, modelling a fully malicious signaling server rather than a
@@ -233,7 +234,7 @@ production, taken from the hush-signaling-server commit pinned in `package.json`
 side, and beside coturn a second STUN port (`tests/nat/tools/stun.ts`), the network check's other
 destination. The map is in `tests/nat/net/lib.sh`. Each case first measures what its two routers
 really do (`tests/nat/tools/probe.ts`: mapping and filtering); the first four then pair by one-time
-link and read the candidate pair ICE selected. Five cases, `tests/nat/nat.spec.ts`:
+link and read the candidate pair ICE selected. Six cases, `tests/nat/nat.spec.ts`:
 
 - **Max ↔ Max, both NATs endpoint-independent** → connects, the selected pair is not a relay, a file
   arrives intact;
@@ -251,6 +252,11 @@ link and read the candidate pair ICE selected. Five cases, `tests/nat/nat.spec.t
   answered a connection of its own — what the verdict `direct` is made of; the build is the production
   one, so the verdict itself is not on the screen. First run 2026-11-23 on the CI runner: the warning
   270 ms after the Share screen ([2026-11-23 run](docs/test-runs/2026-11-23.md)).
+- **"Retry with relay"** (§ Max-privacy strict model) — the second case, and then both tap. After one
+  tap that side waits, the other is told, and neither page holds a connection configured with a
+  relay. After the second the SAME pairing connects: on each page the failed connection and the
+  retried one, the retried pair a relay, "relayed through the server" on the screen, a file intact,
+  and no second link. **Not yet run:** written 2026-11-23 on macOS, where the lab cannot be raised.
 
 It needs Linux, root, docker, nftables and conntrack, so it is not part of the list above:
 
@@ -1661,9 +1667,10 @@ then these always-on mechanisms keep a Max-privacy pairing direct, and a direct 
   `connectionstatechange` → `failed`) while filtering routes to `onIceFailed` (one-shot), which calls
   `failDirect(DIRECT_FAIL_REASON)` → close + `fail()` → the **existing `failed` state** (no new FSM
   state). The `FailedScreen` classifies the reason from its text (like the MITM / room-not-found cases)
-  and renders **"Couldn't connect directly"** with the hint that Reliable relays and that the peer has
-  to choose it too (i18n `directFailHint`; testid `direct-fail-hint`), and "Retry with relay" (below). In Reliable an ICE failure is a
-  genuine `onClose` → `failed` (relay was available and still couldn't save it — no hint).
+  and renders **"Couldn't connect directly"** with the hint that "Retry with relay" continues the
+  pairing in Reliable once both sides tap it (i18n `directFailHint`, or `directFailStartOver` where
+  nothing can be continued; testid `direct-fail-hint`), and the button itself (below). In Reliable an
+  ICE failure with a relay in hand ends the same way under its own reason (the mixed pair, below).
   `DIRECT_FAIL_REASON` (`"couldn't connect directly (Max privacy)"`) is the stable marker the screen
   keys off (`/connect directly|max privacy/`).
 - **A pre-transport `peer-left` during a Max-privacy direct attempt ALSO ends as the direct failure
@@ -1726,6 +1733,9 @@ then these always-on mechanisms keep a Max-privacy pairing direct, and a direct 
     candidates for a pairing that then fails its authentication; it cannot move a side that did not
     tap, and it gains no relayed byte of a transfer.
   - **One retry per pairing.** A retry that fails is terminal, with the ordinary Reliable copy.
+    The screens read it from `connection.relayRetry`: `offered` (set by `failDirect` when the retry
+    was armed — the button continues), `active` (this side tapped: the session is the retry, and its
+    failure offers no other), `none` (the button, where there is one, starts over).
   - **Waiting, and when continuing is impossible.** Alone in the retry room the screen says so
     (`RelayWaitScreen`, testid `relay-waiting`: ask your peer to tap "Retry with relay" too; nothing
     is scanned or typed again) for `RELAY_RETRY_WAIT_MS` (150 s — the server's own 3-minute room TTL
@@ -1754,20 +1764,41 @@ then these always-on mechanisms keep a Max-privacy pairing direct, and a direct 
     altogether. For a words creator this is a change: such a failure used to count as a wrong guess
     and return to the words screen; it is now the end of that code, like every other "no path".
     Without relay URLs the reason stays as it was and the missing-relay hint explains it.
-- **No relax-offer / bilateral / relax signal**: there is NO consent-gated relay escalation. The
-  `connection.relax` projection, the `relax` signaling frame, `relaxConnection`/`declineRelax`, and the
-  `pc.setConfiguration`/`restartIce` ICE-restart-over-relay were all **removed**. This also removes the
-  whole class of asymmetric relax bugs (incl. the suspected Firefox mixed-privacy hang — the failure
-  mode is gone by design: a Max-privacy side that can't go direct fails fast instead of half-relaxing).
-- **DEV/TEST knob**: `?forceIceFail=1` (DEV-gated, like `forgeReconnectKey`) makes the PeerConnection
+    **Two edges fall back instead of continuing.** Where the relay DID reach the Max side — its
+    network lets unsolicited packets in — the channel opens, the Max side's selected-path check
+    refuses it, and the Reliable side sees a channel close before authentication: "channel closed
+    during pairing", which is also what a peer that detected a mismatch looks like, so no retry is
+    offered there. And a Max peer that leaves its failure screen before the Reliable side's own ICE
+    gives up reaches it as "peer left during pairing". In both the Max side's tap finds nobody, and
+    its no-show screen offers "Start over".
+- **No escalation of a live connection**: a PeerConnection built in Max privacy is never relaxed.
+  The `connection.relax` projection, the `relax` signaling frame, `relaxConnection`/`declineRelax`, and
+  the `pc.setConfiguration`/`restartIce` ICE-restart-over-relay were all **removed** and stay removed —
+  with them went the whole class of asymmetric relax bugs (incl. the suspected Firefox mixed-privacy
+  hang: a Max-privacy side that can't go direct fails fast instead of half-relaxing). "Retry with
+  relay" is not that mechanism: it runs after the failure, on new PeerConnections, in a new room.
+- **DEV/TEST knobs**: `?forceIceFail=1` (DEV-gated, like `forgeReconnectKey`) makes the PeerConnection
   treat ICE as failed AND suppress its own candidates, driving the Max-privacy-direct-failure path in
-  e2e without a real network failure.
+  e2e without a real network failure; `?relayRetryWaitMs=N` shrinks the wait at the retry rendezvous.
 - **Tests**: `relax.test.ts` (the relay-candidate filter: drops `typ relay` only while filtering, off
   in Reliable, safe on null/empty); `tests/e2e/relax.spec.ts` (`forceIceFail` Max-privacy → both sides
-  reach `failed` with the `direct-fail-hint`, no relay offer, no hang; "Retry with relay" on both
-  sides → a new link, the pair connects in Reliable, nothing stored, Max again after a reload; a mixed
-  pair → the Reliable side reads `no-relay-path-hint`); `SessionController.retryWithRelay.test.ts`
-  (what each role restarts, and the Reliable-side reason with its three negative controls). Reliable's relay actually
+  reach `failed` with the `direct-fail-hint`, no hang; the relayed-path gate, both ways).
+  **The retry**: `relayRetry.test.ts` (the rendezvous token); `SessionController.relayRetryInPlace.test.ts`
+  — two real controllers against a signaling hub that records every room, frame and TURN request:
+  one tap waits and requests nothing; both taps connect link, words (no second CPace frame), room
+  (a fresh nonce, the SAS on both sides) and reconnect; a `relay-retry` frame forged, repeated, early,
+  from a stranger or late only ever sets the prompt; a peer without the secret, and a joiner that
+  guessed the words wrong, fail the confirmation in the retry; the wait runs out into the no-show
+  reason and "Start over"; a failed retry offers no second one; the mixed pair; no fingerprints, no
+  offer. `SessionController.retryWithRelay.test.ts` (the fallback: what each role restarts; the
+  Reliable-side reason and its three negative controls). `tests/e2e/relay-retry.spec.ts`, each engine:
+  link — both tap, connected in Reliable with a TURN entry, a file arrives, no second link, nothing
+  stored; one tap only — no PeerConnection built, the other side still Max, the wait ends, "Start
+  over" makes a new link; words; room (straight to the SAS, both confirm); reconnect; the mixed pair
+  ("Try again"). The e2e has no relay to connect through — that the retried path IS the relay is the
+  NAT suite's sixth case (§ The NAT suite). Visual and axe scenes: `failed-direct-retry`,
+  `failed-direct-peer-asks`, `failed-no-relay-path-retry`, `failed-no-relay-path-after-retry`,
+  `relay-wait`, `failed-retry-no-show`. Reliable's relay actually
   carrying bytes is hush-signaling-server's **`tests/turn-relay.test.ts`** (2026-09-19): it spawns a real coturn
   in the production `use-auth-secret` mode, spawns the signaling server with the SAME secret, mints
   over the WebSocket exactly as the client does and drives `turnutils_uclient` with the reply, so the
@@ -2088,9 +2119,12 @@ travels live in the kit's own `CLAUDE.md`; its `README.md` is the consumer contr
   variants (compromised, room not found — or, since 2026-10-11, "this link expired or was already used" /
   "these words don't work any more" for those methods, which have no digits to check — nobody came,
   verification interrupted with "Restart verification", direct failed (± this network named as the
-  reason — § Network check) with "Retry with relay", no path even through the relay, ± relay hint, this browser can't
-  send files (no WebRTC), generic, words with "New words"); no "Try again" — "Retry with relay" is
-  the one action that starts over, because it changes the mode that failed. A browser without WebRTC
+  reason — § Network check) with "Retry with relay" (± "your peer has tapped it"), no path even through
+  the relay (with "Try again" while the pairing can continue), the peer did not join the retry (with
+  "Start over"), ± relay hint, this browser can't send files (no WebRTC), generic, words with "New
+  words"). "Retry with relay" — "Try again" on a side already in Reliable — is the one retry there
+  is, because it changes what failed: the mode. Tapped first, it waits on `RelayWaitScreen` for the
+  peer's tap (§ Max-privacy strict model). A browser without WebRTC
   never reaches the app: App.tsx shows the same "This browser can't send files" page instead
   (`NoWebRtcScreen`) and a link opened there is scrubbed but not followed. Header: the existing Wordmark + the kit toggle.
   **SAS refusals — EQUAL WEIGHT (the 2026-09-12 audit decision, restored the same day the redesign
@@ -2552,7 +2586,7 @@ evidence to exist**:
 |---|---|---|
 | **T1** — Claude alone, closes the case outright | A4a, A4b, A6, A7 · B7, B9 · D1–D5 · E1–E5 · F3, F5, F6, F7 | 20 |
 | **T1 + T2** — T1 closes the DESKTOP half on real engines; the handset half is a separate tick | A1, A3, A4, A5, A6a · B2, B8, B10 · E6, E7 · F2, F8 | 12 |
-| **T2** — needs one physical act from you | A2 · B1, B3, B4 · C1–C8 · F1, F4, F9 | 15 |
+| **T2** — needs one physical act from you | A2 · B1, B3, B4 · C1–C10 · F1, F4, F9 | 17 |
 | **T1 + T3** — T1 closes the desktop half; the rest is your eyes | B5 (native share sheet) · B6 (phone ergonomics) | 2 |
 
 **Two ticks, not one, for every case in the split rows.** A1 says "MBP-A Chrome → IPH Safari". With
@@ -2853,7 +2887,7 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       be missing there (§ Network check, Limits); record which. (5) Switch the phone to Reliable and
       make a link: no warning. Record phone, browser and carrier, and for any step that disagrees a
       screenshot. A network with IPv6 adds "It can still work if your peer's network has IPv6…".
-- [x] **C8 · "Retry with relay" across real networks — NEW 2026-11-22** *(PASS 2026-11-23: the same iPhone on Epic cellular ↔ the Mac on the home Wi-Fi, all five steps as written by the owner's report — [the 2026-11-23 run](docs/test-runs/2026-11-23.md))* — Phone on **cellular**, Mac on
+- [x] **C8 · "Retry with relay" across real networks — NEW 2026-11-22** *(PASS 2026-11-23: the same iPhone on Epic cellular ↔ the Mac on the home Wi-Fi, all five steps as written by the owner's report — [the 2026-11-23 run](docs/test-runs/2026-11-23.md); steps 2–3 describe the retry as it was until that day, a NEW invite — it has continued the same pairing since, case C9)* — Phone on **cellular**, Mac on
       the home Wi-Fi, both **Max privacy**. (1) Mac: Invite someone → Link or QR code; phone: scan it.
       Both end on "Couldn't connect directly" with "Retry with relay". (2) Tap it on the Mac: a NEW QR
       code. Tap it on the phone: the home screen, **Reliable** selected. (3) Scan the new code:
@@ -2864,6 +2898,34 @@ IPH (or AND-1) on **LTE with Wi-Fi off**, MacBook on the home Wi-Fi.
       privacy, ask them to switch to Reliable too" — not "channel closed during pairing". If the Mac
       reads "peer left during pairing", note whether the phone's screen was left before the Mac's
       changed (§ Max-privacy strict model, the one edge).
+- [ ] **C9 · "Retry with relay" continues the same pairing — NEW 2026-11-23** (it replaces what C8
+      tested: since that day the retry needs no second scan). iPhone on **cellular with Wi-Fi off**,
+      Mac on the home Wi-Fi, both **Max privacy**. (1) Mac: Invite someone → Link or QR code; iPhone:
+      scan it. Both end on "Couldn't connect directly"; the text under it says "Retry with relay
+      continues this pairing in Reliable … Both of you have to tap it". (2) Tap "Retry with relay" on
+      the **Mac**: "Waiting for your peer", no QR code. The iPhone's failure screen now also says
+      "Your peer has tapped it and is waiting for you" — and nothing else on it has changed. (3) Tap
+      "Retry with relay" on the **iPhone**: within a few seconds both show the transfer screen with the
+      row "relayed through the server". Nothing was scanned again. Send a file each way. (4) Reload
+      both: Max privacy is selected again. (5) Repeat with the taps in the other order (iPhone first).
+      (6) **One tap only**: fail again, tap on the Mac, leave the iPhone alone: after two and a half
+      minutes the Mac reads "Your peer did not join the retry" with "Start over", which makes a new QR
+      code; the iPhone still shows its failure screen. (7) **Slow hands**: fail again and wait four
+      minutes before either tap, so that the first room has expired on the server; then tap on both —
+      it must still connect. (8) **The mixed pair**: Mac in **Reliable**, iPhone in Max privacy, a new
+      QR code. The iPhone ends on "Couldn't connect directly", the Mac on "Couldn't connect" with "…ask
+      them to tap “Retry with relay”, then tap Try again here". Tap "Retry with relay" on the iPhone,
+      "Try again" on the Mac: connected, relayed. Record the times from the second tap to the transfer
+      screen, and for any step that disagrees a screenshot of both screens.
+- [ ] **C10 · the same for a 4-digit room and for words — NEW 2026-11-23.** iPhone on cellular, Mac
+      on the home Wi-Fi, both Max privacy. (1) **Room**: Mac creates a room, the iPhone enters the four
+      digits, one side picks the other. Both end on "Couldn't connect directly". Tap "Retry with
+      relay" on both: no code is asked for and nobody is picked again — the three-word comparison
+      appears; read, pick, confirm on both; connected, "relayed through the server". (2) **Words**:
+      Mac creates words, the iPhone enters them; after the failure tap "Retry with relay" on both:
+      connected without the words being entered again. (3) **Reconnect**: with the two devices paired
+      (after step 1 or 2), go home on both, tap Reconnect on each other's row in Max privacy; after
+      the failure tap "Retry with relay" on both: connected, no code.
 - [x] **C5 · mobile-to-mobile** *(DROPPED by the owner 2026-10-03: both handsets have each been paired with the Mac across networks — Max fails closed, Reliable relays — and a phone↔phone pair would add only a second carrier NAT on the same relay)* — IPH (LTE) ↔ AND-1 (different LTE / other Wi-Fi), Reliable. The
       carrier-NAT-to-carrier-NAT case the desktop pair never exercises.
 
@@ -2988,6 +3050,11 @@ delivery (§ The road to "yes"); path attestation and the STUN operator (§ Secu
 - Max privacy across networks, what is left after 2026-11-22 (§ Platform limits has what was
   measured; the history is in [pre-launch.md](docs/history/pre-launch.md)): try two ordinary Wi-Fi
   networks in different places, another carrier, and a pair with IPv6 on both sides.
+- "Retry with relay" in place (2026-11-23), what is not yet seen: the carrier — test plan cases C9
+  and C10; the first run of the NAT suite's sixth case (§ The NAT suite); and the screenshot baselines
+  of its screens, on the deploy host — new scenes `failed-direct-retry`, `failed-direct-peer-asks`,
+  `failed-no-relay-path-retry`, `failed-no-relay-path-after-retry`, `relay-wait`,
+  `failed-retry-no-show` (phone width, light and dark: 12 images); no existing scene changed.
 - Relay capacity: coturn's 49160–49200 range is ~41 allocations (a fully relayed pair takes two).
   A total cap (`bps-capacity`, 20 MB/s = ten allocations at 2 MB/s), two allocations per credential and
   a per-IP mint limit landed 2026-11-22 (the Capacity section of hush-signaling-server's runbook). Left: widen the

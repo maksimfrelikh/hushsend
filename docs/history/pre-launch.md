@@ -117,6 +117,36 @@ Simulator (26.5) one per server ([2026-11-23 run](../test-runs/2026-11-23.md)). 
 Simulator is noted in the [test plan](../../README.md#test-plan--the-real-device-pass-step-6e) as unfit
 for anything about a NAT.
 
+## 2026-11-23 — "Retry with relay" continues the same pairing
+
+The owner passed C8 on the carrier and remarked that after "Retry with relay" the code had to be
+scanned again. Decided the same day: the retry continues the pairing that was started — for every
+method, not only link and QR ([README § Decisions](../../README.md#decisions),
+[§ Max-privacy strict model](../../README.md#max-privacy-strict-model-done--completes-6d)). The rule
+changed from "Max privacy never relays a session" to "never unless both users ask for it in that
+session".
+
+- **Both tap.** Each side's own tap is its consent; the frame that tells the peer "I tapped" comes
+  through the untrusted server and can only put a line on the peer's failure screen.
+- **They meet at a new rendezvous, derived from the failed attempt's two DTLS fingerprints** — not in
+  the old room. A room on the server lives 3 minutes, and continuing on the old socket would have
+  fallen back to "scan again" whenever the two people were slower than that. A reconnect meets there
+  too: at its own rendezvous the first side to tap paired with the other's failed socket — found by
+  the unit test, before any browser.
+- **The retried channel is authenticated in full**: the link secret again, the CPace key of the
+  failed attempt (no second CPace — that would be a second guess at the words), a SAS from scratch,
+  the pin under fresh challenges.
+- **Tapped first, a side waits 150 s**, then offers "Start over" — the behaviour of the day before.
+- **A limit the invariant "strict until both tapped" ran into:** a side learns that its peer came
+  only from the server. A server that fakes it makes a side that already tapped ask for TURN
+  credentials and gather relay candidates for a pairing that then fails its check; a side that did
+  not tap cannot be moved.
+- **Changed along the way:** in Reliable, "no path even through the relay" is now terminal for a
+  words creator as well (it used to count as a wrong guess and return to the words), and that screen
+  offers "Try again", which continues the pairing like the Max side's button.
+- **Not verified:** real networks (test plan C9, C10); the NAT suite's case was written on a Mac and
+  has not run; the screenshot baselines of the six new screens are to be recorded on the deploy host.
+
 ## 2026-11-23 — one certificate per description
 
 The authentication of every method is bound to the peer's DTLS fingerprint, read from its
