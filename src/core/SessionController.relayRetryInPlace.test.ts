@@ -33,6 +33,12 @@ const hoisted = vi.hoisted(() => {
     /** every TURN-credential request, by the id of the socket that made it */
     turnRequests: [] as string[],
     turn: RELAY as { urls: string[]; username: string; credential: string },
+    /** while true a TURN request stays unanswered, as on the wire, until answerTurn() or the socket's
+     *  own close() */
+    turnHold: false,
+    /** while true connect() stays pending; the socket's close() rejects it (closed while CONNECTING) */
+    connectHold: false,
+    sockets: [] as FakeSignaling[],
     seq: 0,
     reset(): void {
       hub.rooms.clear();
@@ -40,19 +46,38 @@ const hoisted = vi.hoisted(() => {
       hub.frames.length = 0;
       hub.turnRequests.length = 0;
       hub.turn = RELAY;
+      hub.turnHold = false;
+      hub.connectHold = false;
+      hub.sockets.length = 0;
       hub.seq = 0;
     },
+    /** Answer every TURN request that was held. */
+    answerTurn(): void {
+      for (const socket of hub.sockets) socket.settleTurn(hub.turn);
+    },
   };
+  const NO_TURN = { urls: [] as string[], username: '', credential: '' };
 
   class FakeSignaling {
     id = '';
     room = '';
     closed = false;
+    /** the SERVER closed it (serverClose) */
+    dead = false;
+    private turnPending: ((t: typeof NO_TURN) => void) | null = null;
+    private rejectConnect: ((err: Error) => void) | null = null;
     constructor(
       _url: string,
       public handlers: Handlers,
-    ) {}
+    ) {
+      hub.sockets.push(this);
+    }
     async connect(opts: { create: true } | { join: string }): Promise<void> {
+      if (hub.connectHold) {
+        return new Promise<void>((_resolve, reject) => {
+          this.rejectConnect = reject;
+        });
+      }
       hub.seq += 1;
       this.id = `p${String(hub.seq).padStart(4, '0')}`;
       this.room = 'create' in opts ? `created-${hub.seq}` : opts.join;
@@ -62,35 +87,64 @@ const hoisted = vi.hoisted(() => {
       members.push(this);
       hub.taken.push(this.room);
       setTimeout(() => {
-        if (this.closed) return;
+        if (this.closed || this.dead) return;
         this.handlers.onWelcome?.(
           this.id,
           this.room,
-          earlier.filter((m) => !m.closed).map((m) => ({ id: m.id, joinedAt: 0 })),
+          earlier.filter((m) => !m.closed && !m.dead).map((m) => ({ id: m.id, joinedAt: 0 })),
         );
-        for (const m of earlier) if (!m.closed) m.handlers.onPeerJoined?.({ id: this.id, joinedAt: 0 });
+        for (const m of earlier) if (!m.closed && !m.dead) m.handlers.onPeerJoined?.({ id: this.id, joinedAt: 0 });
       }, 0);
     }
     send(to: string, data: unknown): void {
-      if (this.closed) return;
+      if (this.closed || this.dead) return;
       hub.frames.push({ room: this.room, from: this.id, to, data });
       const target = hub.rooms.get(this.room)?.find((m) => m.id === to);
       const from = this.id;
-      if (target) setTimeout(() => !target.closed && target.handlers.onSignal?.(from, data), 0);
+      if (target) setTimeout(() => !target.closed && !target.dead && target.handlers.onSignal?.(from, data), 0);
     }
     destroyRoom(): void {}
     async requestTurnCredentials(): Promise<{ urls: string[]; username: string; credential: string }> {
+      if (this.closed || this.dead) return NO_TURN;
       hub.turnRequests.push(this.id);
-      return hub.turn;
+      if (!hub.turnHold) return hub.turn;
+      return new Promise((resolve) => {
+        this.turnPending = resolve;
+      });
     }
-    close(): void {
-      if (this.closed) return;
-      this.closed = true;
+    settleTurn(t: typeof NO_TURN): void {
+      const pending = this.turnPending;
+      this.turnPending = null;
+      pending?.(t);
+    }
+    private leave(): void {
       const members = hub.rooms.get(this.room) ?? [];
       const at = members.indexOf(this);
       if (at >= 0) members.splice(at, 1);
       const id = this.id;
-      for (const m of members) setTimeout(() => !m.closed && m.handlers.onPeerLeft?.(id), 0);
+      for (const m of members) setTimeout(() => !m.closed && !m.dead && m.handlers.onPeerLeft?.(id), 0);
+    }
+    /** Our own close, as SignalingClient.close(): a pending TURN request resolves empty, a pending
+     *  connect rejects, and no handler of ours fires. */
+    close(): void {
+      if (this.closed) return;
+      this.closed = true;
+      this.settleTurn(NO_TURN);
+      if (this.rejectConnect) {
+        const reject = this.rejectConnect;
+        this.rejectConnect = null;
+        setTimeout(() => reject(new Error('signaling connection failed')), 0);
+        return;
+      }
+      if (!this.dead) this.leave();
+    }
+    /** The SERVER closes this socket, after a room-closed frame when the room expired. */
+    serverClose(code: number, reason: string, roomClosed = false): void {
+      if (this.closed || this.dead) return;
+      if (roomClosed) this.handlers.onRoomClosed?.(reason);
+      this.dead = true;
+      this.leave();
+      this.handlers.onClose?.(code, reason);
     }
   }
 
@@ -253,11 +307,7 @@ function expectNotSeenByHub(what: string, ...secrets: string[]): void {
 /** The `kind` of every JSON frame a connection sent over its channel. */
 const kindsSent = (c: Pc): string[] =>
   c.sent.map((d) => (typeof d === 'string' ? ((JSON.parse(d) as { kind?: string; t?: string }).kind ?? 'transfer') : 'bytes'));
-const expired = (s: Side): void => {
-  const socket = s.internals.signaling!;
-  socket.handlers.onRoomClosed?.('expired');
-  socket.handlers.onClose?.(4010, 'expired');
-};
+const expired = (s: Side): void => s.internals.signaling!.serverClose(4010, 'expired', /* room-closed first */ true);
 
 async function pairByLink(a: Side, b: Side): Promise<void> {
   void a.sc.createLinkSession('link');
@@ -284,6 +334,31 @@ async function pairByRoom(a: Side, b: Side): Promise<void> {
   await settle();
   b.sc.pickPeer(a.internals.selfId!);
   await settle();
+}
+
+/** The three methods that pair two fresh sides in one call. */
+const pairings = { link: pairByLink, words: pairByWords, room: pairByRoom } as const;
+
+/** Two devices that have met (a link pairing, enrolled), reconnecting in Max privacy, both in `pairing`. */
+async function pairByReconnect(): Promise<[Side, Side]> {
+  const [a, b] = [side('reliable'), side('reliable')];
+  await pairByLink(a, b);
+  await openChannel(a, b);
+  await drain();
+  const pairingId = a.store.getState().dev.pinnedPeer?.pairingId;
+  expect(pairingId).toBeTruthy();
+  expect(b.store.getState().dev.pinnedPeer?.pairingId).toBe(pairingId);
+  a.sc.dispose();
+  b.sc.dispose();
+  a.sc.setPrivacyMode('max');
+  b.sc.setPrivacyMode('max');
+  hub.turnRequests.length = 0;
+
+  void a.sc.reconnectTo(pairingId!);
+  void b.sc.reconnectTo(pairingId!);
+  await settle();
+  expect(a.state()).toMatchObject({ status: 'pairing', method: 'reconnect' });
+  return [a, b];
 }
 
 async function failIce(...sides: Side[]): Promise<void> {
@@ -759,38 +834,62 @@ describe('a peer that never answers', () => {
 });
 
 describe('one retry per pairing', () => {
-  it('a retry that finds no path either is terminal: no second offer, its socket, its secret and its timers are gone', async () => {
+  for (const [method, pair] of Object.entries(pairings)) {
+    it(`${method}: a retry that finds no path either is terminal — no second offer; its socket, its secret and its timers are gone`, async () => {
+      const [a, b] = [side(), side()];
+      await pair(a, b);
+      await failIce(a, b);
+      void a.sc.retryWithRelay();
+      void b.sc.retryWithRelay();
+      await settle();
+      const token = a.internals.signaling!.room;
+
+      await failIce(a, b);
+
+      for (const s of [a, b]) {
+        expect(s.state()).toMatchObject({ status: 'failed', error: NO_PATH, relayRetry: 'active' });
+        expect(s.internals.signaling!.closed).toBe(true);
+        expect(s.internals.linkSecret).toBeNull();
+        expect(s.internals.sessionKey).toBeNull();
+        expect(s.internals.peer).toBeNull();
+      }
+      expect(hub.rooms.get(token)).toHaveLength(0);
+      await settle();
+      expect(vi.getTimerCount()).toBe(0);
+
+      // The button is not a second retry, and not a way to start over: that is "Start over"'s.
+      const rooms = hub.taken.length;
+      void a.sc.retryWithRelay();
+      await settle();
+      expect(a.state()).toMatchObject({ status: 'failed', error: NO_PATH });
+      expect(hub.taken).toHaveLength(rooms);
+
+      void a.sc.startOverWithRelay();
+      await settle();
+      expect(a.state()).toMatchObject({ status: 'awaitingPeer', relayRetry: 'none' }); // a NEW invite — the fallback
+      expect(hub.taken).toHaveLength(rooms + 1);
+    });
+  }
+
+  it('the other ways a retry ends drop the secret too: nobody came, the socket lost mid-pairing', async () => {
     const [a, b] = [side(), side()];
     await pairByLink(a, b);
     await failIce(a, b);
     void a.sc.retryWithRelay();
-    void b.sc.retryWithRelay();
-    await settle();
-    const token = a.internals.signaling!.room;
+    await settle(121_000);
+    expect(a.state().error).toBe(NO_SHOW);
+    expect(a.internals.linkSecret).toBeNull();
 
-    await failIce(a, b);
-
-    for (const s of [a, b]) {
-      expect(s.state()).toMatchObject({ status: 'failed', error: NO_PATH, relayRetry: 'active' });
-      expect(s.internals.signaling!.closed).toBe(true);
-      expect(s.internals.linkSecret).toBeNull();
-      expect(s.internals.peer).toBeNull();
-    }
-    expect(hub.rooms.get(token)).toHaveLength(0);
+    const [c, d] = [side(), side()];
+    await pairByWords(c, d);
+    await failIce(c, d);
+    void c.sc.retryWithRelay();
+    void d.sc.retryWithRelay();
     await settle();
-    expect(vi.getTimerCount()).toBe(0);
-
-    // The button is not a second retry, and not a way to start over: that is "Start over"'s.
-    const rooms = hub.taken.length;
-    void a.sc.retryWithRelay();
+    c.internals.signaling!.serverClose(1006, '');
     await settle();
-    expect(a.state()).toMatchObject({ status: 'failed', error: NO_PATH });
-    expect(hub.taken).toHaveLength(rooms);
-
-    void a.sc.startOverWithRelay();
-    await settle();
-    expect(a.state()).toMatchObject({ status: 'awaitingPeer', relayRetry: 'none' });
-    expect(a.state().credential).toHaveLength(1); // a NEW link — the fallback
+    expect(c.state().error).toBe('signaling closed during the retry');
+    expect(c.internals.sessionKey).toBeNull();
   });
 
   it('whichever side gives up on the path first, the other reads "no path" too, not "peer left"', async () => {
@@ -833,19 +932,31 @@ describe('the retry does not depend on the rooms of the server', () => {
   });
 
   it('link, room and reconnect keep theirs through the same expiry', async () => {
-    const [a, b] = [side(), side()];
-    await pairByRoom(a, b);
-    await failIce(a, b);
-    expired(a);
-    expired(b);
-    await settle();
-    expect(a.state()).toMatchObject({ status: 'failed', relayRetry: 'offered' });
+    const pairs: [string, Side, Side, string][] = [];
+    const [l1, l2] = [side(), side()];
+    await pairByLink(l1, l2);
+    pairs.push(['link', l1, l2, 'connected']);
+    const [r1, r2] = [side(), side()];
+    await pairByRoom(r1, r2);
+    pairs.push(['room', r1, r2, 'awaitingSas']);
+    const [p1, p2] = await pairByReconnect();
+    pairs.push(['reconnect', p1, p2, 'connected']);
 
-    void a.sc.retryWithRelay();
-    void b.sc.retryWithRelay();
-    await settle();
-    await openChannel(a, b);
-    expect(a.state().status).toBe('awaitingSas');
+    for (const [method, a, b, reached] of pairs) {
+      await failIce(a, b);
+      expired(a);
+      expired(b);
+      await settle();
+      expect(a.state(), method).toMatchObject({ status: 'failed', relayRetry: 'offered' });
+
+      void a.sc.retryWithRelay();
+      void b.sc.retryWithRelay();
+      await settle();
+      await openChannel(a, b);
+      await drain();
+      expect(a.state().status, method).toBe(reached);
+      expect(b.state().status, method).toBe(reached);
+    }
   });
 
   it('room: the retry room expires in the middle of the comparison — the pairing goes on over the channel', async () => {
@@ -894,29 +1005,160 @@ describe('the retry does not depend on the rooms of the server', () => {
     expect(a.state().status).toBe('connected');
   });
 
-  it('before the channel is up the socket IS needed: its close ends the retry for good, connection and all', async () => {
+  for (const [method, pair] of Object.entries(pairings)) {
+    it(`${method}: before the channel is up the socket IS needed — its close ends the retry for good, connection and all`, async () => {
+      const [a, b] = [side(), side()];
+      await pair(a, b);
+      await failIce(a, b);
+      void a.sc.retryWithRelay();
+      void b.sc.retryWithRelay();
+      await settle();
+      const [mine, theirs] = [pc(a), pc(b)];
+
+      a.internals.signaling!.serverClose(1006, '');
+      await settle();
+
+      expect(a.state()).toMatchObject({ status: 'failed', error: 'signaling closed during the retry' });
+      expect(mine.closed).toBe(true);
+      expect(a.internals.peer).toBeNull();
+
+      // A channel that opens afterwards authenticates nothing: the screen says failed, and so does the core.
+      mine.open();
+      theirs.open();
+      await settle();
+      expect(a.state().status).toBe('failed');
+      expect(a.internals.established).toBe(false);
+      expect(kindsSent(mine)).toEqual([]);
+    });
+  }
+});
+
+describe('a socket the server closes once the channel is open — outside the retry', () => {
+  it('words creator, wrong words: the attempt ends and there is no room to wait in — the session ends, it does not go back to its words', async () => {
+    const [a, b] = [side(), side()];
+    await pairByWords(a, b, /* wrong */ true);
+    pc(a).open(); // the joiner's channel is up; the tags are on their way
+    await settle(0);
+    a.internals.signaling!.serverClose(1006, ''); // a server restart: no room-closed frame, no expiry to come
+
+    pc(b).open();
+    await settle();
+
+    expect(a.state().status).toBe('failed');
+    expect(a.state().error).toBe('signaling closed (code 1006)');
+    await settle();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('words creator, a joiner that goes silent: the confirmation deadline ends the session the same way', async () => {
+    const [a, b] = [side(), side()];
+    await pairByWords(a, b);
+    pc(b).hold = true; // its tag never arrives
+    await openChannel(a, b);
+    expect(a.state().status).toBe('confirming');
+    a.internals.signaling!.serverClose(1006, '');
+    await settle();
+    expect(a.state().status).toBe('confirming'); // the attempt itself does not need the socket
+
+    await settle(121_000);
+
+    expect(a.state()).toMatchObject({ status: 'failed', error: 'signaling closed (code 1006)' });
+  });
+
+  it('words, the right words: the same close costs nothing — that is what the rule is for', async () => {
+    const [a, b] = [side(), side()];
+    await pairByWords(a, b);
+    pc(b).hold = true;
+    await openChannel(a, b);
+    a.internals.signaling!.serverClose(1006, '');
+    await settle();
+
+    pc(a).handlers.onMessage(pc(b).sent[0]);
+    await settle();
+
+    expect(a.state().status).toBe('connected');
+  });
+});
+
+describe('a step that comes back to a controller its session has left', () => {
+  const starts: Record<string, (s: Side) => void> = {
+    'createLinkSession': (s) => void s.sc.createLinkSession('link'),
+    'createWordsSession': (s) => void s.sc.createWordsSession(),
+    'createRoomSession': (s) => void s.sc.createRoomSession(),
+    'joinRoomSession': (s) => void s.sc.joinRoomSession('4827'),
+    'joinWordsSession': (s) => void s.sc.joinWordsSession(['bathrobe', 'gadget', 'spider', 'ladder', 'digit']),
+    'joinLinkSession': (s) => void s.sc.joinLinkSession('k7Qm2vXa9LpR4nTdE0wYc3', new Uint8Array(16), 'link'),
+  };
+
+  for (const [name, start] of Object.entries(starts)) {
+    it(`${name}: disposed while its socket was still opening — the rejection fails nothing, and the next invite works`, async () => {
+      const a = side();
+      hub.connectHold = true;
+      start(a);
+      await settle();
+      a.sc.dispose(); // the socket is closed while CONNECTING: connect() rejects a moment later
+      await settle();
+      expect(a.state()).toMatchObject({ status: 'idle', error: null });
+
+      hub.connectHold = false;
+      void a.sc.createLinkSession('link');
+      await settle();
+      expect(a.state().status).toBe('awaitingPeer');
+      expect(a.state().credential).toHaveLength(1);
+    });
+  }
+
+  it('…and when the next session has already started, the rejection of the old one does not fail it', async () => {
+    const [a, b] = [side(), side()];
+    hub.connectHold = true;
+    void a.sc.createLinkSession('link');
+    await settle();
+    a.sc.dispose();
+    hub.connectHold = false;
+    void a.sc.createLinkSession('link'); // started before the old connect() has rejected
+    await settle();
+
+    expect(a.state()).toMatchObject({ status: 'awaitingPeer', error: null });
+    const url = a.state().credential![0];
+    const link = parseLink(url.slice(url.indexOf('#')))!;
+    void b.sc.joinLinkSession(link.rendezvous, link.secret, 'link');
+    await settle();
+    await openChannel(a, b);
+    expect(a.state().status).toBe('connected');
+  });
+
+  it('a retry abandoned while its socket was opening leaves the controller usable too', async () => {
     const [a, b] = [side(), side()];
     await pairByLink(a, b);
     await failIce(a, b);
+    hub.connectHold = true;
+    void a.sc.retryWithRelay();
+    await settle();
+    a.sc.dispose();
+    await settle();
+    hub.connectHold = false;
+
+    void a.sc.createLinkSession('link');
+    await settle();
+    expect(a.state()).toMatchObject({ status: 'awaitingPeer', relayRetry: 'none' });
+  });
+});
+
+describe('"no path even through the relay" is said only where a relay was in hand', () => {
+  it('a retry with no relay to use: the side whose ICE gives up reads its plain reason, the other "peer left" — neither names a relay', async () => {
+    const [a, b] = [side(), side()];
+    await pairByLink(a, b);
+    await failIce(a, b);
+    hub.turn = { urls: [], username: '', credential: '' }; // the server has no relay to offer
     void a.sc.retryWithRelay();
     void b.sc.retryWithRelay();
     await settle();
-    const [mine, theirs] = [pc(a), pc(b)];
+    expect(JSON.stringify(pc(a).config.iceServers)).not.toContain('turn:');
 
-    a.internals.signaling!.handlers.onClose?.(1006, '');
-    await settle();
+    await failIce(a);
 
-    expect(a.state()).toMatchObject({ status: 'failed', error: 'signaling closed during the retry' });
-    expect(mine.closed).toBe(true);
-    expect(a.internals.peer).toBeNull();
-
-    // A channel that opens afterwards authenticates nothing: the screen says failed, and so does the core.
-    mine.open();
-    theirs.open();
-    await settle();
-    expect(a.state().status).toBe('failed');
-    expect(a.internals.established).toBe(false);
-    expect(kindsSent(mine)).toEqual([]);
+    expect(a.state()).toMatchObject({ status: 'failed', error: 'channel closed during pairing', relayUnavailable: true });
+    expect(b.state()).toMatchObject({ status: 'failed', error: 'peer left during pairing', relayUnavailable: true });
   });
 });
 
@@ -1063,30 +1305,8 @@ describe('room — the SAS runs again over the new fingerprints', () => {
 });
 
 describe('reconnect — the pin authenticates the retried transport', () => {
-  /** Two devices that have met (a link pairing, enrolled), reconnecting in Max privacy, ICE failed. */
-  async function reconnectFailedDirectly(): Promise<[Side, Side]> {
-    const [a, b] = [side('reliable'), side('reliable')];
-    await pairByLink(a, b);
-    await openChannel(a, b);
-    await drain();
-    const pairingId = a.store.getState().dev.pinnedPeer?.pairingId;
-    expect(pairingId).toBeTruthy();
-    expect(b.store.getState().dev.pinnedPeer?.pairingId).toBe(pairingId);
-    a.sc.dispose();
-    b.sc.dispose();
-    a.sc.setPrivacyMode('max');
-    b.sc.setPrivacyMode('max');
-    hub.turnRequests.length = 0;
-
-    void a.sc.reconnectTo(pairingId!);
-    void b.sc.reconnectTo(pairingId!);
-    await settle();
-    expect(a.state()).toMatchObject({ status: 'pairing', method: 'reconnect' });
-    return [a, b];
-  }
-
   it('both tap: at the retry rendezvous, not the pin\'s own; a fresh challenge; hello → proof → ok; connected', async () => {
-    const [a, b] = await reconnectFailedDirectly();
+    const [a, b] = await pairByReconnect();
     const bucketRoom = a.internals.signaling!.room;
     const token = relayRetryToken(pc(a).fp, pc(b).fp)!;
     const challenge = a.internals.reconnect!.myChallenge;
@@ -1115,7 +1335,7 @@ describe('reconnect — the pin authenticates the retried transport', () => {
   });
 
   it('a hello sent back to its sender is refused — a peer that cannot make its own does not hold the pairing', async () => {
-    const [a, b] = await reconnectFailedDirectly();
+    const [a, b] = await pairByReconnect();
     await failIce(a, b);
     void a.sc.retryWithRelay();
     void b.sc.retryWithRelay();
@@ -1191,12 +1411,6 @@ describe('a description that names two certificates, arriving in the retry', () 
   // The retry builds a new PeerConnection, and that connection takes its one description under the
   // one-fingerprint rule like any other (PeerConnection.description.test.ts). What is checked here is
   // what the session does when it reports a refusal.
-  const pairings = {
-    link: pairByLink,
-    words: pairByWords,
-    room: pairByRoom,
-  } as const;
-
   for (const [method, pair] of Object.entries(pairings)) {
     it(`${method}: the retry fails closed as tampered — socket closed, nothing authenticated, no second retry`, async () => {
       const [a, b] = [side(), side()];

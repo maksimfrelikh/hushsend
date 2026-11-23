@@ -919,6 +919,15 @@ export class SessionController {
    *  nothing from the server but the peer's `relay-retry` notice (onSignalAfterFailure): no frame, join
    *  or close may start, resume or tear down anything in a session only its user can restart. */
   private ended = false;
+  /** Bumped by dispose(). An entry point reads it before it awaits and compares after: what comes
+   *  back from an await may find the session it belonged to gone, and must then touch nothing — a
+   *  rejected connect() that failed "the session" used to set `ended` on an idle controller, and the
+   *  next invite then sat on `creating` for good. */
+  private epoch = 0;
+  /** Why the signaling socket of THIS session is gone, once the server closed it under a pairing
+   *  that no longer needed it (onSignalingClose). The pairing goes on over its channel; a path that
+   *  would go BACK to waiting in the room reads this and ends the session instead. */
+  private signalingGone: string | null = null;
   /** true once the DataChannel has OPENED (transport up). From this point the DataChannel + ICE are
    *  the SOLE liveness authority for the 1:1 methods — a signaling `peer-left` no longer aborts the
    *  pairing (see onPeerLeft / livenessGate). Reset on a words retry / lobby reset / dispose. */
@@ -1014,6 +1023,7 @@ export class SessionController {
     // Drop them so Reliable mode re-fetches against THIS session's socket at pairing start.
     this.turnCreds = null;
     this.turnFetch = null;
+    this.signalingGone = null;
     this.startNatCheck();
     // Each handler answers only while its socket is still THIS session's: the controller outlives its
     // sessions, and a frame from a socket it has let go must not land in the next one.
@@ -1439,9 +1449,11 @@ export class SessionController {
     // socket, say — was never a direct attempt that failed.
     // The same holds for a retried pairing in Reliable: both ICE agents give up at about the same
     // moment, whichever does first closes the retry socket (failDirect), and the other side would
-    // read "peer left" where the truth is "no path".
+    // read "peer left" where the truth is "no path" — but only where a relay was in hand: without one
+    // the retry ran direct-only, and "not even through the relay" would name something that was not there.
+    const retriedWithRelay = this.relayRetry?.active === true && (this.turnCreds?.urls.length ?? 0) > 0;
     return (
-      (this.privacyMode === 'max' || this.relayRetry?.active === true) &&
+      (this.privacyMode === 'max' || retriedWithRelay) &&
       this.peer !== null &&
       this.peer.remoteFingerprint() !== null &&
       !this.channelOpen &&
@@ -1676,11 +1688,9 @@ export class SessionController {
     this.clearPendingPeerSignals();
     if (this.relayRetry?.active) {
       // The retry itself found no path, and there is no second one: nothing is left to wait for on
-      // this socket or to keep the secret for. (The peer's own ICE is failing at this moment; should
-      // our close reach it first, it still reads "no path" — peerLeftWhileDirectAttempt.)
+      // this socket (fail() drops the secret). The peer's own ICE is failing at this moment; should
+      // our close reach it first, it still reads "no path" — peerLeftWhileDirectAttempt.
       this.signaling?.close();
-      this.linkSecret = null;
-      this.sessionKey = null;
     }
     this.fail(new Error(reason));
     if (canRetry) this.dispatch(connectionActions.relayRetryOffered());
@@ -2099,6 +2109,12 @@ export class SessionController {
     if (this.attemptCount >= maxPairingAttempts()) {
       this.signaling?.destroyRoom(); // invalidate the rendezvous: free the word, evict the joiner
       this.fail(new Error('attempts'));
+      return;
+    }
+    if (this.signalingGone) {
+      // The socket went while this attempt no longer needed it. The next joiner would: nobody can
+      // arrive in a room this side is no longer in, and no expiry would ever end the wait.
+      this.fail(new Error(this.signalingGone));
       return;
     }
     // Below the cap: wait for the next joiner — same rendezvous, same secret words.
@@ -2571,6 +2587,7 @@ export class SessionController {
     // room pairing cut it in the middle of the comparison.)
     if (this.channelOpen && !(this.sas && !(this.sas.peerNonce && this.sas.revealedMine))) {
       this.dispatch(devActions.appendLog('signaling: closed after the channel opened — the pairing goes on over the channel'));
+      this.signalingGone = `signaling closed (code ${code}${reason ? `: ${reason}` : ''})`;
       return;
     }
     if (code === 4010 && this.waitingInRoom) {
@@ -2588,6 +2605,11 @@ export class SessionController {
     );
   }
 
+  /** `fail`, for a step that awaited something: only if the session it belongs to is still the one. */
+  private failSession(epoch: number, err: unknown): void {
+    if (epoch === this.epoch) this.fail(err);
+  }
+
   /**
    * The ONE way a session becomes `failed`. Whatever path got here, a failed session holds no
    * transport and waits on no deadline: the PeerConnection is closed (a bare `fail` used to leave it —
@@ -2597,8 +2619,16 @@ export class SessionController {
    */
   private fail(err: unknown): void {
     const reason = err instanceof Error ? err.message : String(err);
+    // No session, nothing to fail: a controller that was disposed has no method, and marking it
+    // `ended` would shut the server out of the session started next.
+    if (this.method === null) return;
     if (import.meta.env.DEV) console.error('[session] failed:', reason);
     this.ended = true;
+    if (this.relayRetry?.active) {
+      // The retry was the pairing's last use of what it authenticates with, however it ended.
+      this.linkSecret = null;
+      this.sessionKey = null;
+    }
     this.peer?.close();
     this.peer = null;
     this.clearPendingPeerSignals();
@@ -2626,6 +2656,7 @@ export class SessionController {
    * `peer-joined` we begin CPace as the initiator (onPeerJoined).
    */
   async createWordsSession(): Promise<void> {
+    const epoch = this.epoch;
     this.dispatch(connectionActions.createStarted({ method: 'words' }));
     this.isCreator = true;
     this.method = 'words';
@@ -2639,11 +2670,12 @@ export class SessionController {
       this.prs = prsFromSecretWords(secret);
       this.openSignaling();
       await this.signaling!.connect({ create: true, codeType: 'word' });
+      if (epoch !== this.epoch) return;
       // `welcome` carries the allocated rendezvous word; we then show [rendezvous, ...secret].
       // It is stitched in onWelcome once we know the rendezvous, via this pending secret:
       this.pendingSecretWords = secret;
     } catch (err) {
-      this.fail(err);
+      this.failSession(epoch, err);
     }
   }
 
@@ -2653,6 +2685,7 @@ export class SessionController {
    * (A already present) we become the responder and run CPace when A's first frame arrives.
    */
   async joinWordsSession(words: string[]): Promise<void> {
+    const epoch = this.epoch;
     const { rendezvous, secret } = splitWords(words);
     this.dispatch(connectionActions.joinStarted({ method: 'words', room: rendezvous }));
     this.isCreator = false;
@@ -2663,7 +2696,7 @@ export class SessionController {
       await this.signaling!.connect({ join: rendezvous, codeType: 'word' });
       // `welcome` (peers non-empty) → we're the responder; CPace + confirmation follow.
     } catch (err) {
-      this.fail(err);
+      this.failSession(epoch, err);
     }
   }
 
@@ -2691,6 +2724,7 @@ export class SessionController {
    * only tags the projection (link vs qr) — the auth/transport are identical.
    */
   async createLinkSession(method: 'link' | 'qr'): Promise<void> {
+    const epoch = this.epoch;
     this.dispatch(connectionActions.createStarted({ method }));
     this.isCreator = true;
     this.method = method;
@@ -2706,7 +2740,7 @@ export class SessionController {
       // "these two have met before". `welcome` echoes the token; onWelcome then shows the link.
       await this.signaling!.connect({ join: generateRendezvousToken(), codeType: 'token' });
     } catch (err) {
-      this.fail(err);
+      this.failSession(epoch, err);
     }
   }
 
@@ -2718,6 +2752,7 @@ export class SessionController {
    * the responder and run key-confirmation over S when the DataChannel opens.
    */
   async joinLinkSession(rendezvous: string, secret: Uint8Array, method: 'link' | 'qr'): Promise<void> {
+    const epoch = this.epoch;
     this.dispatch(connectionActions.joinStarted({ method, room: rendezvous }));
     this.isCreator = false;
     this.method = method;
@@ -2727,7 +2762,7 @@ export class SessionController {
       await this.signaling!.connect({ join: rendezvous, codeType: 'token' }); // token join — S never sent
       // `welcome` (peers non-empty) → we're the responder; key-confirmation over S follows.
     } catch (err) {
-      this.fail(err);
+      this.failSession(epoch, err);
     }
   }
 
@@ -2744,6 +2779,7 @@ export class SessionController {
    * `peer-joined` we initiate WebRTC; the SAS commit-reveal runs in parallel over signaling.
    */
   async createRoomSession(): Promise<void> {
+    const epoch = this.epoch;
     this.dispatch(connectionActions.createStarted({ method: 'room' }));
     this.isCreator = true;
     this.method = 'room';
@@ -2753,7 +2789,7 @@ export class SessionController {
       await this.signaling!.connect({ create: true }); // 4-digit allocate — unchanged server path
       // `welcome` -> roomReady (shows the code); `peer-joined` -> beginPairing (WebRTC + SAS).
     } catch (err) {
-      this.fail(err);
+      this.failSession(epoch, err);
     }
   }
 
@@ -2763,6 +2799,7 @@ export class SessionController {
    * PeerConnection, and reveal our nonce only after A reveals theirs.
    */
   async joinRoomSession(code: string): Promise<void> {
+    const epoch = this.epoch;
     this.dispatch(connectionActions.joinStarted({ method: 'room', room: code }));
     this.isCreator = false;
     this.method = 'room';
@@ -2771,7 +2808,7 @@ export class SessionController {
       this.openSignaling();
       await this.signaling!.connect({ join: code });
     } catch (err) {
-      this.fail(err);
+      this.failSession(epoch, err);
     }
   }
 
@@ -2797,6 +2834,7 @@ export class SessionController {
    * creator — `isCreator` stays false and the role is decided later from the DTLS fingerprints.
    */
   async reconnectTo(pairingIdHex: string): Promise<void> {
+    const epoch = this.epoch;
     this.dispatch(connectionActions.joinStarted({ method: 'reconnect', room: '' }));
     this.isCreator = false;
     this.method = 'reconnect';
@@ -2805,14 +2843,15 @@ export class SessionController {
     try {
       const pin = await this.keystore.getPin(pairingIdHex);
       if (!pin) {
-        this.fail(new Error('reconnect: no stored pin for this device — pair it again'));
+        this.failSession(epoch, new Error('reconnect: no stored pin for this device — pair it again'));
         return;
       }
       pairingId = hexToBytes(pairingIdHex);
     } catch (err) {
-      this.fail(err);
+      this.failSession(epoch, err);
       return;
     }
+    if (epoch !== this.epoch) return; // disposed while the keystore answered
     const rc = newReconnectState(pairingId);
     this.reconnect = rc;
     this.dispatch(devActions.setReconnect({ active: true, outcome: null }));
@@ -2854,7 +2893,7 @@ export class SessionController {
       // here, and the new network is not up yet). Try again after a short pause — counted against the
       // same re-join cap, inside the same overall wait — and keep the failure text for when the cap
       // runs out or a peer was already engaged.
-      if (rc.settled || this.peerId) return;
+      if (this.reconnect !== rc || rc.settled || this.peerId) return;
       if (rc.rejoins < RECONNECT_MAX_REJOINS) {
         this.dispatch(
           devActions.appendLog(`reconnect: the rendezvous socket did not open (${errText(err)}) — retrying in ${RECONNECT_RETRY_MS} ms`),
@@ -3985,6 +4024,7 @@ export class SessionController {
       pairingId: this.reconnect?.pairingId ?? null,
     };
     this.dispose();
+    const epoch = this.epoch;
     this.privacyMode = 'reliable';
     this.method = method;
     this.isCreator = keep.isCreator; // what "start over" means for this side, should the retry fail
@@ -4007,8 +4047,7 @@ export class SessionController {
       this.openSignaling();
       await this.signaling!.connect({ join: token, codeType: 'token' });
     } catch (err) {
-      this.clearRelayRetryWait();
-      this.fail(err);
+      this.failSession(epoch, err);
     }
   }
 
@@ -4065,6 +4104,8 @@ export class SessionController {
     this.established = false;
     this.channelOpen = false;
     this.ended = false;
+    this.epoch += 1;
+    this.signalingGone = null;
     this.clearInterruptTimer();
     this.clearRelayRetryWait();
     this.relayRetry = null;
