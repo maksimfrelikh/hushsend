@@ -928,6 +928,10 @@ export class SessionController {
    *  that no longer needed it (onSignalingClose). The pairing goes on over its channel; a path that
    *  would go BACK to waiting in the room reads this and ends the session instead. */
   private signalingGone: string | null = null;
+  /** Counts pairings: bumped by beginPairing. startPeer awaits the TURN credentials — a real round
+   *  trip in Reliable — and builds its PeerConnection only if the pairing it was started for is still
+   *  the one in progress. */
+  private attempt = 0;
   /** true once the DataChannel has OPENED (transport up). From this point the DataChannel + ICE are
    *  the SOLE liveness authority for the 1:1 methods — a signaling `peer-left` no longer aborts the
    *  pairing (see onPeerLeft / livenessGate). Reset on a words retry / lobby reset / dispose. */
@@ -1252,6 +1256,7 @@ export class SessionController {
    */
   private beginPairing(peerId: string): void {
     this.peerId = peerId;
+    this.attempt += 1;
     this.waitingInRoom = false;
     this.clearRelayRetryWait(); // a retried pairing: the peer came, the deadlines below take over
     const role = pairingRoleFor(this.selfId, peerId);
@@ -1343,7 +1348,17 @@ export class SessionController {
    * method's own teardown.
    */
   private launchPeer(peerId: string, initiator: boolean): void {
-    this.startPeer(peerId, initiator).catch((err: unknown) => this.onPeerStartFailure(err));
+    const attempt = this.attempt;
+    this.startPeer(peerId, initiator).catch((err: unknown) => {
+      if (this.pairingIsStill(attempt, peerId)) this.onPeerStartFailure(err);
+    });
+  }
+
+  /** Is the pairing a step was started for still the one in progress? Not after its peer left and the
+   *  side went back to waiting, not after a `busy`, not after the session failed or was disposed, and
+   *  not once another pairing has begun — with the same peer or another. */
+  private pairingIsStill(attempt: number, peerId: string): boolean {
+    return attempt === this.attempt && this.peerId === peerId && !this.ended;
   }
 
   private onPeerStartFailure(err: unknown): void {
@@ -1482,7 +1497,13 @@ export class SessionController {
    * (and the Reliable round-trip) reorders nothing.
    */
   private async startPeer(peerId: string, initiator: boolean): Promise<void> {
+    const attempt = this.attempt;
     await this.ensureTurnReady();
+    // The pairing can be over by the time the credentials are back. Building the connection anyway
+    // left a stale `this.peer` behind: a words creator back at its words then ignored every later
+    // joiner (onPeerJoined), a lobby member answered `busy` to everyone (onPairRequest), a failed
+    // session held an open connection, and a disposed controller carried one into its next session.
+    if (!this.pairingIsStill(attempt, peerId)) return;
     const iceServers = this.iceServers();
     this.publishIceConfig();
     // As with the socket (openSignaling): a connection this session has let go reports nothing to it.
@@ -1532,8 +1553,13 @@ export class SessionController {
     if (this.privacyMode !== 'reliable') return Promise.resolve();
     if (this.turnCreds) return Promise.resolve(); // already have this session's creds
     if (!this.turnFetch) {
+      const client = this.signaling;
       this.turnFetch = (async () => {
-        const creds = (await this.signaling?.requestTurnCredentials()) ?? NO_TURN;
+        const creds = (await client?.requestTurnCredentials()) ?? NO_TURN;
+        // Credentials belong to the socket that minted them and to a session that is still running:
+        // a reply that outlives either sets nothing and says nothing (it used to put "no relay" on a
+        // failure screen it had nothing to do with).
+        if (this.signaling !== client || this.ended) return;
         this.turnCreds = creds;
         this.dispatch(
           devActions.appendLog(

@@ -1144,6 +1144,110 @@ describe('a step that comes back to a controller its session has left', () => {
   });
 });
 
+describe('the pairing ends while the TURN credentials are still on their way (Reliable)', () => {
+  it('words creator: a joiner that comes and goes during the fetch leaves no connection behind, and the next joiner pairs', async () => {
+    const [a, gone, b] = [side('reliable'), side('reliable'), side('reliable')];
+    void a.sc.createWordsSession();
+    await settle();
+    const words = [...a.state().credential!];
+    hub.turnHold = true;
+    void gone.sc.joinWordsSession(words);
+    await settle();
+    expect(a.state().status).toBe('pairing');
+    gone.sc.dispose(); // left before the credentials came back
+    await settle();
+    expect(a.state().status).toBe('awaitingPeer');
+    const connections = pcs.length;
+
+    hub.answerTurn();
+    await settle();
+    expect(a.internals.peer).toBeNull();
+    expect(pcs).toHaveLength(connections);
+
+    hub.turnHold = false;
+    void b.sc.joinWordsSession(words);
+    await settle();
+    await openChannel(a, b);
+    expect(a.state().status).toBe('connected');
+    expect(b.state().status).toBe('connected');
+  });
+
+  it('lobby: a pick answered busy during the fetch leaves none either — the next member that picks this side gets it', async () => {
+    const [a, b, c, d] = [side('reliable'), side(), side(), side()];
+    void b.sc.createRoomSession();
+    await settle();
+    for (const s of [a, c, d]) void s.sc.joinRoomSession(b.state().room!);
+    await settle();
+    c.sc.pickPeer(b.internals.selfId!); // b is taken
+    await settle();
+    hub.turnHold = true;
+    a.sc.pickPeer(b.internals.selfId!);
+    await settle();
+    expect(a.state()).toMatchObject({ status: 'awaitingPeer', notice: { kind: 'busy' } });
+    const connections = pcs.length;
+
+    hub.answerTurn();
+    await settle();
+    expect(a.internals.peer).toBeNull();
+    expect(pcs).toHaveLength(connections);
+
+    hub.turnHold = false;
+    d.sc.pickPeer(a.internals.selfId!);
+    await settle();
+    expect(a.state()).toMatchObject({ status: 'pairing', peerId: d.internals.selfId });
+    expect(d.state()).toMatchObject({ status: 'pairing', notice: null });
+  });
+
+  it('a retry that fails during the fetch stays as it failed: no connection appears, and "no relay" is not put on its screen', async () => {
+    const [a, b] = [side(), side()];
+    await pairByLink(a, b);
+    await failIce(a, b);
+    hub.turnHold = true;
+    void a.sc.retryWithRelay();
+    void b.sc.retryWithRelay();
+    await settle();
+    expect(a.state().status).toBe('pairing');
+    const connections = pcs.length;
+
+    a.internals.signaling!.serverClose(1006, '');
+    await settle();
+    expect(a.state()).toMatchObject({ status: 'failed', error: 'signaling closed during the retry' });
+
+    hub.turn = { urls: [], username: '', credential: '' }; // …and the answer, when it comes, is "no relay"
+    hub.answerTurn();
+    await settle(6_000);
+    expect(a.internals.peer).toBeNull();
+    expect(pcs.filter((p) => !p.closed)).toHaveLength(0);
+    expect(pcs.length).toBeLessThanOrEqual(connections + 1); // b may have built its own before it ended; a built none
+    expect(a.state()).toMatchObject({ status: 'failed', relayUnavailable: false });
+  });
+
+  it('disposed during the fetch: the idle controller holds nothing, and its next Max-privacy session pairs', async () => {
+    const [a, gone, b] = [side('reliable'), side(), side()];
+    void a.sc.createLinkSession('link');
+    await settle();
+    const first = parseLink(a.state().credential![0].slice(a.state().credential![0].indexOf('#')))!;
+    hub.turnHold = true;
+    void gone.sc.joinLinkSession(first.rendezvous, first.secret, 'link');
+    await settle();
+    expect(a.state().status).toBe('pairing');
+    const connections = pcs.filter((p) => !p.config.filterRelay).length;
+
+    a.sc.dispose(); // its close answers the pending request empty; the continuation runs after this
+    await settle();
+    expect(a.internals.peer).toBeNull();
+    expect(pcs.filter((p) => !p.config.filterRelay)).toHaveLength(connections); // none built without the filter
+    expect(a.state()).toMatchObject({ status: 'idle', relayUnavailable: false });
+
+    hub.turnHold = false;
+    a.sc.setPrivacyMode('max');
+    await pairByLink(a, b);
+    expect(pc(a).config.filterRelay).toBe(true);
+    await openChannel(a, b);
+    expect(a.state().status).toBe('connected');
+  });
+});
+
 describe('"no path even through the relay" is said only where a relay was in hand', () => {
   it('a retry with no relay to use: the side whose ICE gives up reads its plain reason, the other "peer left" — neither names a relay', async () => {
     const [a, b] = [side(), side()];
