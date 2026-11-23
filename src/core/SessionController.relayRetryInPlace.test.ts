@@ -279,9 +279,10 @@ type Side = ReturnType<typeof side>;
 
 const settle = (ms = 20): Promise<unknown> => vi.advanceTimersByTimeAsync(ms);
 /** The identity key and its signatures are WebCrypto: they finish on the real event loop, which the
- *  fake clock does not turn — so the paths that sign (enrollment, the reconnect proof) are drained. */
-async function drain(): Promise<void> {
-  for (let i = 0; i < 25; i++) {
+ *  fake clock does not turn — so the paths that sign (enrollment, the reconnect proof) are drained,
+ *  until `done` on a machine where 25 turns are not enough. */
+async function drain(done?: () => boolean): Promise<void> {
+  for (let i = 0; i < 25 || (done && !done() && i < 500); i++) {
     await settle();
     await new Promise<void>((resolve) => setImmediate(resolve));
   }
@@ -359,7 +360,7 @@ async function pairByReconnect(): Promise<[Side, Side]> {
   const [a, b] = [side('reliable'), side('reliable')];
   await pairByLink(a, b);
   await openChannel(a, b);
-  await drain();
+  await drain(() => !!a.store.getState().dev.pinnedPeer && !!b.store.getState().dev.pinnedPeer);
   const pairingId = a.store.getState().dev.pinnedPeer?.pairingId;
   expect(pairingId).toBeTruthy();
   expect(b.store.getState().dev.pinnedPeer?.pairingId).toBe(pairingId);
@@ -968,7 +969,7 @@ describe('the retry does not depend on the rooms of the server', () => {
       void b.sc.retryWithRelay();
       await settle();
       await openChannel(a, b);
-      await drain();
+      await drain(() => a.state().status === reached && b.state().status === reached);
       expect(a.state().status, method).toBe(reached);
       expect(b.state().status, method).toBe(reached);
     }
@@ -1448,7 +1449,7 @@ describe('reconnect — the pin authenticates the retried transport', () => {
     await settle();
     expect(hub.turnRequests).toHaveLength(2);
     await openChannel(a, b);
-    await drain();
+    await drain(() => a.state().status === 'connected' && b.state().status === 'connected');
 
     expect(a.state().status).toBe('connected');
     expect(b.state().status).toBe('connected');
@@ -1464,11 +1465,11 @@ describe('reconnect — the pin authenticates the retried transport', () => {
     pc(b).hold = true;
     const mine = pc(a);
     await openChannel(a, b);
-    await drain();
+    await drain(() => kindsSent(mine).length > 0);
     expect(kindsSent(mine)).toEqual(['reconnect-hello']);
 
     mine.handlers.onMessage(mine.sent[0]);
-    await drain();
+    await drain(() => a.state().status === 'failed');
 
     expect(a.state().status).toBe('failed');
     expect(a.state().error).toMatch(/does not know this pairing/);
