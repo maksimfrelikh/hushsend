@@ -606,7 +606,9 @@ Chosen per offer, before it reaches the screen — the order and the reasons are
   destination to a new port, as mobile carriers and many VPNs do: the peer learns one port from STUN
   and is then reached from another. Measured 2026-11-22 on a mobile carrier (Epic, Cyprus): a phone
   there connected neither to another such phone nor to a computer behind an ordinary home router, and
-  the carrier gives no IPv6 to fall back on ([2026-11-22 run](docs/test-runs/2026-11-22.md)). STUN
+  the carrier gives no IPv6 to fall back on ([2026-11-22 run](docs/test-runs/2026-11-22.md)). The
+  phones were iPhones; that their Safari asks every server from one socket, which the measurement
+  rests on, was checked the next day ([2026-11-23 run](docs/test-runs/2026-11-23.md)). STUN
   answers over IPv6 since that day, for a pair that has IPv6 on both sides — not yet seen in use.
   Reliable connects such pairs through the relay.
 
@@ -2238,7 +2240,9 @@ This plan was written for a human holding the devices. It is now run mostly **th
 desktop browsers it drives directly, plus **real handsets attached over USB** — iPhone through Safari
 Web Inspector, Android through `chrome://inspect` (both already in § How to observe). A real handset is the point:
 an iOS Simulator would give real WebKit but the Mac's RAM, no camera and the Mac's network, which
-silently falsifies B2, B3/B4 and the whole of Phase C.
+silently falsifies B2, B3/B4 and the whole of Phase C. Its Safari also asks each STUN server from a
+port of its own, so on any network it looks like a host behind a symmetric NAT
+([2026-11-23 run](docs/test-runs/2026-11-23.md)).
 
 So the useful split is not "automated vs manual" but **who has to be physically present for the
 evidence to exist**:

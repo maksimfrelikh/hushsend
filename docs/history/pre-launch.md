@@ -66,3 +66,13 @@ The review asked what the box writes about a visitor and for how long. Checked o
   ports and are not logged. **fail2ban** reads the nginx access log, where this vhost writes nothing,
   and keeps its own log of bans for four weeks.
 - Not auditable from the box: what the hosting provider records about traffic to it.
+
+## 2026-11-23 — the carrier-NAT measurement holds on an iPhone
+
+The 2026-11-22 measurement assumed a browser asks STUN and TURN from one socket, with Chrome as the
+control; the phones were iPhones. Safari in the iOS Simulator asks each STUN server from its own port,
+which would have explained the phones' two ports without any NAT. Checked on the home line, whose NAT
+keeps the port: Safari on an iPhone (27.2) and on macOS (26.5.2) use one socket for three servers, the
+Simulator (26.5) one per server ([2026-11-23 run](../test-runs/2026-11-23.md)). The verdict stands; the
+Simulator is noted in the [test plan](../../README.md#test-plan--the-real-device-pass-step-6e) as unfit
+for anything about a NAT.
