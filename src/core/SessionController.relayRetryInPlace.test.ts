@@ -304,6 +304,21 @@ function expectNotSeenByHub(what: string, ...secrets: string[]): void {
   const seen = seenByHub();
   for (const secret of secrets) expect(seen.includes(secret), `${what} reached the server`).toBe(false);
 }
+/** Every string the server was handed as a VALUE: the room names and the leaves of each frame, bar
+ *  the protocol's own `kind` / `type` labels. A dictionary word is looked for among these whole
+ *  values — as a substring of everything it would also "appear" inside a key or a hex run. */
+function valuesSeenByHub(): string[] {
+  const values: string[] = [...hub.taken];
+  const walk = (node: unknown): void => {
+    if (typeof node === 'string') values.push(node);
+    else if (Array.isArray(node)) node.forEach(walk);
+    else if (node && typeof node === 'object') {
+      for (const [key, value] of Object.entries(node)) if (key !== 'kind' && key !== 'type') walk(value);
+    }
+  };
+  for (const frame of hub.frames) walk(frame.data);
+  return values;
+}
 /** The `kind` of every JSON frame a connection sent over its channel. */
 const kindsSent = (c: Pc): string[] =>
   c.sent.map((d) => (typeof d === 'string' ? ((JSON.parse(d) as { kind?: string; t?: string }).kind ?? 'transfer') : 'bytes'));
@@ -1289,7 +1304,9 @@ describe('words — the CPace key of the failed attempt, never a second CPace', 
     expect(a.internals.sessionKey).toEqual(key);
     // Neither the key nor a secret word reached the server, in a frame or as a room name.
     expectNotSeenByHub('the CPace key', ...formsOf(key));
-    expectNotSeenByHub('a secret word', ...secretWords);
+    const values = valuesSeenByHub();
+    for (const word of secretWords) expect(values, `the secret word "${word}"`).not.toContain(word);
+    expect(values).toContain(rendezvous); // the check does see words: the public one is there
   });
 
   it('a joiner that guessed wrong gets no second guess: the retry ends on the mismatch, for good', async () => {
