@@ -185,3 +185,23 @@ that relays the descriptions ([security-audits.md](security-audits.md),
 - **Left:** the same measurement in Safari on a Mac and on an iPhone, and in Firefox on Android — the
   rule does not depend on the answer, since a description with two lines is refused everywhere.
 
+## 2026-11-23 — "Retry with relay", the second review
+
+A second independent read, with its own probes, after the first round of fixes and the rebase onto the
+one-fingerprint rule. The seven findings held; four defects were left, two of them made by the fixes.
+
+- **A words creator could wait for ever on a dead socket.** The new rule "a socket that closes after
+  the channel is open ends nothing" was right for the pairing in progress and wrong for what came
+  after it: an attempt that then failed sent the creator back to its words, in a room it was no
+  longer in. The close is now remembered, and going back to waiting ends the session instead.
+- **A step that returned to a disposed controller disabled the next session.** A `connect()` rejected
+  after dispose marked the idle controller as failed, and the next invite sat on "creating". Steps
+  that await are now tied to their session, and failing nothing-in-progress does nothing.
+- **"No path worked, not even through the relay" where there was no relay** — in a retry that ran
+  without one. Said only with a relay in hand now.
+- **Older, on main, same code: the pairing could end while the TURN credentials were on their way**,
+  and the connection was built anyway — a words creator and a lobby member in Reliable were left
+  unable to pair with anyone after it. Fixed in its own commit, with tests that fail before it.
+- **Left to the fallback:** a room that expires while one side's ICE is still trying
+  ([README § Max-privacy strict model](../../README.md#max-privacy-strict-model-done--completes-6d)).
+
