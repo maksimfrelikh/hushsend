@@ -116,3 +116,21 @@ keeps the port: Safari on an iPhone (27.2) and on macOS (26.5.2) use one socket 
 Simulator (26.5) one per server ([2026-11-23 run](../test-runs/2026-11-23.md)). The verdict stands; the
 Simulator is noted in the [test plan](../../README.md#test-plan--the-real-device-pass-step-6e) as unfit
 for anything about a NAT.
+
+## 2026-11-23 — one certificate per description
+
+The authentication of every method is bound to the peer's DTLS fingerprint, read from its
+description. A description can carry several fingerprint lines; Firefox accepts a certificate under
+any of them, and the code read the first. For two Firefox browsers that was a way in for the server
+that relays the descriptions ([security-audits.md](security-audits.md),
+[README § Crypto](../../README.md#crypto)).
+
+- **Fixed:** a description that does not name exactly one certificate is refused before the browser
+  engine sees it; a connection takes one description and no later one can replace its fingerprint;
+  when the channel opens, the certificate DTLS accepted is compared with the one that was named.
+- **What the user sees** when it fires: the existing "compromised" failure screen. No screen changed.
+- **Measured** in Chromium, Firefox and WebKit; the attack itself was not carried out
+  ([2026-11-23 run](../test-runs/2026-11-23.md)).
+- **Left:** the same measurement in Safari on a Mac and on an iPhone, and in Firefox on Android — the
+  rule does not depend on the answer, since a description with two lines is refused everywhere.
+

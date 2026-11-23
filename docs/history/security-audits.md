@@ -439,3 +439,30 @@ An INDEPENDENT audit is still wanted; this pass only removes the known-unknowns.
   "this pair is a reconnect (they have paired before)" AND the session duration the close was designed
   to hide. ✅ **FIXED the same day** — reconnect was folded into the per-pair close together with the
   `peerLeftAbortsPairing` gate it required (see residual (a) under [connection.md](../../README.md#connection--the-state-machine-the-signaling-socket-early-frames) § Signaling WS lifecycle).
+
+### A description that names two certificates (2026-11-23)
+
+Found by the review of another change, reading `parseFingerprint`: it took the FIRST `a=fingerprint`
+line of `remoteDescription.sdp` as "the certificate DTLS validates the peer against". That is true
+only where a description has one line.
+
+- **Measured, three engines** ([2026-11-23 run](../test-runs/2026-11-23.md)). Chromium 158 and
+  WebKit 27.2 keep one effective line and serialize only it back — the first line of the text is
+  always the certificate that was checked. Firefox 159 accepts a certificate matching any line at the
+  level in force and serializes every line back, so with the honest fingerprint listed first and
+  another second it connects to the holder of the second certificate while the first is what the
+  code read.
+- **What it allowed.** The signaling server relays both descriptions. Between two Firefox browsers
+  it could rewrite each to "the honest peer's fingerprint, then mine", terminate both DTLS legs, and
+  both sides would MAC, compare or sign the two honest fingerprints: a silent man-in-the-middle of
+  words, link / QR, room and reconnect. With Chromium or WebKit on either side the transcripts
+  differ and the check fails. **The interposition was not carried out** — its two preconditions on
+  the receiving side were.
+- **Fixed the same day**, three locks ([README § Crypto](../../README.md#crypto), the one-fingerprint
+  rule): a description is refused unless it names exactly one certificate; a connection takes one
+  description and its value cannot be replaced; the certificate DTLS accepted is compared with it at
+  channel-open.
+- **Why the 2026-09-12 audit missed it:** it modelled a server that presents its own certificate
+  and checked that the two fingerprints then differ. It did not ask whether a description could name
+  two.
+

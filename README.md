@@ -140,19 +140,19 @@ be verified without a reference hash.
 
 **Feature-complete and deployed.** All four methods, the codeless reconnect, the mesh lobby, TURN,
 light/dark, the Claude Design screen set (English only for now; the RU table is kept, the switch
-hidden), and the deployment are built and live. **406 vitest tests** (the client; the signaling
+hidden), and the deployment are built and live. **435 vitest tests** (the client; the signaling
 server's 28 run in its own repository) and a
-Playwright e2e suite — **60 cases per engine: 59 run on chromium, 55 on firefox, 54 on webkit** (2026-11-22) (the
+Playwright e2e suite — **64 cases per engine: 63 run on chromium, 59 on firefox, 58 on webkit** (2026-11-23) (the
 silent-peer case needs CDP, and the two straight-into-Downloads cases apply only where the stream path
 does — desktop Chromium; the two site-storage cases skip on Playwright's WebKit, whose storage cannot
 write; plus 2 opt-in cases everywhere, the size ladder and the two-STUN cross-check), plus a 4-case
 phone profile and 5 cross-engine pairs — cover the protocol paths; the axe
 gate (`npm run test:a11y`, 140 checks) and the screenshot gate (`npm run visual`, 195 checks — on the
-deploy host, whose renders the baselines are) cover the screens. The counts were re-run 2026-11-22
-on the owner's Mac, on the Vite 8 / Vitest 5 / Playwright 1.65 toolchain, with the network check and
-"Retry with relay" in (vitest 406 of 406; e2e 177 passed, 12 skipped, none failed; axe 140 of 140) —
-and the screenshot gate 2026-11-23 on the deploy host (195 of 195, with the 14 baselines of those
-screens recorded there that day).
+deploy host, whose renders the baselines are) cover the screens. The counts were re-run 2026-11-23
+on the owner's Mac, on the Vite 8 / Vitest 5 / Playwright 1.65 toolchain, with the one-fingerprint
+rule in (vitest 435 of 435; e2e 189 passed, 12 skipped, none failed; axe 140 of 140). The screenshot
+gate last ran 2026-11-23 on the deploy host, before that rule, which changes no screen (195 of 195,
+with the 14 baselines of the network check and "Retry with relay" recorded there that day).
 Refresh them here whenever the suite grows.
 
 A second internal audit on **2026-09-12**, modelling a fully malicious signaling server rather than a
@@ -339,6 +339,9 @@ is not something the architecture attempts to conceal.
   browsers, and the SAS / CPace / link-secret key confirmation is MAC'd over the negotiated DTLS
   fingerprints. A server that terminates DTLS to get in the middle presents different fingerprints on
   each leg and the check fails before a byte moves. A server that merely forwards sees ciphertext.
+  The fingerprint that is MAC'd is the one certificate the peer's description names — a description
+  naming more than one is refused — and the certificate DTLS accepted is checked against it when the
+  channel opens (since 2026-11-23, § Crypto).
 - **No file bytes before authentication**, both directions, enforced in the core rather than the UI.
 - **The signaling socket closes the moment a pair authenticates**, for every method including
   reconnect. A server that stays off the path therefore learns no session duration.
@@ -367,6 +370,15 @@ is not something the architecture attempts to conceal.
   (reproduced in 4.25 s), server-chosen pairing roles, and a re-entrant `welcome` that turned key
   confirmation into a tag-reflection oracle. Each has a regression test that fails against the old
   code.
+- **A fourth was found and fixed on 2026-11-23: a description with two fingerprints.** Firefox
+  accepts a certificate that matches ANY `a=fingerprint` line of the peer's description and keeps
+  them all, and hushsend bound its authentication to the first line of that text. A server between
+  two Firefox browsers could have listed each honest fingerprint first and its own second, ended
+  both DTLS legs itself, and both sides would have authenticated the honest pair — on every method.
+  Its two preconditions were measured; the interposition itself was not carried out
+  ([2026-11-23 run](docs/test-runs/2026-11-23.md), [security-audits.md](docs/history/security-audits.md)).
+  Chromium and WebKit keep one effective line and were not exposed. The regression tests fail
+  against the old code: in Firefox a pair given such a description connected.
 
 ---
 
@@ -1305,6 +1317,39 @@ generate / build / parse) + the link/qr branches in `SessionController`; no new 
   Exchange `tag` over a DataChannel control message; verify with `equalBytes`
   (constant-time). This binds both the shared secret AND the actual DTLS channel (via fingerprints)
   — a MITM with different certs on each leg produces mismatched tags. The construction is
+  **Which fingerprint that is — the one-fingerprint rule (since 2026-11-23,
+  `src/core/webrtc/fingerprint.ts`).** The peer's description arrives through the untrusted server,
+  and a description may carry several `a=fingerprint` lines, on which the engines disagree: Chromium
+  158 and WebKit 27.2 keep ONE (the last at the level in force, media over session) and serialize
+  only that one back; Firefox 159 accepts a certificate matching ANY line at the level in force and
+  keeps them all ([2026-11-23 run](docs/test-runs/2026-11-23.md)). The first line of
+  `remoteDescription.sdp`, which the code read until that day, is therefore not always the
+  certificate DTLS accepted. Three locks, all in `PeerConnection`: (1) `sdpFingerprint` reads the
+  description AS IT ARRIVED, before `setRemoteDescription` — every fingerprint line at any level,
+  hash name and hex case folded — and anything but exactly one distinct value refuses it (two hash
+  functions count as two; a line that mentions a fingerprint and cannot be read refuses it too,
+  rather than being skipped); the same rule reads our own description. (2) A connection takes ONE
+  remote description, of the kind it is waiting for — the answerer one offer, the offerer one answer
+  — and the value is stored before the engine is handed it, so no later or racing description can
+  replace what `remoteFingerprint()` returns; what the engine then serializes back has to name the
+  same certificate. hushsend never renegotiates and never restarts ICE, and a reconnect is a new
+  connection, so nothing honest sends a second one. (3) At channel-open, before the channel is
+  handed to the session, the certificate DTLS actually accepted (`getRemoteCertificates()`, present
+  and correct in all three engines that day) is hashed and compared with the stored value; an
+  engine without the call gives no second opinion and lock 1 stands alone. A refusal reaches the
+  session as `onTampered` → `failPairing` → the method's own teardown with
+  `DESCRIPTION_TAMPERED_REASON`, which `FailedScreen` shows as "compromised"; no channel is ever
+  handed over. What an honest browser could trip over: one that lists two different fingerprints
+  for itself — two hash functions of one certificate, or a second certificate. None of the three
+  engines does (each writes one `sha-256` line, repeated per media section at most), and such a
+  browser would now fail to pair, visibly. Tests: `fingerprint.test.ts`,
+  `PeerConnection.description.test.ts` (the wrapper against a stand-in engine: refused before the
+  engine, the second and the racing description, the wrong kind, the engine keeping another value,
+  the certificate check), `tests/e2e/fingerprint.spec.ts` (each engine, a second line added to what
+  one tab sends: link in three arrangements and room — refused as compromised with no DataChannel
+  ever open; against the code before the fix the Firefox pair given "the honest line, then
+  another" connected, and in a room both sides were shown the three words).
+  The construction is
   **domain-parameterised** (`makeConfirmation`/`verifyConfirmation` take a `ConfirmationDomain`
   defaulting to `CPACE_CONFIRM_DOMAIN`): the **words** method feeds the CPace ISK under
   `info="hushsend/cpace/confirm"`; the **link/qr** methods feed the URL-fragment secret S under
