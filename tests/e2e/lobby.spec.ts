@@ -19,7 +19,7 @@ import {
  * PICKS whom to raise a 1:1 channel with (no auto-pairing). This suite covers what the 2-peer
  * room-sas suite can't:
  *   - joiner↔joiner: a joiner connects to ANOTHER joiner (neither is the creator) → the per-pairing
- *     role (smaller id = initiator/reader) drives a normal SAS → connected → transfer;
+ *     role (smaller id = initiator) drives a normal SAS → connected → transfer;
  *   - busy-reject: picking a peer already pairing with someone else yields a clear "busy" notice and
  *     leaves the picker in the lobby (no hang), without disturbing the busy peer's session.
  *
@@ -59,7 +59,8 @@ test('lobby joiner↔joiner: a joiner connects to ANOTHER joiner → SAS → con
 
   // All three sit in the lobby. B sees C in its roster (and vice-versa). B connects to C — a
   // joiner↔joiner pair. resolveSasParties does the pick and resolves the asymmetric SAS roles
-  // (reader/picker by id), which proves the per-pairing role handles a non-creator pair.
+  // (reader/picker from the SAS material), which proves the per-pairing role handles a non-creator
+  // pair.
   const cId = await readSelfId(c);
   await expect(b.getByTestId(`lobby-peer-${cId}`)).toBeVisible({ timeout: 30_000 });
   const { reader, picker } = await resolveSasParties(b, c);

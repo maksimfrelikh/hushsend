@@ -83,7 +83,7 @@ test('happy path: matching SAS on both sides → authenticated connected → sma
   await expect(sender.getByTestId(`lobby-peer-${receiverId}`)).toBeVisible({ timeout: 30_000 });
 
   // Asymmetric SAS: one side READS its phrase, the other is the BLIND picker. The role is fixed by
-  // the readable ids (not by who created the room). resolveSasParties does the lobby pick (sender →
+  // the SAS material (not by who created the room). resolveSasParties does the lobby pick (sender →
   // receiver) and resolves the roles; confirmSas has the picker select the heard phrase → connected.
   const { reader, picker } = await resolveSasParties(sender, receiver);
   await confirmSas(reader, picker);
@@ -121,8 +121,9 @@ test('mismatch: one side rejects the SAS → both fail, no channel, no transfer'
   const { sender, code } = await createSasRoom(context);
   const receiver = await joinSasRoom(context, code);
 
-  // Resolve the real reader/picker (role is by id, not by create/join). The "none match" button
-  // lives on the PICKER (the reader has no options), so we must reject from whichever tab that is.
+  // Resolve the real reader/picker (role is from the SAS material, not by create/join). The "none
+  // match" button lives on the PICKER (the reader has no options), so we must reject from whichever
+  // tab that is.
   const { reader, picker } = await resolveSasParties(sender, receiver);
   await readMatchingSas(reader, picker);
 
@@ -227,7 +228,7 @@ test('timeout: SAS shown but nobody confirms → fails on the timeout path, no c
   const receiver = await joinSasRoom(context, code, 'sasTimeoutMs=10000');
 
   // The SAS IS shown to the human (awaitingSas + 3 EFF short #2 words) — we just never confirm. The
-  // phrase is rendered on the READER (resolved by id, may be either tab); read it from there. The
+  // phrase is rendered on the READER (resolved at runtime, may be either tab); read it from there. The
   // sender keeps the shorter (3 s) budget so ITS timer fires first regardless of which role it plays.
   const { reader } = await resolveSasParties(sender, receiver);
   const sas = (await reader.getByTestId('sas-words').textContent())?.trim() ?? '';

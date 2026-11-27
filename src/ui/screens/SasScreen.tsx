@@ -15,7 +15,7 @@ import { FailureLayout } from './FailedScreen';
  *    options by listening to the reader.
  *
  * The room method is a mesh LOBBY, so a pair can be creator↔joiner OR joiner↔joiner — the role is
- * fixed PER PAIR in the core (`sasRoleFor`) and projected as `connection.sasRole`. Both sides compute
+ * fixed PER PAIR in the core (`resolveSasRole`) and projected as `connection.sasRole`. Both sides compute
  * opposite roles, so every pair has exactly one reader + one picker.
  *
  * If the picker could see its own phrase it would just click it without listening, and a MITM
@@ -23,7 +23,7 @@ import { FailureLayout } from './FailedScreen';
  * a MITM is caught: the picker hears the reader's phrase, finds it is NOT among its options (its own
  * derived phrase differs), and picks "none of these" → `confirmSas(false)` → both abort.
  *
- * FAIL CLOSED: if the role is unresolved (`null` — an id was missing) we render the "verification
+ * FAIL CLOSED: if the role is unresolved (`null` — a fingerprint was missing) we render the "verification
  * interrupted" failure with Restart verification, NEVER a functional blind picker (a reader-less
  * pair could false-accept a MITM ~1/9).
  */
@@ -34,7 +34,7 @@ export function SasScreen(): ReactElement {
   return <RestartView />; // null → fail closed (never a functional picker without a reader)
 }
 
-/** Fail-closed: the per-pair SAS role could not be resolved (a readable id was missing), so the
+/** Fail-closed: the per-pair SAS role could not be resolved (a fingerprint was missing), so the
  *  asymmetric comparison cannot run safely. One of the Failed screen's variants. */
 function RestartView(): ReactElement {
   const session = useSession();

@@ -959,8 +959,8 @@ PICKS whom to raise a 1:1 channel with.
   (responder) readies its answerer, sends its SAS commit, and waits. The `pair-request` readies the
   counterpart before the offer arrives. **Glare** (both pick each other) resolves naturally — only the
   smaller id offers; **dedup** is by `this.peerId`/`this.peer` (a duplicate pick, or a pair-request from
-  the peer we already engaged, is ignored). Then the normal pairing → SAS (reader/picker by id) →
-  `connected` → transfer runs, for ANY pair including **joiner↔joiner**.
+  the peer we already engaged, is ignored). Then the normal pairing → SAS (reader/picker from the SAS
+  material) → `connected` → transfer runs, for ANY pair including **joiner↔joiner**.
 - **Busy-reject**: a `pair-request` from a peer while we are already pairing/connected with a DIFFERENT
   peer → we send that peer **`busy`**. The picker receiving `busy` tears down its half-started attempt
   and **returns to the lobby** (`pairing → awaitingPeer`, room + roster intact) with a clear "X is busy"
@@ -2080,13 +2080,14 @@ input (`src/ui/screens/ScanScreen.tsx`).
 
 ### UI / styling — stark-ui-kit (required)
 
-Dependency: `"stark-ui-kit": "github:maksimfrelikh/stark-ui-kit#<sha>"` — a public GitHub repo, pinned by
-commit (NOT on the npm registry: `npm install stark-ui-kit` fetches an unrelated package). **Current pin:
-`f9d9250` = kit 0.3.2** (since 2026-10-03 — quiet touch feedback, § UI → *Touch press*); every consumer's
-pin is in the consumers table of the kit's own notes. Bumping the pin needs `npm install`
-with the TPM SSH agent (`SSH_AUTH_SOCK=/run/user/1000/ssh-tpm-agent.sock` in a non-interactive shell) —
-npm caches a git dep by sha, so the bump IS the install. The rules for changing the kit and how a change
-travels live in the kit's own notes; its `README.md` is the consumer contract.
+Dependency: `"stark-ui-kit": "github:maksimfrelikh/stark-ui-kit#<tag>"` — a public GitHub repo, pinned by
+release tag, the lockfile holding its commit (NOT on the npm registry: `npm install stark-ui-kit` fetches
+an unrelated package). **Current pin: `v0.3.3` = `ca9d14d`** (since 2026-10-28 — only the kit's build
+toolchain changed; 0.3.2 of 2026-10-03 brought the quiet touch feedback, § UI → *Touch press*); every
+consumer's pin is in the consumers table of the kit's own notes. Bumping the pin is two edits in
+`package.json` — the tag, and the commit in `allowScripts` (without it npm ≥ 11.19 skips the kit's
+`prepare` and its dist is never built) — then `npm install`. The rules for changing the kit and how a
+change travels live in the kit's own notes; its `README.md` is the consumer contract.
 - **The reference is the design canvas** (the owner's, not public; implemented 2026-09-26).
   Its `project/canvas.json` places the boards,
   `project/<Name>.dc.html` is one board (Main, HomeEmpty, Method, Share, Scan*, WordsRead*, WordsEnter*,
@@ -2250,8 +2251,8 @@ network, firewall, other services, secrets, deploy history — is described in t
 | What the box records about a visitor (audited 2026-11-22) | nginx: no access line for this vhost, port 80 included (the redirect block logged until that day); a FAILED request lands in the shared `error.log` with the client address, kept 14 days. The signaling service prints its start-up line only (journald, one month). Both coturn containers run with Docker's log driver `none`. ufw logs BLOCKED packets with their source address (four weeks) — nothing a client sends to an open port. fail2ban reads nginx's access log, where this vhost writes nothing. |
 | TLS | the box's wildcard `*.frelikh.dev` (certbot DNS-01, Cloudflare plugin; issued on netcup 2026-10-17) |
 | Build-time env | [`build-env.sh`](deploy/build-env.sh): `VITE_SIGNALING_URL=wss://hushsend.frelikh.dev/ws`, `VITE_STUN_URLS=stun:stun.hushsend.frelikh.dev:3479`, `VITE_NAT_CHECK_STUN_URL=stun:turn.hushsend.frelikh.dev:3478` (§ Network check) |
-| Signaling + TURN | `hushsend-signaling.service` + `coturn.service` — see section 0 of hush-signaling-server's `deploy/DEPLOY.md` |
-| STUN | hushsend-stun-server since 2026-10-10 (on netcup since 2026-10-17): `stun.hushsend.frelikh.dev:3479` on this same box (`hushsend-stun.service`, STUN only, no relay, no logs) — section 0 of its `DEPLOY.md`. The TURN relay's coturn still answers STUN on 3478 (a TURN server cannot switch that off); the client asks it one thing only, as the second destination of the network check (§ Network check) |
+| Signaling + TURN | `hushsend-signaling.service` + the coturn container `hushsend-turn` — see section 0 of hush-signaling-server's `deploy/DEPLOY.md` |
+| STUN | hushsend-stun-server since 2026-10-10 (on netcup since 2026-10-17): `stun.hushsend.frelikh.dev:3479` on this same box (the coturn container `hushsend-stun`, STUN only, no relay, no logs) — section 0 of its `DEPLOY.md`. The TURN relay's coturn still answers STUN on 3478 (a TURN server cannot switch that off); the client asks it one thing only, as the second destination of the network check (§ Network check) |
 | ufw | 80/443 tcp (nginx), 3478 tcp+udp and 49160–49200 udp (TURN), 3479 udp (STUN); no router — the public address is on the interface. DNS (Cloudflare, DNS only): explicit records, A+AAAA for `hushsend` and `stun.hushsend`, **A only** for `turn.hushsend` — the TURN relay listens on IPv4 only |
 
 **Repeat frontend redeploys** (signaling/nginx unchanged): `bash /opt/hushsend/deploy/deploy-frontend.sh`
@@ -2455,10 +2456,12 @@ recorded in [docs/test-runs/](docs/test-runs/README.md).
 #### No diagnostics in production
 
 **The production build has no in-app diagnostics.** `Diagnostics` is `import.meta.env.DEV`-gated and
-so is every DEV knob — 14 query params (`?forceBlob=1`, `?forceIceFail=1`, `?forcePathMismatch=1`,
-`?forceRelayPath=1`, `?forgeReconnectKey=1`, `?gateDelayMs=N`, `?maxAttempts=N`, `?preSasTimeoutMs=N`,
-`?reconnectTimeoutMs=N`, `?reconnectWaitMs=N`, `?sasTimeoutMs=N`, `?signalingUrl=…`,
-`?stallReconnect=1`, `?stallSasNonce=1`) and their 14 `__HUSHSEND_*__` global twins. **Verify this rather than assume it**
+so is every DEV knob — 17 query params (`?forceBlob=1`, `?forceIceFail=1`, `?forcePathMismatch=1`,
+`?forceRelayPath=1`, `?forgeReconnectKey=1`, `?gateDelayMs=N`, `?maxAttempts=N`, `?natCheck=…`,
+`?noStream=1`, `?preSasTimeoutMs=N`, `?reconnectTimeoutMs=N`, `?reconnectWaitMs=N`,
+`?relayRetryWaitMs=N`, `?sasTimeoutMs=N`, `?signalingUrl=…`, `?stallReconnect=1`, `?stallSasNonce=1`)
+and 17 `__HUSHSEND_*__` globals — the twins of all but `signalingUrl` and `natCheck`, plus
+`__HUSHSEND_MAX_BYTES__` and `__HUSHSEND_SCREEN_HOLD_MS__`. **Verify this rather than assume it**
 — the 2026-09-12 audit found three of them (`maxAttempts`, `forceBlob`, `__HUSHSEND_MAX_BYTES__`)
 shipping live in the deployed bundle because they lacked the gate their siblings had, and this very
 paragraph asserted otherwise.
@@ -2525,9 +2528,6 @@ Last run 2026-10-13 against the bundle fetched over HTTPS from the live host (`i
       `TURN_SECRET` have drifted, the mint still succeeds and only the allocation fails, so case C5
       (cross-network relay) would fail for a reason that has nothing to do with the devices in front
       of you. First verified 2026-09-19 (the same 16 / 0).
-- [ ] **Hairpin NAT check** — the box is behind a residential NAT, so LAN devices reach the public
-      hostname only if the router hairpins. Open the site on one LAN device and one LTE device before
-      starting; if a LAN device cannot load it, that is a router issue, not an app bug.
 
 #### How to observe
 
@@ -2539,7 +2539,7 @@ Last run 2026-10-13 against the bundle fetched over HTTPS from the live host (`i
 | **Android Firefox** console/network | `about:debugging` → *This Firefox* → *Setup* in DESKTOP Firefox — **not** `chrome://inspect`, which only sees Chromium. Slot AND-2 is Firefox and B3/B5 name it, so without this those two have no way to be observed at all |
 | Signaling frames + WS lifecycle | devtools → Network → WS → Messages |
 | Server side | `sudo journalctl -u hushsend-signaling -f` |
-| Relay actually used | **The `relay` candidate pair in webrtc-internals is the primary evidence.** `sudo journalctl -u coturn -f` does NOT work here — the live config sets `no-stdout-log` with no `log-file=`, so journalctl carries only service start/stop (checked 2026-09-19). Sudo-free corroboration during a relayed transfer: `ss -uan` filtered to ports 49160-49200 shows coturn's relay ports bound on 192.168.1.19 — verified against a live allocation. Real session logs need a `log-file=` + `verbose` added and coturn restarted |
+| Relay actually used | **The `relay` candidate pair in webrtc-internals is the primary evidence.** The relay writes no log at all: its config sets `no-stdout-log` and `log-file=/dev/null`, and the `hushsend-turn` container runs with Docker's log driver `none` (§ Live instance). Corroboration during a relayed transfer: `ss -uan` on the box, filtered to ports 49160-49200, shows coturn's relay ports bound on 62.83.23.26 (the container shares the host's network) |
 
 #### Reference numbers (from the code, for judging "expected")
 
@@ -3202,10 +3202,12 @@ allows — the receiver already writes to site storage), a persistent QR / link 
 - **coturn `turns:` (TURN over TLS on :5349)** *(deferred — agreed at deploy 2026-06-20)*. Reliable mode
   offers `turn:` on 3478 only, so a strict network that allows nothing but outbound 443/TLS cannot reach
   the relay. The relay's config lives in hush-signaling-server `deploy/turn/` since 2026-10-03 (rendered
-  into `/etc/turnserver.conf` by its installer since 2026-10-10): `turns:` needs a certificate for
-  `turn.hushsend.frelikh.dev` configured there (`cert` / `pkey`, readable by the `turnserver` user),
-  `5349/tcp` open in ufw and forwarded by the router, and the `turns:` URI appended to the signaling
-  `TURN_URLS`. No client change — the client uses whatever URIs the signaling server hands out.
+  by its installer since 2026-10-10; on netcup into `/etc/hushsend-turn/turnserver.conf`, mounted
+  read-only into the `hushsend-turn` container): `turns:` needs a certificate for
+  `turn.hushsend.frelikh.dev` configured there (`cert` / `pkey`) and mounted into the container,
+  readable by its `hushsend-turn` user (the installer mounts only the config), `5349/tcp` open in
+  ufw, and the `turns:` URI appended to the signaling `TURN_URLS`. No client change — the client
+  uses whatever URIs the signaling server hands out.
 
 - **Russian copy — DEFERRED (owner, 2026-09-26; reaffirmed 2026-10-03: English only until the release, other
   languages after it).** English only for now. `i18n.ts` keeps an optional

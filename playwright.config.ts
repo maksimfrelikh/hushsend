@@ -2,8 +2,8 @@ import { defineConfig, devices } from '@playwright/test';
 import { CHROME_CHANNEL, CHROME_PATH } from './tests/e2e/helpers';
 
 /**
- * E2E for step-2 file transfer. Drives two tabs in one real Chromium through the
- * no-crypto "room" rendezvous, then transfers files over the live DataChannel.
+ * E2E for the whole app. Drives two tabs in one real browser through the real pairing
+ * (SAS room, words, link/QR, reconnect), then transfers files over the live DataChannel.
  *
  * Uses the system Chrome (channel: 'chrome') so no browser binary download is needed.
  * Two web servers are managed for us:
@@ -78,10 +78,8 @@ export default defineConfig({
       use: { browserName: 'webkit' },
     },
     {
-      // The PHONE profile: WebKit wearing an iPhone's User-Agent, viewport and touch. That UA is what
-      // selects the mobile receive ceiling (512 MB) over the desktop gigabyte, so this is the only
-      // project where that branch runs at all. Needs E2E_STUN_URLS on a host without mDNS, like the
-      // plain webkit project.
+      // The PHONE profile: WebKit wearing an iPhone's User-Agent, viewport and touch. Needs
+      // E2E_STUN_URLS on a host without mDNS, like the plain webkit project.
       name: 'mobile-webkit',
       testMatch: /mobile\.spec\.ts/,
       use: { ...devices['iPhone 13'], browserName: 'webkit' },

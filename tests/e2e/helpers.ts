@@ -11,9 +11,9 @@ import { expect, type Page } from '@playwright/test';
  *     `create-reconnect-btn`) sit on the landing.
  *
  * The SAS confirmation is ASYMMETRIC "pick from 3 phrases":
- *   - the READER (creator) sees its phrase (`sas-words`) and reads it aloud; it has NO options, only
+ *   - the READER sees its phrase (`sas-words`) and reads it aloud; it has NO options, only
  *     a "my peer found it" confirm (`sas-reader-confirm`) and an abort (`sas-reader-abort`);
- *   - the PICKER (joiner) is BLIND — it has NO `sas-words`, only three look-alike options
+ *   - the PICKER is BLIND — it has NO `sas-words`, only three look-alike options
  *     (`sas-option-N`) + confirm (`sas-confirm-btn`) / "none match" (`sas-nomatch-btn`).
  * In a real comparison the picker hears the reader; the e2e simulates that by reading the reader's
  * phrase (cross-page) and clicking the matching option on the (blind) picker.
@@ -148,8 +148,8 @@ export async function lobbyConnect(picker: Page, targetId: string): Promise<void
  *
  * The room method is now a mesh LOBBY: both peers sit in `awaitingPeer` seeing a roster, and pairing
  * begins only on a human PICK. So this first makes `a` connect to `b` (by b's readable id), then
- * resolves the asymmetric roles. The role is fixed PER PAIR from the readable ids (smaller id reads —
- * see core/sasRole.ts), NOT "creator = reader", so either tab may be the reader; we detect it by which
+ * resolves the asymmetric roles. The role is fixed PER PAIR from the SAS material (see
+ * core/sasRole.ts), NOT "creator = reader", so either tab may be the reader; we detect it by which
  * one renders its phrase (`sas-words`). Works for ANY pair, including joiner↔joiner (pass the two
  * joiner tabs).
  */
@@ -212,7 +212,7 @@ export async function enrollViaSas(a: Page, b: Page): Promise<void> {
   await joinSasRoom(b, code);
 
   // Asymmetric SAS: one side READS its phrase, the other is the BLIND picker. The role is fixed by
-  // the readable ids (not by who created the room), so resolve it at runtime → both confirm →
+  // the SAS material (not by who created the room), so resolve it at runtime → both confirm →
   // authenticated connected → enrollment pins.
   const { reader, picker } = await resolveSasParties(a, b);
   await confirmSas(reader, picker);

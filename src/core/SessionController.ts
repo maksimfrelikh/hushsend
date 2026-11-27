@@ -861,8 +861,9 @@ export class SessionController {
    *  deadlock). Assigned once at pairing start (beginPairing). Drives the WebRTC offer/answer
    *  direction, CPace init/respond (words), and the key-confirmation transcript (words/link/qr). The
    *  room method mirrors it into `this.sas.role` (SAS nonce order + commit-reveal); the reconnect
-   *  protocol role is SEPARATE and stays create/join (see ReconnectState.role). For a 1:1 pair the
-   *  OUTCOME is identical to the old rule — only which side offers/reveals first is now id-ordered. */
+   *  protocol role is SEPARATE and comes from the DTLS fingerprints (see ReconnectState.role). For a
+   *  1:1 pair the OUTCOME is identical to the old rule — only which side offers/reveals first is now
+   *  id-ordered. */
   private role: ConfirmationRole | null = null;
   /** A-side only: the 4 secret words generated at create, held until `welcome` brings the
    *  rendezvous word so we can show the full 5-word credential. */
@@ -1014,10 +1015,8 @@ export class SessionController {
   }
 
   // ===========================================================================
-  // STEP 1 — TRANSPORT. The "room" method here is rendezvous ONLY: no crypto, no
-  // SAS, no authentication. It exists to prove the WebRTC DataChannel comes up
-  // through the signaling server. The real room method (4-digit code + MANDATORY
-  // SAS) is step 3; the words/CPace path is step 2/3. See `connected` note below.
+  // STEP 1 — TRANSPORT: signaling wiring and the WebRTC bring-up shared by every
+  // method.
   // ===========================================================================
 
   // ---- signaling wiring ----
@@ -1310,8 +1309,7 @@ export class SessionController {
     }
 
     // room method. On the SAS path, both ids are known now → mirror the role into the SAS state (the
-    // nonce-order + commit-reveal crypto role) and fix the asymmetric SAS UI reader/picker role
-    // (`resolveSasRole`, same id ordering). The SAS RESPONDER commits FIRST (anti-grinding) — send our
+    // nonce-order + commit-reveal crypto role). The SAS RESPONDER commits FIRST (anti-grinding) — send our
     // commit now if that's us, before the initiator reveals. Arm the pre-SAS pairing deadline (the
     // 4-digit room TTL only bounds the rendezvous; without this a peer that joins then stalls the
     // commit-reveal would hang us in `pairing` forever). A no-op when `this.sas` is null (words/link/qr).

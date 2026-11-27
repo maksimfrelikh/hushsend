@@ -33,12 +33,12 @@ export interface ConnectionState {
   room: string | null;
   /** credential to display to the user (e.g. the spoken words), if any */
   credential: string[] | null;
-  /** SAS digits/emoji for the room method, when status === 'awaitingSas' */
+  /** SAS words for the room method, when status === 'awaitingSas' */
   sas: string | null;
   /** Per-pairing SAS UI role (room method): `reader` (shows + reads its phrase) or `picker` (blind,
-   *  identifies the phrase by listening). Derived from the two readable ids in the core
-   *  (`sasRoleFor`), so it works for ANY pair (incl. joiner↔joiner). `null` = not resolved yet OR an
-   *  id was missing → the SAS screen FAILS CLOSED (restart, never a functional picker). */
+   *  identifies the phrase by listening). Derived from the SAS material in the core
+   *  (`resolveSasRole`), so it works for ANY pair (incl. joiner↔joiner). `null` = not resolved yet OR a
+   *  fingerprint was missing → the SAS screen FAILS CLOSED (restart, never a functional picker). */
   sasRole: SasUiRole | null;
   /**
    * User-facing path-attestation result, carried THREE-WAY (see `core/pathAttest.ts`).
@@ -204,10 +204,10 @@ const slice = createSlice({
       state.status = 'awaitingSas';
       state.sas = action.payload.sas;
     },
-    /** Project the per-pairing SAS UI role (reader/picker) computed in the core from the two readable
-     *  ids. NOT an FSM transition — just a serializable projection the SAS screen reads (so it survives
-     *  re-renders and is the single source of the asymmetric role). Set at pairing start, well before
-     *  `awaitingSas`. */
+    /** Project the per-pairing SAS UI role (reader/picker) computed in the core from the SAS
+     *  material. NOT an FSM transition — just a serializable projection the SAS screen reads (so it
+     *  survives re-renders and is the single source of the asymmetric role). Set in `trySasReady`, just
+     *  before `awaitingSas`. */
     sasRoleResolved(state, action: PayloadAction<{ role: SasUiRole }>) {
       state.sasRole = action.payload.role;
     },
@@ -230,7 +230,6 @@ const slice = createSlice({
     natChecked(state, action: PayloadAction<NatCheckResult>) {
       state.nat = action.payload;
     },
-    /** The connected channel went quiet (true) or came back (false) — see the field's note. */
     relayRetryOffered(state) {
       if (state.status === 'failed' && state.relayRetry === 'none') state.relayRetry = 'offered';
     },
@@ -240,6 +239,7 @@ const slice = createSlice({
     relayRetryStarted(state) {
       state.relayRetry = 'active';
     },
+    /** The connected channel went quiet (true) or came back (false) — see the field's note. */
     interrupted(state, action: PayloadAction<boolean>) {
       state.interrupted = state.status === 'connected' && action.payload;
     },

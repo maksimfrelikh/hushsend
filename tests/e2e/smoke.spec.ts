@@ -96,7 +96,7 @@ test('smoke · room: home → invite → SAS room → join → pick the real phr
   await b.goto('/?forceBlob=1');
   await joinSasRoom(b, code);
 
-  // Role is fixed by the readable ids (not who created the room) — resolve reader/picker at runtime.
+  // Role is fixed by the SAS material (not who created the room) — resolve reader/picker at runtime.
   const { reader, picker } = await resolveSasParties(a, b);
   await confirmSas(reader, picker);
 
@@ -112,7 +112,7 @@ test('smoke · reconnect: enrolled peers re-auth via the pinned key with NO SAS 
   const a = await openIsolatedTab(browser);
   const b = await openIsolatedTab(browser);
 
-  // First connect (SAS room) so each side pins the other's identity. Resolve reader/picker by id.
+  // First connect (SAS room) so each side pins the other's identity. Resolve reader/picker at runtime.
   const code = await createSasRoom(a);
   await joinSasRoom(b, code);
   const { reader, picker } = await resolveSasParties(a, b);
